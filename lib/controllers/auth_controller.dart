@@ -44,7 +44,7 @@ class AuthController extends GetxController {
     }
   }
 
-  // دالة التسجيل للصيدليات فقط
+  // دالة التسجيل
   Future<void> signUpPharmacy() async {
     try {
       if (!_validatePharmacySignUp()) return;
@@ -212,6 +212,7 @@ class AuthController extends GetxController {
       throw Exception('فشل في حفظ طلب الصيدلية: $e');
     }
   }
+
   Future<void> login() async {
     try {
       if (!_validateLogin()) return;
@@ -293,72 +294,6 @@ class AuthController extends GetxController {
     }
   }
 
-  // الحصول على بيانات المستخدم
-  Future<Map<String, dynamic>> _getUserData(String uid) async {
-    try {
-      final HttpsCallable callable = _functions.httpsCallable(
-        'getUserRoleAndStatus',
-        options: HttpsCallableOptions(
-          timeout: const Duration(seconds: 10),
-        ),
-      );
-
-      final result = await callable.call({'uid': uid});
-      return result.data;
-    } catch (e) {
-      rethrow;
-    }
-  }
-
-  // الحصول على الحالة من Firestore
-  Future<Map<String, dynamic>> _getUserStatusFromFirestore(String uid) async {
-    try {
-      final doc = await _firestore.collection('pharmacyRequests').doc(uid).get();
-
-      if (doc.exists) {
-        final data = doc.data()!;
-        return {
-          'role': 'pharmacy',
-          'status': data['status'] ?? 'pending',
-        };
-      } else {
-        // إذا لم يكن لديه طلب صيدلية، فهو مستخدم عادي
-        return {
-          'role': 'user',
-          'status': 'approved',
-        };
-      }
-    } catch (e) {
-      rethrow;
-    }
-  }
-
-  // إعادة توجيه المستخدم
-  void _redirectUser(Map<String, dynamic> userData) {
-    isLoading.value = false;
-
-    final role = userData['role'] ?? 'user';
-    final status = userData['status'] ?? 'pending';
-
-    if (role == 'admin') {
-      Get.offAll(() => const HomePage());
-    } else if (role == 'pharmacy' && status == 'approved') {
-      Get.offAll(() => const HomePage());
-    } else if (role == 'pharmacy') {
-      Get.offAll(() => const WaitingApprovalPage());
-    } else {
-      // المستخدمون العاديون غير مسموح لهم بالدخول
-      Get.snackbar(
-        "غير مصرح",
-        "هذا التطبيق مخصص للصيدليات فقط",
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
-      logout();
-    }
-  }
-
-  // معالجة أخطاء المصادقة
   void _handleAuthError(FirebaseAuthException e) {
     String message;
     switch (e.code) {
