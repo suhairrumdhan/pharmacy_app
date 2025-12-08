@@ -30,7 +30,7 @@ class StatsCard extends StatelessWidget {
             _buildStatItem(
               icon: Icons.medication,
               value: totalMedicines.toString(),
-              label: 'إجمالي الأدوية',
+              label: 'إجمالي الأصناف',
               color: Colors.blue,
             ),
             _buildVerticalDivider(),
@@ -51,7 +51,7 @@ class StatsCard extends StatelessWidget {
             _buildStatItem(
               icon: Icons.attach_money,
               value: '0 د.ل',
-              label: 'القيمة الإجمالية',
+              label: 'xxxxxx',
               color: Colors.green,
             ),
           ],

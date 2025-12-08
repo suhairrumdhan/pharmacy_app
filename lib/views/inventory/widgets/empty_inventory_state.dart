@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import '../../../dialog/add_medicine_dialog.dart';
+import '../add_medicine_dialog.dart';
 
 class EmptyInventoryState extends StatelessWidget {
   const EmptyInventoryState({super.key});

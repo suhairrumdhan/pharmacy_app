@@ -5,7 +5,7 @@ import 'package:get/get.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:csv/csv.dart';
 import '../../../controllers/inventory_controller.dart';
-import '../../../dialog/add_medicine_dialog.dart';
+import '../add_medicine_dialog.dart';
 import 'filter_button.dart';
 import 'csv_import_dialog.dart';
 
