@@ -28,18 +28,18 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
   final barcodeController = TextEditingController();
   final newCategoryController = TextEditingController();
   final unitsPerPackageController = TextEditingController();
-  final stripsPerBoxController = TextEditingController(text: '0');
 
   DateTime expiryDate = DateTime.now().add(const Duration(days: 365));
 
   // متغيرات للقائمة المنسدلة
   String? selectedCategory;
-  UnitType? selectedUnit = UnitType.piece;
+  UnitType? selectedUnit = UnitType.Tablet;
   List<String> categories = [];
   bool isLoadingCategories = true;
 
-  // متغيرات إضافية
-  bool sellByStrip = false;
+  // متغيرات البيع بالقطعة
+  bool sellByPiece = false;
+  double? piecePriceCalculated;
 
   @override
   void initState() {
@@ -193,6 +193,31 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
     return FirebaseAuth.instance.currentUser?.uid;
   }
 
+  // دالة لحساب سعر القطعة تلقائياً
+  void _calculatePiecePrice() {
+    if (sellByPiece &&
+        unitsPerPackageController.text.isNotEmpty &&
+        sellingPriceController.text.isNotEmpty) {
+      try {
+        int units = int.parse(unitsPerPackageController.text);
+        double sellingPrice = double.parse(sellingPriceController.text);
+        if (units > 0 && sellingPrice > 0) {
+          setState(() {
+            piecePriceCalculated = sellingPrice / units;
+          });
+        }
+      } catch (e) {
+        setState(() {
+          piecePriceCalculated = null;
+        });
+      }
+    } else {
+      setState(() {
+        piecePriceCalculated = null;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -311,18 +336,12 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
         TextFormField(
           controller: scientificNameController,
           decoration: InputDecoration(
-            labelText: 'الاسم العلمي (الإنجليزي)',
+            labelText: 'الاسم العلمي (اختياري - سيتم استخدام الاسم التجاري إذا فارغ)',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             prefixIcon: const Icon(Icons.science),
             filled: true,
             fillColor: Colors.grey[50],
           ),
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'يرجى إدخال الاسم العلمي';
-            }
-            return null;
-          },
         ),
         const SizedBox(height: 16),
         TextFormField(
@@ -355,22 +374,13 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
               child: TextFormField(
                 controller: purchasePriceController,
                 decoration: InputDecoration(
-                  labelText: 'سعر الشراء',
+                  labelText: 'سعر الشراء (اختياري)',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   prefixIcon: const Icon(Icons.attach_money),
                   filled: true,
                   fillColor: Colors.grey[50],
                 ),
                 keyboardType: TextInputType.number,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'يرجى إدخال سعر الشراء';
-                  }
-                  if (double.tryParse(value) == null) {
-                    return 'يرجى إدخال سعر صحيح';
-                  }
-                  return null;
-                },
               ),
             ),
             const SizedBox(width: 16),
@@ -442,7 +452,7 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
               child: TextFormField(
                 controller: unitsPerPackageController,
                 decoration: InputDecoration(
-                  labelText: 'عدد الوحدات في العبوة',
+                  labelText: 'عدد الوحدات في العبوة (اختياري)',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   prefixIcon: const Icon(Icons.format_list_numbered),
                   filled: true,
@@ -450,6 +460,7 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
                   hintText: 'مثال: 10 قطع في العلبة',
                 ),
                 keyboardType: TextInputType.number,
+                onChanged: (_) => _calculatePiecePrice(),
               ),
             ),
           ],
@@ -459,19 +470,6 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
   }
 
   Widget _buildSellingInfo() {
-    double? stripPrice = 0;
-    if (sellByStrip && stripsPerBoxController.text.isNotEmpty) {
-      try {
-        int stripsPerBox = int.parse(stripsPerBoxController.text);
-        if (stripsPerBox > 0 && sellingPriceController.text.isNotEmpty) {
-          double sellingPrice = double.parse(sellingPriceController.text);
-          stripPrice = sellingPrice / stripsPerBox;
-        }
-      } catch (e) {
-        stripPrice = 0;
-      }
-    }
-
     return _buildSection(
       title: 'معلومات البيع',
       icon: Icons.sell,
@@ -479,13 +477,14 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
         TextFormField(
           controller: sellingPriceController,
           decoration: InputDecoration(
-            labelText: 'سعر البيع للوحدة',
+            labelText: 'سعر البيع للعبوة',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             prefixIcon: const Icon(Icons.money),
             filled: true,
             fillColor: Colors.grey[50],
           ),
           keyboardType: TextInputType.number,
+          onChanged: (_) => _calculatePiecePrice(),
           validator: (value) {
             if (value == null || value.isEmpty) {
               return 'يرجى إدخال سعر البيع';
@@ -509,61 +508,61 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
               Row(
                 children: [
                   Checkbox(
-                    value: sellByStrip,
+                    value: sellByPiece,
                     onChanged: (value) {
                       setState(() {
-                        sellByStrip = value ?? false;
+                        sellByPiece = value ?? false;
                       });
+                      _calculatePiecePrice();
                     },
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                   ),
-                  const Text('البيع بالشريط', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text('البيع بالقطعة', style: TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(width: 8),
                   Icon(Icons.local_pharmacy, color: Colors.blue.shade700),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      'عند تفعيل هذا الخيار، سيتم حساب سعر القطعة تلقائياً من سعر العبوة وعدد الوحدات',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
                 ],
               ),
-              if (sellByStrip) ...[
+              if (sellByPiece) ...[
                 const SizedBox(height: 12),
-                TextFormField(
-                  controller: stripsPerBoxController,
-                  decoration: InputDecoration(
-                    labelText: 'عدد الأشرطة في العلبة',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    filled: true,
-                    fillColor: Colors.white,
-                  ),
-                  keyboardType: TextInputType.number,
-                  onChanged: (value) {
-                    setState(() {});
-                  },
-                ),
-              ],
-              if (sellByStrip && stripPrice != null && stripPrice > 0)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.green.shade100),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.calculate, color: Colors.green.shade700),
-                        const SizedBox(width: 8),
-                        Text(
-                          'سعر الشريط: ${stripPrice.toStringAsFixed(2)} د.ع',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.green.shade700,
-                            fontSize: 16,
+                if (piecePriceCalculated != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.green.shade100),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.calculate, color: Colors.green.shade700),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'سعر القطعة المحسوب: ${piecePriceCalculated!.toStringAsFixed(2)} د.ع',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green.shade700,
+                                fontSize: 16,
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
+              ],
             ],
           ),
         ),
@@ -582,7 +581,7 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
               child: TextFormField(
                 controller: minStockController,
                 decoration: InputDecoration(
-                  labelText: 'الحد الأدنى للمخزون',
+                  labelText: 'الحد الأدنى للمخزون (اختياري)',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   prefixIcon: const Icon(Icons.warning),
                   filled: true,
@@ -596,7 +595,7 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
               child: TextFormField(
                 controller: supplierController,
                 decoration: InputDecoration(
-                  labelText: 'المورد',
+                  labelText: 'المورد (اختياري)',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   prefixIcon: const Icon(Icons.business),
                   filled: true,
@@ -856,16 +855,50 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
 
   String _getUnitName(UnitType unit) {
     switch (unit) {
-      case UnitType.piece:
-        return 'قطعة';
-      case UnitType.strip:
-        return 'شريط';
-      case UnitType.box:
-        return 'صندوق';
-      case UnitType.bottle:
+      case UnitType.Tablet:
+        return 'قرص';
+      case UnitType.Capsule:
+        return 'كبسولة';
+      case UnitType.Syrup:
+        return 'شراب';
+      case UnitType.Drops:
+        return 'قطرة';
+      case UnitType.Bottle:
         return 'زجاجة';
-      case UnitType.ml:
-        return 'مل';
+      case UnitType.Ampoule:
+        return 'أمبولة';
+      case UnitType.Vial:
+        return 'قارورة';
+      case UnitType.Ointment:
+        return 'مرهم';
+      case UnitType.Cream:
+        return 'كريم';
+      case UnitType.Gel:
+        return 'جيل';
+      case UnitType.Spray:
+        return 'بخاخ';
+      case UnitType.Patch:
+        return 'لصقة';
+      case UnitType.Powder:
+        return 'مسحوق';
+      case UnitType.Sachet:
+        return 'كيس';
+      case UnitType.Suppository:
+        return 'تحاميل';
+      case UnitType.Inhaler:
+        return 'استنشاق';
+      case UnitType.Suspension:
+        return 'معلق';
+      case UnitType.Solution:
+        return 'محلول';
+      case UnitType.Lotion:
+        return 'لوشن';
+      case UnitType.Strip:
+        return 'شريط';
+      case UnitType.Tube:
+        return 'أنبوب';
+      default:
+        return 'وحدة غير معروفة';
     }
   }
 
@@ -880,7 +913,11 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
       try {
         // تحويل البيانات
         int quantity = int.parse(quantityController.text);
-        double purchasePrice = double.parse(purchasePriceController.text);
+        double? purchasePrice;
+        if (purchasePriceController.text.isNotEmpty) {
+          purchasePrice = double.tryParse(purchasePriceController.text);
+        }
+
         double sellingPrice = double.parse(sellingPriceController.text);
 
         int? unitsPerPackage;
@@ -888,25 +925,21 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
           unitsPerPackage = int.tryParse(unitsPerPackageController.text);
         }
 
-        int? stripsPerBox;
-        if (sellByStrip && stripsPerBoxController.text.isNotEmpty) {
-          stripsPerBox = int.tryParse(stripsPerBoxController.text);
-        }
-
-        double? stripPrice;
-        if (sellByStrip && stripsPerBox != null && stripsPerBox > 0) {
-          stripPrice = sellingPrice / stripsPerBox;
-        }
-
         int? minStockLevel;
         if (minStockController.text.isNotEmpty) {
           minStockLevel = int.tryParse(minStockController.text);
         }
 
+        // استخدام الاسم العلمي إذا كان موجوداً، وإلا استخدام الاسم التجاري
+        String? scientificName = scientificNameController.text.trim();
+        if (scientificName.isEmpty) {
+          scientificName = null;
+        }
+
         final newMedicine = Medicine(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           name: nameController.text,
-          scientificName: scientificNameController.text,
+          scientificName: scientificName,
           quantity: quantity,
           description: descriptionController.text.isEmpty ? null : descriptionController.text,
           category: selectedCategory,
@@ -914,9 +947,8 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
           sellingPrice: sellingPrice,
           unit: selectedUnit,
           unitsPerPackage: unitsPerPackage,
-          sellByStrip: sellByStrip,
-          stripsPerBox: stripsPerBox,
-          stripPrice: stripPrice,
+          sellByPiece: sellByPiece,
+          piecePrice: piecePriceCalculated,
           minStockLevel: minStockLevel,
           supplier: supplierController.text.isEmpty ? null : supplierController.text,
           expiryDate: expiryDate,
@@ -958,7 +990,6 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
     barcodeController.dispose();
     newCategoryController.dispose();
     unitsPerPackageController.dispose();
-    stripsPerBoxController.dispose();
     super.dispose();
   }
 }

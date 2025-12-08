@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../controllers/auth_controller.dart';
-import 'signup_page.dart';
+import 'sign_up/signup_page.dart';
 
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
@@ -24,43 +24,71 @@ class LoginPage extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                "Login",
+                "تسجيل الدخول",
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 20),
+
+              // حقل البريد الإلكتروني
               TextField(
                 decoration: const InputDecoration(
-                  labelText: "Email",
+                  labelText: "البريد الإلكتروني",
                   border: OutlineInputBorder(),
                 ),
                 onChanged: (value) => controller.email.value = value,
+                keyboardType: TextInputType.emailAddress,
               ),
+
               const SizedBox(height: 15),
+
+              // حقل كلمة المرور
               TextField(
                 decoration: const InputDecoration(
-                  labelText: "Password",
+                  labelText: "كلمة المرور",
                   border: OutlineInputBorder(),
                 ),
                 obscureText: true,
                 onChanged: (value) => controller.password.value = value,
               ),
+
               const SizedBox(height: 25),
+
+              // زر تسجيل الدخول
               Obx(() {
                 return controller.isLoading.value
                     ? const CircularProgressIndicator()
-                    : ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 45),
+                    : SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 45),
+                      backgroundColor: Colors.lightBlueAccent[700],
+                      foregroundColor: Colors.white,
+                    ),
+                    // ✅ **تعديل: استدعاء دالة login المعدلة**
+                    onPressed: () async {
+                      // التحقق من ملء الحقول
+                      if (controller.email.value.isEmpty ||
+                          controller.password.value.isEmpty) {
+                        Get.snackbar(
+                          "تنبيه",
+                          "يرجى ملء جميع الحقول",
+                          backgroundColor: Colors.lightBlueAccent,
+                        );
+                        return;
+                      }
+
+                      await controller.login();
+                    },
+                    child: const Text("تسجيل الدخول"),
                   ),
-                  onPressed: controller.login,
-                  child: const Text("Login"),
                 );
               }),
 
               const SizedBox(height: 15),
               TextButton(
                 onPressed: () => Get.to(() => const SignUpPage()),
-                child: const Text("Don't have an account? Sign Up"),
+                child: const Text("ليس لديك حساب؟ قم بالتسجيل"),
               ),
             ],
           ),

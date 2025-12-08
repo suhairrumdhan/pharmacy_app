@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../controllers/auth_controller.dart';
-import '../controllers/chat_controller.dart';
 import '../controllers/inventory_controller.dart';
 import '../controllers/sales_controller.dart';
 import '../widgets/sidebar.dart';
@@ -143,7 +142,7 @@ class DashboardPage extends StatelessWidget {
               _buildStatCard(
                 Icons.shopping_cart,
                 "المبيعات اليوم",
-                "1,250 ريال",
+                "1,250 ",
                 const Color(0xFF1976D2),
                 Icons.trending_up,
               ),

@@ -1,0 +1,10 @@
+platforms:
+  windows:
+    targets:
+      - msix
+
+    msix:
+      display_name: Pharmacy Desktop
+      publisher_display_name: Pharmacy Inc
+      identity_name: com.pharmacy.desktop
+      msix_version: 1.0.0.0

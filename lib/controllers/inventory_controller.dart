@@ -6,7 +6,9 @@ import 'package:intl/intl.dart';
 import 'package:csv/csv.dart';
 import 'dart:io';
 import '../models/inventory_model.dart';
-import '../views/inventory/widgets/quick_alerts.dart'; // Make sure this contains Medicine, UnitType, and InventoryAlert
+import '../views/inventory/widgets/quick_alerts.dart';
+import 'dart:convert';
+import 'package:path_provider/path_provider.dart';
 
 class InventoryController extends GetxController {
   final RxList<Medicine> medicines = <Medicine>[].obs;
@@ -54,57 +56,6 @@ class InventoryController extends GetxController {
     return _firestore.collection('pharmacies').doc(pharmacyId).collection('medicines');
   }
 
-  /// Import a list of items (maps) into local list (not to Firestore).
-  /// Keep for compatibility if needed elsewhere.
-  Future<void> importData(List<Map<String, dynamic>> items) async {
-    for (var item in items) {
-      try {
-        // Require id, name, scientificName, quantity
-        final id = item['id']?.toString() ??
-            '${DateTime.now().millisecondsSinceEpoch}_${item.hashCode}';
-        final name = (item['name'] ?? '').toString();
-        final scientificName = (item['scientificName'] ?? '').toString();
-        final quantity = _parseInt(item['quantity']?.toString()) ?? 0;
-
-        if (name.isEmpty || scientificName.isEmpty) {
-          // skip invalid
-          continue;
-        }
-
-        final unit = _parseUnitFromString(item['unit']?.toString());
-        final expiry = _parseDate(item['expiryDate']?.toString());
-
-        medicines.add(Medicine(
-          id: id,
-          name: name,
-          scientificName: scientificName,
-          quantity: quantity,
-          description: item['description']?.toString(),
-          category: item['category']?.toString(),
-          purchasePrice: _parseDouble(item['purchasePrice']?.toString()),
-          sellingPrice: _parseDouble(item['sellingPrice']?.toString()),
-          unit: unit,
-          unitsPerPackage: _parseInt(item['unitsPerPackage']?.toString()),
-          sellByStrip: _parseBool(item['sellByStrip']?.toString()),
-          stripsPerBox: _parseInt(item['stripsPerBox']?.toString()),
-          stripPrice: _parseDouble(item['stripPrice']?.toString()),
-          minStockLevel: _parseInt(item['minStockLevel']?.toString()),
-          supplier: item['supplier']?.toString(),
-          expiryDate: expiry,
-          barcode: item['barcode']?.toString(),
-          imageUrl: item['imageUrl']?.toString(),
-          lastUpdated: DateTime.now(),
-        ));
-      } catch (e) {
-        // ignore single-row errors
-        debugPrint('importData: skipped item due to error: $e');
-        continue;
-      }
-    }
-
-    update();
-  }
-
   // Getter for low stock medicines
   List<Medicine> get lowStockMedicines {
     return medicines.where((medicine) {
@@ -119,7 +70,8 @@ class InventoryController extends GetxController {
       return medicine.expiryDate != null && medicine.expiryDate!.isBefore(DateTime.now());
     }).toList();
   }
-// Getter for recent alerts - FIXED
+
+  // Getter for recent alerts - FIXED
   List<QuickAlert> get recentAlerts {
     final List<QuickAlert> generatedAlerts = [];
 
@@ -142,6 +94,7 @@ class InventoryController extends GetxController {
     generatedAlerts.sort((a, b) => b.date.compareTo(a.date));
     return generatedAlerts.take(10).toList();
   }
+
   // Load medicines from Firestore (now nested under pharmacies)
   Future<void> loadMedicines() async {
     try {
@@ -215,41 +168,29 @@ class InventoryController extends GetxController {
     filteredMedicines.assignAll(result);
   }
 
+  // Add medicine to Firestore
   Future<void> addMedicine(Medicine medicine) async {
     try {
-      final data = medicine.toMap();
-
-      // Debug print to see what's being sent
-      print('Adding medicine data: $data');
-
+      final data = medicine.toMap(forFirestore: true);
       // If id exists and you want to use it as doc id, use set; otherwise add generates id.
-      if (medicine.id.isNotEmpty && medicine.id != '0') {
+      if (medicine.id.isNotEmpty) {
         await _medicinesCollection.doc(medicine.id).set(data);
       } else {
         final docRef = await _medicinesCollection.add(data);
-        // Update the local medicine with the generated Firestore ID
-        final updatedMedicine = medicine.copyWith(id: docRef.id);
-        medicines.add(updatedMedicine);
+        // Update the medicine with the generated ID
+        await docRef.update({'id': docRef.id});
       }
-
       await loadMedicines();
-      Get.snackbar('نجاح', 'تم إضافة الدواء بنجاح',
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-      );
+      Get.snackbar('نجاح', 'تم إضافة الدواء بنجاح', backgroundColor: Colors.green);
     } catch (e) {
-      print('Error adding medicine: $e');
-      Get.snackbar('خطأ', 'فشل في إضافة الدواء: $e',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      Get.snackbar('خطأ', 'فشل في إضافة الدواء: $e', backgroundColor: Colors.red);
     }
   }
 
   // Update medicine (now in nested collection)
   Future<void> updateMedicine(String id, Medicine updatedMedicine) async {
     try {
-      await _medicinesCollection.doc(id).update(updatedMedicine.toMap());
+      await _medicinesCollection.doc(id).update(updatedMedicine.toMap(forFirestore: true));
       await loadMedicines();
       Get.snackbar('نجاح', 'تم تحديث الدواء بنجاح', backgroundColor: Colors.green);
     } catch (e) {
@@ -262,7 +203,7 @@ class InventoryController extends GetxController {
     try {
       await _medicinesCollection.doc(id).update({
         'quantity': newQuantity,
-        'lastUpdated': DateTime.now().toIso8601String(),
+        'lastUpdated': FieldValue.serverTimestamp(),
       });
       await loadMedicines();
       Get.snackbar('نجاح', 'تم تحديث المخزون بنجاح', backgroundColor: Colors.green);
@@ -285,8 +226,8 @@ class InventoryController extends GetxController {
   // Import from CSV (uses batch write for performance)
   // mapping: Map<fieldName, columnIndex> where fieldName can be:
   // id, name, scientificName, description, category, purchasePrice, sellingPrice,
-  // unit, unitsPerPackage, sellByStrip, stripsPerBox, stripPrice,
-  // quantity, minStockLevel, supplier, expiryDate, barcode, imageUrl
+  // unit, unitsPerPackage, sellByPiece, piecePrice, quantity, minStockLevel,
+  // supplier, expiryDate, barcode, imageUrl
   Future<void> importFromCSV(String filePath, Map<String, int> mapping) async {
     try {
       final file = File(filePath);
@@ -305,7 +246,7 @@ class InventoryController extends GetxController {
 
       for (final med in parsed) {
         final docRef = docRefBase.doc(med.id.isNotEmpty ? med.id : null);
-        batch.set(docRef, med.toMap());
+        batch.set(docRef, med.toMap(forFirestore: true));
       }
 
       await batch.commit();
@@ -344,6 +285,8 @@ class InventoryController extends GetxController {
         'sellingPrice',
         'unit',
         'unitsPerPackage',
+        'sellByPiece',
+        'piecePrice',
         'quantity',
         'minStockLevel',
         'supplier',
@@ -363,8 +306,10 @@ class InventoryController extends GetxController {
           medicine.category ?? '',
           medicine.purchasePrice?.toString() ?? '',
           medicine.sellingPrice?.toString() ?? '',
-          medicine.unit?.name ?? '', // piece, strip, ...
+          medicine.unit?.name ?? '',
           medicine.unitsPerPackage?.toString() ?? '',
+          medicine.sellByPiece.toString(),
+          medicine.piecePrice?.toString() ?? '',
           medicine.quantity.toString(),
           medicine.minStockLevel?.toString() ?? '',
           medicine.supplier ?? '',
@@ -378,7 +323,7 @@ class InventoryController extends GetxController {
       // تحويل إلى نص CSV
       final String csvContent = const ListToCsvConverter().convert(csvData);
 
-      // حفظ الملف (Android path example). قد تحتاج لتغيير المسار حسب النظام
+      // حفظ الملف
       final String outputFile = '/storage/emulated/Download/medicines_export_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.csv';
       final File file = File(outputFile);
       await file.writeAsString(csvContent);
@@ -400,62 +345,83 @@ class InventoryController extends GetxController {
   }
 
   Future<List<Medicine>> _parseCSVToMedicines(String csvString, Map<String, int> mapping) async {
-    final List<List<dynamic>> csvTable = const CsvToListConverter().convert(csvString);
+    try {
+      debugPrint('Starting CSV parsing with mapping: $mapping');
 
-    if (csvTable.isEmpty) return [];
+      final List<List<dynamic>> csvTable = const CsvToListConverter().convert(csvString);
 
-    final headers = csvTable.first;
-    final List<Medicine> parsed = [];
+      if (csvTable.isEmpty) return [];
 
-    for (int i = 1; i < csvTable.length; i++) {
-      try {
-        final row = csvTable[i];
-        final med = _mapRowToMedicine(row, mapping);
-        // validate required fields
-        if (med.name.trim().isEmpty || med.scientificName.trim().isEmpty) {
-          debugPrint('Row ${i + 1} skipped: missing required name/scientificName');
+      final headers = csvTable.first;
+      debugPrint('Headers found: $headers');
+
+      final List<Medicine> parsed = [];
+
+      for (int i = 1; i < csvTable.length; i++) {
+        try {
+          final row = csvTable[i];
+          final med = _mapRowToMedicine(row, headers, mapping);
+
+          // تحقق من الاسم فقط
+          if (med.name.trim().isEmpty) {
+            debugPrint('Row ${i + 1} skipped: missing required name');
+            continue;
+          }
+
+          // تحقق من الكمية فقط
+          if (med.quantity < 0) {
+            debugPrint('Row ${i + 1} skipped: invalid quantity');
+            continue;
+          }
+
+          parsed.add(med);
+        } catch (e) {
+          debugPrint('خطأ في تحويل الصف ${i + 1}: $e');
           continue;
         }
-        // quantity must be present and non-negative
-        if (med.quantity < 0) {
-          debugPrint('Row ${i + 1} skipped: invalid quantity');
-          continue;
-        }
-        parsed.add(med);
-      } catch (e) {
-        debugPrint('خطأ في تحويل الصف ${i + 1}: $e');
-        continue;
       }
-    }
 
-    return parsed;
+      debugPrint('Total parsed items: ${parsed.length}');
+      return parsed;
+    } catch (e) {
+      debugPrint('Error in _parseCSVToMedicines: $e');
+      return [];
+    }
   }
 
-  Medicine _mapRowToMedicine(List<dynamic> row, Map<String, int> mapping) {
-    // Helper: get value from mapping
+  Medicine _mapRowToMedicine(List<dynamic> row, List<dynamic> headers, Map<String, int> mapping) {
+    // دالة مساعدة لاستخراج القيمة من الصف
     dynamic getValue(String field) {
+      if (!mapping.containsKey(field)) return null;
+
       final int? idx = mapping[field];
-      if (idx == null || idx == -1 || idx >= row.length) return null;
+      if (idx == null || idx < 0 || idx >= row.length) return null;
+
       final val = row[idx];
       if (val == null) return null;
-      final s = val.toString().trim();
-      return s.isEmpty ? null : s;
+
+      return val.toString().trim();
     }
 
-    String generateId() => '${DateTime.now().millisecondsSinceEpoch}_${row.hashCode}';
+    // توليد معرف فريد
+    String generateId() => 'med_${DateTime.now().millisecondsSinceEpoch}_${row.hashCode}';
 
+    // استخراج القيم
     final id = getValue('id')?.toString() ?? generateId();
     final name = getValue('name')?.toString() ?? '';
-    final scientificName = getValue('scientificName')?.toString() ?? '';
+
+    // الاسم العلمي الآن اختياري - إذا كان فارغاً نستخدم الاسم العادي
+    String scientificNameValue = getValue('scientificName')?.toString() ?? '';
+    final scientificName = scientificNameValue.isNotEmpty ? scientificNameValue : name;
+
     final description = getValue('description')?.toString();
     final category = getValue('category')?.toString();
     final purchasePrice = _parseDouble(getValue('purchasePrice')?.toString());
     final sellingPrice = _parseDouble(getValue('sellingPrice')?.toString());
     final unit = _parseUnitFromString(getValue('unit')?.toString());
     final unitsPerPackage = _parseInt(getValue('unitsPerPackage')?.toString());
-    final sellByStrip = _parseBool(getValue('sellByStrip')?.toString());
-    final stripsPerBox = _parseInt(getValue('stripsPerBox')?.toString());
-    final stripPrice = _parseDouble(getValue('stripPrice')?.toString());
+    final sellByPiece = _parseBool(getValue('sellByPiece')?.toString());
+    final piecePrice = _parseDouble(getValue('piecePrice')?.toString());
     final quantity = _parseInt(getValue('quantity')?.toString()) ?? 0;
     final minStockLevel = _parseInt(getValue('minStockLevel')?.toString());
     final supplier = getValue('supplier')?.toString();
@@ -463,7 +429,8 @@ class InventoryController extends GetxController {
     final barcode = getValue('barcode')?.toString();
     final imageUrl = getValue('imageUrl')?.toString();
 
-    return Medicine(
+    // إنشاء كائن الدواء
+    final medicine = Medicine(
       id: id,
       name: name,
       scientificName: scientificName,
@@ -474,9 +441,8 @@ class InventoryController extends GetxController {
       sellingPrice: sellingPrice,
       unit: unit,
       unitsPerPackage: unitsPerPackage,
-      sellByStrip: sellByStrip,
-      stripsPerBox: stripsPerBox,
-      stripPrice: stripPrice,
+      sellByPiece: sellByPiece,
+      piecePrice: piecePrice,
       minStockLevel: minStockLevel,
       supplier: supplier,
       expiryDate: expiryDate,
@@ -484,6 +450,8 @@ class InventoryController extends GetxController {
       imageUrl: imageUrl,
       lastUpdated: DateTime.now(),
     );
+
+    return medicine;
   }
 
   // ========== HELPER METHODS ==========
@@ -541,12 +509,12 @@ class InventoryController extends GetxController {
     }
   }
 
-  // Parse UnitType from english key (piece, strip, box, bottle, ml)
+  // Parse UnitType from string
   UnitType? _parseUnitFromString(String? s) {
     if (s == null || s.isEmpty) return null;
-    final key = s.trim().toLowerCase();
+    final key = s.trim();
     for (final u in UnitType.values) {
-      if (u.name.toLowerCase() == key) return u;
+      if (u.name == key) return u;
     }
     return null;
   }
@@ -580,6 +548,14 @@ class InventoryController extends GetxController {
     });
   }
 
+  // Calculate total inventory selling value
+  double get totalInventorySellingValue {
+    return medicines.fold(0.0, (sum, medicine) {
+      final sellingPrice = medicine.sellingPrice ?? 0;
+      return sum + (medicine.quantity * sellingPrice);
+    });
+  }
+
   // Get total items count
   int get totalItemsCount {
     return medicines.fold(0, (sum, medicine) => sum + medicine.quantity);
@@ -598,5 +574,67 @@ class InventoryController extends GetxController {
   // Get expired count
   int get expiredCount {
     return expiredMedicines.length;
+  }
+
+  // Bulk update medicines
+  Future<void> bulkUpdateMedicines(List<Medicine> updatedMedicines) async {
+    try {
+      isLoading.value = true;
+      final WriteBatch batch = _firestore.batch();
+
+      for (final medicine in updatedMedicines) {
+        final docRef = _medicinesCollection.doc(medicine.id);
+        batch.update(docRef, medicine.toMap(forFirestore: true));
+      }
+
+      await batch.commit();
+      await loadMedicines();
+
+      Get.snackbar(
+        'نجاح',
+        'تم تحديث ${updatedMedicines.length} عنصر بنجاح',
+        backgroundColor: Colors.green,
+      );
+    } catch (e) {
+      Get.snackbar('خطأ', 'فشل في التحديث الجماعي: $e', backgroundColor: Colors.red);
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  // Get statistics
+  Map<String, dynamic> get statistics {
+    return {
+      'totalValue': totalInventoryValue,
+      'sellingValue': totalInventorySellingValue,
+      'totalItems': totalItemsCount,
+      'uniqueItems': uniqueMedicinesCount,
+      'lowStock': lowStockCount,
+      'expired': expiredCount,
+      'categoriesCount': categories.length,
+    };
+  }
+
+  // Search medicine by barcode
+  Medicine? searchByBarcode(String barcode) {
+    try {
+      return medicines.firstWhere(
+            (medicine) => medicine.barcode != null && medicine.barcode == barcode,
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Get medicines expiring soon (within 30 days)
+  List<Medicine> get expiringSoonMedicines {
+    final now = DateTime.now();
+    final thirtyDaysFromNow = now.add(const Duration(days: 30));
+
+    return medicines.where((medicine) {
+      if (medicine.expiryDate == null) return false;
+      return medicine.expiryDate!.isAfter(now) &&
+          medicine.expiryDate!.isBefore(thirtyDaysFromNow);
+    }).toList();
   }
 }

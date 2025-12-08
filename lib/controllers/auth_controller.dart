@@ -1,13 +1,22 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:pharmacy_desktop/controllers/settings_controller.dart';
+import 'package:pharmacy_desktop/services/firestore_service.dart';
+import 'package:pharmacy_desktop/services/location_service.dart';
+import 'package:pharmacy_desktop/services/local_storage_service.dart';
 import '../views/home_page.dart';
 import '../views/login_page.dart';
 import '../views/waiting_approval_page.dart';
 
 class AuthController extends GetxController {
+  // Services
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final LocationService _locationService = LocationService();
+  final FirestoreService _firestoreService = FirestoreService();
+  final LocalStorageService _localStorage = LocalStorageService();
+
   // المتغيرات القابلة للملاحظة
   var email = ''.obs;
   var password = ''.obs;
@@ -17,39 +26,103 @@ class AuthController extends GetxController {
   var phoneNumber = ''.obs;
   var address = ''.obs;
   var isLoading = false.obs;
-  var rememberMe = false.obs;
-
-  // مثيلات Firebase
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
-  final HttpsCallable getUserRoleCallable =
-  FirebaseFunctions.instance.httpsCallable('getUserRole');
+  Rx<LatLng?> selectedLocation = Rx<LatLng?>(null);
+  RxMap<String, dynamic> pharmacyData = <String, dynamic>{}.obs;
 
   @override
-  void onInit() {
+  Future<void> onInit() async {
     super.onInit();
-    _loadSavedCredentials();
-  }
-
-  // تحميل بيانات تسجيل الدخول المحفوظة
-  void _loadSavedCredentials() {
-    // يمكن إضافة shared preferences هنا لحفظ بيانات الدخول
-  }
-
-  // حفظ بيانات تسجيل الدخول
-  void _saveCredentials() {
-    if (rememberMe.value) {
-      // حفظ باستخدام shared preferences
+    await _localStorage.init();
+    if (_auth.currentUser != null) {
+      await loadPharmacyData();
     }
   }
 
-  // دالة التسجيل
+  // الحصول على الموقع الحالي
+  Future<void> getCurrentLocation() async {
+    try {
+      isLoading.value = true;
+
+      Get.snackbar(
+        "جاري الحصول على الموقع",
+        "يرجى الانتظار...",
+        backgroundColor: Colors.blue,
+        colorText: Colors.white,
+      );
+
+      final location = await _locationService.getCurrentLocation();
+
+      if (location != null) {
+        selectedLocation.value = location;
+
+        // جلب العنوان
+        final addressStr = await _locationService.getAddressForLocation(
+            location.latitude, location.longitude);
+
+        if (addressStr != null && address.value.isEmpty) {
+          address.value = addressStr;
+        }
+
+        Get.snackbar(
+          "تم تحديد موقعك بنجاح",
+          "الإحداثيات: ${location.latitude.toStringAsFixed(4)}, ${location.longitude.toStringAsFixed(4)}",
+          backgroundColor: Colors.green,
+          colorText: Colors.white,
+        );
+      } else {
+        // استخدام الموقع الافتراضي
+        selectedLocation.value = _locationService.getSafeDefaultLocation();
+        address.value = "موقع افتراضي - ليبيا";
+        Get.snackbar(
+          "تنبيه",
+          "تم استخدام موقع افتراضي",
+          backgroundColor: Colors.orange,
+          colorText: Colors.white,
+        );
+      }
+    } catch (e) {
+      print("خطأ في الحصول على الموقع: $e");
+      Get.snackbar("خطأ", "فشل في تحديد الموقع", backgroundColor: Colors.red);
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  // اختيار موقع يدوي
+  void selectLocation(LatLng location) {
+    selectedLocation.value = location;
+  }
+
+  // مسح الموقع
+  void clearLocation() {
+    selectedLocation.value = null;
+  }
+
+  // مسح النموذج
+  void clearForm() {
+    email.value = '';
+    password.value = '';
+    pharmacyName.value = '';
+    ownerName.value = '';
+    licenseNumber.value = '';
+    phoneNumber.value = '';
+    address.value = '';
+    selectedLocation.value = null;
+  }
+
+  // تسجيل الصيدلية
   Future<void> signUpPharmacy() async {
     try {
       if (!_validatePharmacySignUp()) return;
 
+      if (selectedLocation.value == null) {
+        Get.snackbar("الموقع مطلوب", "حدد موقع الصيدلية",
+            backgroundColor: Colors.orange);
+        return;
+      }
+
       isLoading.value = true;
+      print("📝 بدء تسجيل صيدلية جديدة...");
 
       // إنشاء المستخدم في Authentication
       final userCredential = await _auth.createUserWithEmailAndPassword(
@@ -58,9 +131,21 @@ class AuthController extends GetxController {
       );
 
       final user = userCredential.user!;
+      final String uid = user.uid;
+      print("✅ حساب مستخدم مخلوق - UID: $uid");
 
       // إضافة طلب التسجيل إلى Firestore
-      await _createPharmacyRequest(user.uid);
+      await _firestoreService.createPharmacyRequest(
+        userId: uid,
+        email: email.value.trim(),
+        pharmacyName: pharmacyName.value.trim(),
+        ownerName: ownerName.value.trim(),
+        licenseNumber: licenseNumber.value.trim(),
+        phoneNumber: phoneNumber.value.trim(),
+        address: address.value.trim(),
+        latitude: selectedLocation.value!.latitude,
+        longitude: selectedLocation.value!.longitude,
+      );
 
       isLoading.value = false;
 
@@ -73,18 +158,13 @@ class AuthController extends GetxController {
       );
 
       Get.offAll(() => const WaitingApprovalPage());
-
     } on FirebaseAuthException catch (e) {
       isLoading.value = false;
       _handleAuthError(e);
     } catch (e) {
       isLoading.value = false;
-      Get.snackbar(
-        "خطأ",
-        "فشل في التسجيل: ${e.toString()}",
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      Get.snackbar("خطأ", "فشل في التسجيل: ${e.toString()}",
+          backgroundColor: Colors.red);
     }
   }
 
@@ -113,134 +193,99 @@ class AuthController extends GetxController {
     if (address.value.isEmpty) {
       errors.add('العنوان مطلوب');
     }
+    if (selectedLocation.value == null) {
+      errors.add('يرجى تحديد موقع الصيدلية على الخريطة');
+    }
 
     if (errors.isNotEmpty) {
-      Get.snackbar(
-        "خطأ في البيانات",
-        errors.join('\n'),
-        backgroundColor: Colors.orange,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 5),
-      );
+      Get.snackbar("خطأ في البيانات", errors.join('\n'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 5));
       return false;
     }
 
     return true;
   }
-  Future<bool> checkApprovalStatus() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return false;
 
-      final uid = user.uid;
+  Future<void> _checkUserTypeAndRedirect(String uid) async {
+    final result = await _firestoreService.checkApprovalStatus(uid);
 
-      // 1) نجيبه من pharmacies مباشرة
-      final pharmacyDoc = await _firestore.collection('pharmacies').doc(uid).get();
-
-      if (pharmacyDoc.exists) {
-        final data = pharmacyDoc.data()!;
-        final status = data['status'] ?? 'pending';
-        final userType = data['userType'] ?? 'pharmacy';
-
-        return (status == "approved" && userType == "pharmacy");
-      }
-
-      // 2) لو مش موجود في pharmacies → نبحث في طلبات التسجيل
-      final requestDoc = await _firestore.collection('pharmacyRequests').doc(uid).get();
-
-      if (!requestDoc.exists) {
-        return false; // لا يوجد طلب ولا صيدلية
-      }
-
-      final req = requestDoc.data()!;
-      final status = req['status'] ?? 'pending';
+    if (result?['exists'] == true) {
+      final status = result!['status'];
+      final collection = result['collection'];
 
       if (status == "approved") {
-        // الطلب approved ولكن مش موجود داخل pharmacies
-        await createPharmacyAfterApproval(uid, req);
-        return true;
+        // إذا كان الطلب معتمداً لكنه في pharmacyRequests، أنقله إلى pharmacies
+        if (collection == 'pharmacyRequests') {
+          await _firestoreService.createPharmacyFromRequest(
+              uid, result['data']);
+        }
+
+        Get.offAll(() => const HomePage());
+        return;
       }
-
-      return false;
-    } catch (e) {
-      Get.snackbar(
-        "Error",
-        e.toString(),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
-      return false;
     }
+
+    Get.offAll(() => const WaitingApprovalPage());
   }
 
-  Future<void> createPharmacyAfterApproval(String uid, Map<String, dynamic> requestData) async {
-    await _firestore.collection('pharmacies').doc(uid).set({
-      'name': requestData['pharmacyName'],
-      'ownerName': requestData['ownerName'],
-      'email': requestData['email'],
-      'phoneNumber': requestData['phoneNumber'],
-      'licenseNumber': requestData['licenseNumber'],
-      'address': requestData['address'],
-      'status': 'approved',
-      'userType': 'pharmacy',
-      'isOnline': true,
-      'is24Hours': false,
-      'imageUrl': '',
-      'latitude': '',
-      'longitude': '',
-      'createdAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-  }
-
-  // إنشاء طلب الصيدلية
-  Future<void> _createPharmacyRequest(String userId) async {
+  // إعادة تسجيل الدخول بعد الموافقة
+  Future<bool> reLoginAfterApproval() async {
     try {
-      await _firestore.collection('pharmacyRequests').doc(userId).set({
-        'userId': userId,
-        'email': email.value.trim(),
-        'pharmacyName': pharmacyName.value.trim(),
-        'ownerName': ownerName.value.trim(),
-        'licenseNumber': licenseNumber.value.trim(),
-        'phoneNumber': phoneNumber.value.trim(),
-        'address': address.value.trim(),
-        'status': 'pending',
-        'requestDate': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
-        'userType': 'pharmacy', // للتأكيد أن هذا مستخدم صيدلية
-      });
+      final user = FirebaseAuth.instance.currentUser;
+      if (user?.email == null) return false;
+
+      // تسجيل الخروج أولاً
+      await FirebaseAuth.instance.signOut();
+
+      // لن نتمكن من إعادة تسجيل الدخول تلقائياً بعد إزالة حفظ كلمة المرور
+      // سيحتاج المستخدم لإدخال كلمة المرور يدوياً
+      Get.snackbar(
+        "تم الموافقة على طلبك",
+        "يرجى تسجيل الدخول باستخدام بريدك الإلكتروني وكلمة المرور",
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 5),
+      );
+
+      return false;
     } catch (e) {
-      throw Exception('فشل في حفظ طلب الصيدلية: $e');
+      print("🔥 فشل إعادة تسجيل الدخول: $e");
+      return false;
     }
+  }
+
+  bool _validateLogin() {
+    if (email.value.isEmpty || password.value.isEmpty) {
+      Get.snackbar("خطأ", "البريد الإلكتروني وكلمة المرور مطلوبان",
+          backgroundColor: Colors.orange);
+      return false;
+    }
+    return true;
   }
 
   Future<void> login() async {
     try {
       if (!_validateLogin()) return;
-
       isLoading.value = true;
 
+      // تسجيل الدخول
       final userCredential = await _auth.signInWithEmailAndPassword(
         email: email.value.trim(),
         password: password.value,
       );
 
-      final user = userCredential.user!;
+      final user = userCredential.user;
 
-      // تحديث التوكن
-      await user.getIdToken(true);
+      // تحديث token
+      await user?.getIdToken(true);
 
-      // حفظ بيانات الدخول إذا طلب
-      if (rememberMe.value) {
-        _saveCredentials();
+      // Check user type and redirect
+      if (user != null) {
+        await _checkUserTypeAndRedirect(user.uid);
       }
 
-      // التحقق من نوع المستخدم وتوجيهه
-      await _checkUserTypeAndRedirect(user.uid);
+      // Load pharmacy data if needed
       await loadPharmacyData();
-
-      // مهم جداً: لا تضع أي توجيه هنا !!
-      // لأن _checkUserTypeAndRedirect() هي اللي تقوم بكل التوجيه
-
     } on FirebaseAuthException catch (e) {
       isLoading.value = false;
       _handleAuthError(e);
@@ -252,48 +297,12 @@ class AuthController extends GetxController {
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
-    }
-  }
-  //final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
-  RxMap<String, dynamic> pharmacyData = <String, dynamic>{}.obs;
-
-  Future<void> loadPharmacyData() async {
-    final uid = _auth.currentUser?.uid;
-    if (uid == null) return;
-
-    final doc = await _firestore.collection("pharmacies").doc(uid).get();
-    if (doc.exists) {
-      pharmacyData.value = doc.data()!;
-    }
-  }
-  // التحقق من بيانات الدخول
-  bool _validateLogin() {
-    if (email.value.isEmpty || password.value.isEmpty) {
-      Get.snackbar(
-        "خطأ",
-        "البريد الإلكتروني وكلمة المرور مطلوبان",
-        backgroundColor: Colors.orange,
-        colorText: Colors.white,
-      );
-      return false;
-    }
-    return true;
-  }
-
-  // التحقق من نوع المستخدم وإعادة التوجيه
-  Future<void> _checkUserTypeAndRedirect(String uid) async {
-    final approved = await checkApprovalStatus();
-
-    isLoading.value = false;
-
-    if (approved) {
-      Get.offAll(() => const HomePage());
-    } else {
-      Get.offAll(() => const WaitingApprovalPage());
+    } finally {
+      isLoading.value = false;
     }
   }
 
+  // معالجة أخطاء المصادقة
   void _handleAuthError(FirebaseAuthException e) {
     String message;
     switch (e.code) {
@@ -316,19 +325,35 @@ class AuthController extends GetxController {
         message = "كلمة المرور ضعيفة جداً";
         break;
       case 'network-request-failed':
-        message = "خطأ في الشبكة. يرجى التحقق من الاتصال";
+        message = "خطأ في الشبكة";
         break;
       default:
         message = "فشل في المصادقة: ${e.message}";
     }
 
-    Get.snackbar(
-      "خطأ في المصادقة",
-      message,
-      backgroundColor: Colors.red,
-      colorText: Colors.white,
-      duration: const Duration(seconds: 5),
-    );
+    Get.snackbar("خطأ في المصادقة", message, backgroundColor: Colors.red);
+  }
+
+  // تحميل بيانات الصيدلية
+  Future<void> loadPharmacyData() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return;
+
+    final data = await _firestoreService.getPharmacyData(uid);
+    if (data != null) {
+      pharmacyData.value = data;
+      await _loadPharmacySettings();
+    }
+  }
+
+  // تحميل إعدادات الصيدلية
+  Future<void> _loadPharmacySettings() async {
+    try {
+      final settingsController = Get.find<SettingsController>();
+      await settingsController.loadSettings();
+    } catch (e) {
+      print('Error loading pharmacy settings: $e');
+    }
   }
 
   // تسجيل الخروج
@@ -338,12 +363,8 @@ class AuthController extends GetxController {
       _clearLocalData();
       Get.offAll(() => const LoginPage());
     } catch (e) {
-      Get.snackbar(
-        "خطأ",
-        "فشل في تسجيل الخروج: ${e.toString()}",
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      Get.snackbar("خطأ", "فشل في تسجيل الخروج: ${e.toString()}",
+          backgroundColor: Colors.red);
     }
   }
 
@@ -356,10 +377,11 @@ class AuthController extends GetxController {
     licenseNumber.value = '';
     phoneNumber.value = '';
     address.value = '';
-    rememberMe.value = false;
+    selectedLocation.value = null;
+    pharmacyData.clear();
   }
 
-  // التحقق من اتصال Firebase
+  // التحقق من الاتصال
   Future<bool> checkConnection() async {
     try {
       await _auth.currentUser?.getIdToken();
@@ -367,10 +389,5 @@ class AuthController extends GetxController {
     } catch (e) {
       return false;
     }
-  }
-
-  // إعادة تعيين الحقول
-  void resetFields() {
-    _clearLocalData();
   }
 }

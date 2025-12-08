@@ -1,182 +1,401 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
-import '../../../controllers/inventory_controller.dart';
+import '';
 import '../../../models/inventory_model.dart';
-import 'empty_inventory_state.dart';
-import 'medicine_table_row.dart';
+import 'medicines_presenter.dart';
+import 'medicines_style.dart';
+import 'medicines_components.dart';
+import '../../../controllers/inventory_controller.dart';
 
 class MedicinesTable extends StatelessWidget {
   const MedicinesTable({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final inventoryController = Get.find<InventoryController>();
+    final presenter = MedicinesPresenter();
 
     return Obx(() {
-      if (inventoryController.isLoading.value) {
-        return const Center(child: CircularProgressIndicator());
+      if (presenter.isLoading) {
+        return LoadingState();
       }
 
-      if (inventoryController.filteredMedicines.isEmpty) {
-        return const EmptyInventoryState();
+      if (presenter.filteredMedicines.isEmpty) {
+        return EmptyState(
+          onAddMedicine: () {
+            // TODO: Add new medicine
+          },
+        );
       }
 
-      return Card(
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: BorderSide(color: Colors.grey.shade300, width: 0.5),
-        ),
-        child: Column(
-          children: [
-            _buildTableHeader(),
-            Expanded(
-              child: _buildMedicinesList(),
-            ),
-            _buildTableFooter(),
-          ],
-        ),
-      );
+      return _buildTable(presenter);
     });
   }
 
-  Widget _buildTableHeader() {
+  Widget _buildTable(MedicinesPresenter presenter) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        border: Border(
-          bottom: BorderSide(color: Colors.grey.shade300),
+        borderRadius: MedicinesTableStyle.tableBorderRadius,
+        gradient: MedicinesTableStyle.tableGradient,
+        boxShadow: MedicinesTableStyle.tableShadow,
+      ),
+      child: Column(
+        children: [
+          // Table Header
+          MedicinesTableHeader(),
+
+          // Table Body
+          Expanded(
+            child: _buildMedicinesList(presenter),
+          ),
+
+          // Table Footer
+          MedicinesTableFooter(presenter: presenter),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMedicinesList(MedicinesPresenter presenter) {
+    return ListView.separated(
+      itemCount: presenter.filteredMedicines.length,
+      separatorBuilder: (context, index) => Divider(
+        height: 1,
+        color: MedicinesTableStyle.borderColor,
+        thickness: 0.5,
+      ),
+      itemBuilder: (context, index) {
+        final medicine = presenter.filteredMedicines[index];
+        return MedicineRow(
+          medicine: medicine,
+          index: index,
+          presenter: presenter,
+          onViewDetails: () => _showMedicineDetails(medicine),
+          onEdit: () => _showEditDialog(medicine),
+          onUpdateStock: () => _showStockUpdateDialog(medicine),
+          onDelete: () => _showDeleteDialog(medicine, presenter),
+        );
+      },
+    );
+  }
+
+  // Action Dialogs
+  void _showMedicineDetails(Medicine medicine) {
+    Get.bottomSheet(
+      Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(20),
+            topRight: Radius.circular(20),
+          ),
         ),
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'تفاصيل الدواء',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: MedicinesTableStyle.darkText,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: Get.back,
+                      icon: Icon(
+                        Icons.close,
+                        color: MedicinesTableStyle.mediumText,
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 20),
+
+                // Medicine Card
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        MedicinesTableStyle.primaryColor.withOpacity(0.1),
+                        MedicinesTableStyle.primaryColor.withOpacity(0.05),
+                      ],
+                    ),
+                    borderRadius: MedicinesTableStyle.cardBorderRadius,
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              gradient: MedicinesTableStyle.headerGradient,
+                              borderRadius: MedicinesTableStyle.cardBorderRadius,
+                            ),
+                            child: Icon(
+                              Icons.medication,
+                              size: 30,
+                              color: Colors.white,
+                            ),
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  medicine.name,
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: MedicinesTableStyle.darkText,
+                                  ),
+                                ),
+                                Text(
+                                  medicine.scientificName,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: MedicinesTableStyle.mediumText,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 20),
+
+                      // Details Grid
+                      GridView.count(
+                        shrinkWrap: true,
+                        crossAxisCount: 2,
+                        childAspectRatio: 2.5,
+                        mainAxisSpacing: 10,
+                        crossAxisSpacing: 10,
+                        children: [
+                          _buildDetailItem('الصنف', medicine.category ?? 'غير محدد', Icons.category),
+                          _buildDetailItem('المورد', medicine.supplier ?? 'غير محدد', Icons.business),
+                          _buildDetailItem('سعر البيع', '${medicine.sellingPrice?.toStringAsFixed(2) ?? '0.00'} د.ل', Icons.money),
+                          _buildDetailItem('سعر الشراء', '${medicine.purchasePrice?.toStringAsFixed(2) ?? '0.00'} د.ل', Icons.shopping_cart),
+                          _buildDetailItem('الكمية', '${medicine.quantity} ${_getUnitName(medicine.unit)}', Icons.inventory),
+                          if (medicine.expiryDate != null)
+                            _buildDetailItem('تاريخ الانتهاء', DateFormat('dd/MM/yyyy').format(medicine.expiryDate!), Icons.calendar_today),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                SizedBox(height: 30),
+                Center(
+                  child: ElevatedButton(
+                    onPressed: Get.back,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: MedicinesTableStyle.primaryColor,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(horizontal: 40, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: MedicinesTableStyle.buttonBorderRadius,
+                      ),
+                    ),
+                    child: Text('إغلاق'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      isScrollControlled: true,
+    );
+  }
+
+  Widget _buildDetailItem(String title, String value, IconData icon) {
+    return Container(
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: MedicinesTableStyle.cardBorderRadius,
+        border: Border.all(color: MedicinesTableStyle.borderColor),
       ),
       child: Row(
         children: [
-          // اسم الدواء والمعلومات الأساسية
-          Expanded(
-            flex: 3,
-            child: _HeaderText("الصنف"),
+          Icon(
+            icon,
+            size: 16,
+            color: MedicinesTableStyle.primaryColor,
           ),
-
-          // التصنيف
+          SizedBox(width: 8),
           Expanded(
-            flex: 1,
-            child: _HeaderText("التصنيف"),
-          ),
-
-          // الأسعار
-          Expanded(
-            flex: 1,
-            child: _HeaderText("الأسعار"),
-          ),
-
-          // المخزون
-          Expanded(
-            flex: 1,
-            child: _HeaderText("المخزون"),
-          ),
-
-          // المورد
-          Expanded(
-            flex: 2,
-            child: _HeaderText("المورد"),
-          ),
-
-          // الصلاحية
-          Expanded(
-            flex: 2,
-            child: _HeaderText("الصلاحية"),
-          ),
-
-          // الحالة
-          Expanded(
-            flex: 1,
-            child: _HeaderText("الحالة"),
-          ),
-
-          // الإجراءات
-          SizedBox(
-            width: 120,
-            child: _HeaderText("الإجراءات"),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: MedicinesTableStyle.lightText,
+                  ),
+                ),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: MedicinesTableStyle.mediumText,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildMedicinesList() {
-    final inventoryController = Get.find<InventoryController>();
+  String _getUnitName(UnitType? unit) {
+    final presenter = MedicinesPresenter();
+    return presenter.getUnitName(unit);
+  }
 
-    return ListView.builder(
-      itemCount: inventoryController.filteredMedicines.length,
-      itemBuilder: (context, index) {
-        final medicine = inventoryController.filteredMedicines[index];
-        return Container(
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(color: Colors.grey.shade100, width: 0.5),
-            ),
+  void _showEditDialog(Medicine medicine) {
+    Get.defaultDialog(
+      title: 'تعديل ${medicine.name}',
+      titleStyle: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
+        color: MedicinesTableStyle.darkText,
+      ),
+      content: Padding(
+        padding: EdgeInsets.symmetric(vertical: 10),
+        child: Text(
+          'سيتم فتح نافذة التعديل الكاملة للدواء',
+          style: TextStyle(
+            color: MedicinesTableStyle.mediumText,
           ),
-          child: MedicineTableRow(medicine: medicine),
-        );
-      },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: Get.back,
+          child: Text(
+            'إلغاء',
+            style: TextStyle(color: MedicinesTableStyle.mediumText),
+          ),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Get.back();
+            // TODO: Implement edit functionality
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: MedicinesTableStyle.primaryColor,
+          ),
+          child: Text('متابعة'),
+        ),
+      ],
     );
   }
 
-  Widget _buildTableFooter() {
-    final inventoryController = Get.find<InventoryController>();
-
-    return Obx(() {
-      final total = inventoryController.filteredMedicines.length;
-      return Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade50,
-          border: Border(
-            top: BorderSide(color: Colors.grey.shade300),
+  void _showStockUpdateDialog(Medicine medicine) {
+    Get.defaultDialog(
+      title: 'تحديث مخزون ${medicine.name}',
+      titleStyle: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
+        color: MedicinesTableStyle.secondaryColor,
+      ),
+      content: Padding(
+        padding: EdgeInsets.symmetric(vertical: 10),
+        child: Text(
+          'الكمية الحالية: ${medicine.quantity} ${_getUnitName(medicine.unit)}',
+          style: TextStyle(
+            color: MedicinesTableStyle.mediumText,
+            fontSize: 14,
           ),
         ),
-        child: Row(
+      ),
+      actions: [
+        TextButton(
+          onPressed: Get.back,
+          child: Text(
+            'إلغاء',
+            style: TextStyle(color: MedicinesTableStyle.mediumText),
+          ),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Get.back();
+            // TODO: Implement stock update functionality
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: MedicinesTableStyle.secondaryColor,
+          ),
+          child: Text('تحديث'),
+        ),
+      ],
+    );
+  }
+
+  void _showDeleteDialog(Medicine medicine, MedicinesPresenter presenter) {
+    Get.dialog(
+      AlertDialog(
+        title: Text(
+          'حذف ${medicine.name}',
+          style: TextStyle(
+            color: MedicinesTableStyle.dangerColor,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _FooterText('إجمالي النتائج: $total'),
-            const Spacer(),
-            _FooterText('آخر تحديث: ${DateFormat('yyyy/MM/dd HH:mm').format(DateTime.now())}'),
+            Text(
+              'هل أنت متأكد من حذف هذا الدواء؟',
+              style: TextStyle(
+                color: MedicinesTableStyle.mediumText,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'الكمية الحالية: ${medicine.quantity} ${_getUnitName(medicine.unit)}',
+              style: TextStyle(
+                color: MedicinesTableStyle.lightText,
+                fontSize: 12,
+              ),
+            ),
           ],
         ),
-      );
-    });
-  }
-}
-
-class _HeaderText extends StatelessWidget {
-  final String text;
-  const _HeaderText(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(
-        fontWeight: FontWeight.w600,
-        fontSize: 13,
-        color: Colors.black87,
-      ),
-      textAlign: TextAlign.left,
-    );
-  }
-}
-
-class _FooterText extends StatelessWidget {
-  final String text;
-  const _FooterText(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: 12,
-        color: Colors.grey.shade600,
+        actions: [
+          TextButton(
+            onPressed: Get.back,
+            child: Text(
+              'إلغاء',
+              style: TextStyle(color: MedicinesTableStyle.mediumText),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Get.back();
+              presenter.deleteMedicine(medicine.id);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: MedicinesTableStyle.dangerColor,
+            ),
+            child: Text('حذف'),
+          ),
+        ],
       ),
     );
   }

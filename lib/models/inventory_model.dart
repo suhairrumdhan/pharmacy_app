@@ -1,19 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum UnitType {
-  piece,
-  strip,
-  box,
-  bottle,
-  ml,
+  Tablet, Capsule, Syrup, Drops, Bottle, Ampoule, Vial, Ointment, Cream, Gel, Spray, Patch, Powder, Sachet, Suppository, Inhaler, Suspension, Solution, Lotion, Strip, Tube
 }
 
 class Medicine {
   // ===== Required Fields =====
-  final String id;             // معرف فريد
-  final String name;           // الاسم التجاري
-  final String scientificName; // الاسم العلمي
-  final int quantity;          // الكمية الموجودة
+  final String id;
+  final String name;
+  final String scientificName; // سيتم استخدام الاسم التجاري إذا فارغ
+  final int quantity;
 
   // ===== Optional Fields =====
   String? description;
@@ -22,101 +18,101 @@ class Medicine {
   double? purchasePrice;
   double? sellingPrice;
 
-  UnitType? unit;          // وحدة القياس الموحّدة
-  int? unitsPerPackage;    // عدد الحبات أو الشرائط داخل العبوة
+  UnitType? unit;
+  int? unitsPerPackage;
 
-  bool? sellByStrip;
-  int? stripsPerBox;
-  double? stripPrice;
+  bool sellByPiece; // بدل sellByStrip
+  double? piecePrice; // سعر القطعة محسوب أو مخصص
 
   int? minStockLevel;
   String? supplier;
 
   DateTime? expiryDate;
   String? barcode;
-
-  String? imageUrl; // <<< الصورة اختيارية
+  String? imageUrl;
 
   DateTime? lastUpdated;
-
   Medicine({
-    // Required
     required this.id,
     required this.name,
-    required this.scientificName,
+    String? scientificName,
     required this.quantity,
-
-    // Optional
     this.description,
     this.category,
     this.purchasePrice,
     this.sellingPrice,
     this.unit,
     this.unitsPerPackage,
-    this.sellByStrip,
-    this.stripsPerBox,
-    this.stripPrice,
+    this.sellByPiece = false,
+    this.piecePrice,
     this.minStockLevel,
     this.supplier,
     this.expiryDate,
     this.barcode,
     this.imageUrl,
     this.lastUpdated,
-  });
-
-  // ===== Computed Properties =====
-  bool get isLowStock =>
-      (minStockLevel != null) ? quantity <= minStockLevel! : false;
-
-  bool get isExpired =>
-      expiryDate != null ? expiryDate!.isBefore(DateTime.now()) : false;
-
-  // ===== From Map =====
-  factory Medicine.fromMap(Map<String, dynamic> data) {
-    return Medicine(
-      id: data['id']?.toString() ?? "", // FIXED: Handle null
-      name: data['name']?.toString() ?? "", // FIXED: Handle null
-      scientificName: data['scientificName']?.toString() ?? "", // FIXED: Handle null
-      quantity: (data['quantity'] ?? 0).toInt(),
-
-      description: data['description']?.toString(),
-      category: data['category']?.toString(),
-      purchasePrice: (data['purchasePrice'] ?? 0).toDouble(),
-      sellingPrice: (data['sellingPrice'] ?? 0).toDouble(),
-
-      unit: data['unit'] != null
-          ? UnitType.values.firstWhere(
-            (e) => e.name == data['unit']?.toString(),
-        orElse: () => UnitType.piece,
-      )
-          : null,
-
-      unitsPerPackage: data['unitsPerPackage']?.toInt(),
-      sellByStrip: data['sellByStrip'] ?? false,
-      stripsPerBox: data['stripsPerBox']?.toInt(),
-      stripPrice: (data['stripPrice'] ?? 0).toDouble(),
-
-      minStockLevel: data['minStockLevel']?.toInt(),
-      supplier: data['supplier']?.toString(),
-
-      expiryDate: data['expiryDate'] != null
-          ? (data['expiryDate'] is Timestamp
-          ? (data['expiryDate'] as Timestamp).toDate()
-          : DateTime.tryParse(data['expiryDate'].toString()))
-          : null,
-
-      barcode: data['barcode']?.toString(),
-      imageUrl: data['imageUrl']?.toString(),
-
-      lastUpdated: data['lastUpdated'] != null
-          ? (data['lastUpdated'] is Timestamp
-          ? (data['lastUpdated'] as Timestamp).toDate()
-          : DateTime.tryParse(data['lastUpdated'].toString()))
-          : DateTime.now(),
-    );
+  }) : scientificName = (scientificName != null && scientificName.isNotEmpty) ? scientificName : name {
+    // إذا البيع بالقطعة true، اجعل السعر محسوب تلقائيًا
+    if (sellByPiece && unitsPerPackage != null && sellingPrice != null) {
+      this.piecePrice ??= sellingPrice! / unitsPerPackage!;
+    }
   }
 
 
+  // ===== Computed Properties =====
+  bool get isLowStock => (minStockLevel != null) ? quantity <= minStockLevel! : false;
+  bool get isExpired => expiryDate != null ? expiryDate!.isBefore(DateTime.now()) : false;
+
+  // ===== From Map =====
+  factory Medicine.fromMap(Map<String, dynamic> data) {
+    int safeInt(dynamic value) => int.tryParse(value?.toString() ?? '') ?? 0;
+    double safeDouble(dynamic value) => double.tryParse(value?.toString() ?? '') ?? 0;
+
+    UnitType? safeUnit(String? value) {
+      if (value == null) return null;
+      return UnitType.values.firstWhere(
+            (e) => e.name == value,
+        orElse: () => UnitType.Tablet,
+      );
+    }
+
+    DateTime? parseDate(dynamic value) {
+      if (value == null) return null;
+      if (value is Timestamp) return value.toDate();
+      return DateTime.tryParse(value.toString());
+    }
+
+    bool sellByPiece = data['sellByPiece'] ?? false;
+    int? units = safeInt(data['unitsPerPackage']);
+    double? sellingPrice = safeDouble(data['sellingPrice']);
+    double? piecePrice;
+    if (sellByPiece && units > 0 && sellingPrice > 0) {
+      piecePrice = sellingPrice / units;
+    }
+
+    return Medicine(
+      id: data['id']?.toString() ?? '',
+      name: data['name']?.toString() ?? '',
+      scientificName: data['scientificName']?.toString(),
+      quantity: safeInt(data['quantity']),
+      description: data['description']?.toString(),
+      category: data['category']?.toString(),
+      purchasePrice: safeDouble(data['purchasePrice']),
+      sellingPrice: sellingPrice,
+      unit: safeUnit(data['unit']?.toString()),
+      unitsPerPackage: units,
+      sellByPiece: sellByPiece,
+      piecePrice: piecePrice,
+      minStockLevel: safeInt(data['minStockLevel']),
+      supplier: data['supplier']?.toString(),
+      expiryDate: parseDate(data['expiryDate']),
+      barcode: data['barcode']?.toString(),
+      imageUrl: data['imageUrl']?.toString(),
+      lastUpdated: parseDate(data['lastUpdated']) ?? DateTime.now(),
+    );
+  }
+
+  // ===== Copy With =====
   Medicine copyWith({
     String? id,
     String? name,
@@ -128,9 +124,8 @@ class Medicine {
     double? sellingPrice,
     UnitType? unit,
     int? unitsPerPackage,
-    bool? sellByStrip,
-    int? stripsPerBox,
-    double? stripPrice,
+    bool? sellByPiece,
+    double? piecePrice,
     int? minStockLevel,
     String? supplier,
     DateTime? expiryDate,
@@ -138,20 +133,28 @@ class Medicine {
     String? imageUrl,
     DateTime? lastUpdated,
   }) {
+    int? finalUnits = unitsPerPackage ?? this.unitsPerPackage;
+    double? finalSelling = sellingPrice ?? this.sellingPrice;
+    bool finalSellByPiece = sellByPiece ?? this.sellByPiece;
+    double? finalPiecePrice = piecePrice ?? this.piecePrice;
+
+    if (finalSellByPiece && finalUnits != null && finalSelling != null) {
+      finalPiecePrice ??= finalSelling / finalUnits;
+    }
+
     return Medicine(
       id: id ?? this.id,
       name: name ?? this.name,
-      scientificName: scientificName ?? this.scientificName,
+      scientificName: scientificName?.isNotEmpty == true ? scientificName : (name ?? this.name),
       quantity: quantity ?? this.quantity,
       description: description ?? this.description,
       category: category ?? this.category,
       purchasePrice: purchasePrice ?? this.purchasePrice,
-      sellingPrice: sellingPrice ?? this.sellingPrice,
+      sellingPrice: finalSelling,
       unit: unit ?? this.unit,
-      unitsPerPackage: unitsPerPackage ?? this.unitsPerPackage,
-      sellByStrip: sellByStrip ?? this.sellByStrip,
-      stripsPerBox: stripsPerBox ?? this.stripsPerBox,
-      stripPrice: stripPrice ?? this.stripPrice,
+      unitsPerPackage: finalUnits,
+      sellByPiece: finalSellByPiece,
+      piecePrice: finalPiecePrice,
       minStockLevel: minStockLevel ?? this.minStockLevel,
       supplier: supplier ?? this.supplier,
       expiryDate: expiryDate ?? this.expiryDate,
@@ -162,28 +165,40 @@ class Medicine {
   }
 
   // ===== To Map =====
-  Map<String, dynamic> toMap() {
-    return {
+  Map<String, dynamic> toMap({bool forFirestore = false}) {
+    final map = {
       'id': id,
       'name': name,
       'scientificName': scientificName,
       'quantity': quantity,
-
       'description': description,
       'category': category,
       'purchasePrice': purchasePrice,
       'sellingPrice': sellingPrice,
       'unit': unit?.name,
       'unitsPerPackage': unitsPerPackage,
-      'sellByStrip': sellByStrip ?? false,
-      'stripsPerBox': stripsPerBox,
-      'stripPrice': stripPrice,
+      'sellByPiece': sellByPiece,
+      'piecePrice': piecePrice,
       'minStockLevel': minStockLevel,
       'supplier': supplier,
       'expiryDate': expiryDate?.toIso8601String(),
       'barcode': barcode,
       'imageUrl': imageUrl,
-      'lastUpdated': lastUpdated?.toIso8601String() ?? DateTime.now().toIso8601String(),
     };
+
+    if (forFirestore) {
+      map['lastUpdated'] = lastUpdated != null
+          ? Timestamp.fromDate(lastUpdated!)
+          : FieldValue.serverTimestamp();
+    } else {
+      map['lastUpdated'] = lastUpdated?.toIso8601String() ?? DateTime.now().toIso8601String();
+    }
+
+    return map;
+  }
+
+  @override
+  String toString() {
+    return 'Medicine(id: $id, name: $name, scientificName: $scientificName, quantity: $quantity, unit: ${unit?.name}, sellByPiece: $sellByPiece, piecePrice: $piecePrice)';
   }
 }

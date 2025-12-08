@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:file_picker/file_picker.dart';
@@ -112,109 +113,78 @@ class InventoryToolbar extends StatelessWidget {
 
   Future<void> _importFromCSV(InventoryController controller) async {
     try {
+      // 1. اختيار ملف CSV
       FilePickerResult? picked = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ["csv"],
+        allowedExtensions: ['csv'],
         dialogTitle: 'اختر ملف CSV للاستيراد',
         allowMultiple: false,
       );
 
-      if (picked == null) return;
+      if (picked == null || picked.files.isEmpty) return;
 
-      final filePath = picked.files.single.path!;
-      final csvString = await File(filePath).readAsString();
-
-      final List<List<dynamic>> table =
-      CsvToListConverter().convert(csvString);
-
-      if (table.isEmpty) {
-        Get.snackbar("فشل", "الملف فارغ أو غير صالح",
-            backgroundColor: Colors.red, colorText: Colors.white);
+      final file = picked.files.first;
+      if (file.path == null || file.path!.isEmpty) {
+        Get.snackbar("فشل", "تعذر الوصول إلى الملف");
         return;
       }
 
-      final csvHeaders = table.first;
+      final filePath = file.path!;
+      final csvFile = File(filePath);
 
-      // فتح نافذة اختيار الأعمدة
+      if (!await csvFile.exists()) {
+        Get.snackbar("فشل", "الملف غير موجود");
+        return;
+      }
+
+      // 2. قراءة وتحليل CSV
+      final csvString = await csvFile.readAsString();
+      final converter = CsvToListConverter();
+      final table = converter.convert(csvString);
+
+      if (table.isEmpty) {
+        Get.snackbar("فشل", "الملف فارغ");
+        return;
+      }
+
+      final csvHeaders = table.first.map((e) => e.toString().trim()).toList();
+
+      // 3. فتح نافذة اختيار الأعمدة
       final mapping = await Get.dialog<Map<String, int>>(
         CSVImportDialog(headers: csvHeaders),
         barrierDismissible: false,
       );
 
       if (mapping == null || mapping.isEmpty) {
-        Get.snackbar("ملاحظة", "تم إلغاء عملية الاستيراد",
-            backgroundColor: Colors.orange, colorText: Colors.white);
+        Get.snackbar("ملاحظة", "تم إلغاء الاستيراد");
         return;
       }
 
-      // تجهيز البيانات للاستيراد
-      final List<Map<String, dynamic>> finalData = [];
-
-      int skippedRows = 0;
-      for (int i = 1; i < table.length; i++) {
-        try {
-          final row = table[i];
-          final item = <String, dynamic>{};
-
-          mapping.forEach((field, index) {
-            if (index < row.length) {
-              item[field] = row[index];
-            }
-          });
-
-          // التحقق من وجود البيانات الأساسية
-          final name = item['name']?.toString()?.trim() ?? '';
-          final scientificName = item['scientificName']?.toString()?.trim() ?? '';
-
-          if (name.isNotEmpty && scientificName.isNotEmpty) {
-            finalData.add(item);
-          } else {
-            skippedRows++;
-          }
-        } catch (e) {
-          skippedRows++;
-          continue;
-        }
-      }
-
-      if (finalData.isEmpty) {
-        Get.snackbar("فشل", "لم يتم العثور على بيانات صالحة للاستيراد",
-            backgroundColor: Colors.red, colorText: Colors.white);
+      // 4. التأكد من تعيين الاسم
+      if (!mapping.containsKey('name')) {
+        Get.defaultDialog(
+          title: "تنبيه",
+          middleText: "يجب تحديد عمود 'الاسم' (name) للاستيراد.\n\n"
+              "يمكنك تخطي 'الاسم العلمي' (scientificName) إذا لم يكن موجوداً في الملف.",
+          textConfirm: "حسناً",
+          onConfirm: () => Get.back(),
+        );
         return;
       }
 
-      // استيراد البيانات
+      // 5. استيراد البيانات
       await controller.importFromCSV(filePath, mapping);
 
-      // عرض تقرير الاستيراد
-      if (skippedRows > 0) {
-        Get.snackbar(
-          "استيراد جزئي",
-          "تم استيراد ${finalData.length} عنصر، تم تخطي $skippedRows صف",
-          backgroundColor: Colors.orange,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 5),
-        );
-      } else {
-        Get.snackbar(
-          "نجاح",
-          "تم استيراد ${finalData.length} عنصر بنجاح",
-          backgroundColor: Colors.green,
-          colorText: Colors.white,
-        );
-      }
     } catch (e) {
       print('CSV Import Error: $e');
       Get.snackbar(
         "خطأ في الاستيراد",
-        "حدث خطأ أثناء معالجة الملف: ${e.toString()}",
+        "حدث خطأ: ${e.toString()}",
         backgroundColor: Colors.red,
-        colorText: Colors.white,
         duration: const Duration(seconds: 5),
       );
     }
   }
-
   Future<void> _exportData(InventoryController controller) async {
     try {
       // يمكنك إضافة خيارات تصدير هنا

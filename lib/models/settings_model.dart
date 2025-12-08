@@ -1,4 +1,7 @@
+// models/settings_model.dart
+
 class PharmacySettings {
+  final String id; // أضفنا حقل ID
   final String name;
   final String ownerName;
   final String email;
@@ -8,12 +11,11 @@ class PharmacySettings {
   final String status;
   final bool is24Hours;
   final bool isOnline;
-  final String taxNumber;
-  final double taxRate;
   final String currency;
   final BusinessHours businessHours;
 
   PharmacySettings({
+    required this.id, // مطلوب الآن
     required this.name,
     required this.ownerName,
     required this.email,
@@ -23,14 +25,13 @@ class PharmacySettings {
     required this.status,
     required this.is24Hours,
     required this.isOnline,
-    required this.taxNumber,
-    required this.taxRate,
     required this.currency,
     required this.businessHours,
   });
 
   factory PharmacySettings.fromMap(Map<String, dynamic> data) {
     return PharmacySettings(
+      id: data['id'] ?? '',
       name: data['name'] ?? '',
       ownerName: data['ownerName'] ?? '',
       email: data['email'] ?? '',
@@ -40,15 +41,14 @@ class PharmacySettings {
       status: data['status'] ?? '',
       is24Hours: data['is24Hours'] ?? false,
       isOnline: data['isOnline'] ?? false,
-      taxNumber: data['taxNumber'] ?? '',
-      taxRate: (data['taxRate'] ?? 0).toDouble(),
-      currency: data['currency'] ?? 'ريال',
+      currency: data['currency'] ?? 'دينار',
       businessHours: BusinessHours.fromMap(data['businessHours'] ?? {}),
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
+      'id': id,
       'name': name,
       'ownerName': ownerName,
       'email': email,
@@ -58,11 +58,39 @@ class PharmacySettings {
       'status': status,
       'is24Hours': is24Hours,
       'isOnline': isOnline,
-      'taxNumber': taxNumber,
-      'taxRate': taxRate,
       'currency': currency,
       'businessHours': businessHours.toMap(),
     };
+  }
+
+  PharmacySettings copyWith({
+    String? id,
+    String? name,
+    String? ownerName,
+    String? email,
+    String? phoneNumber,
+    String? address,
+    String? licenseNumber,
+    String? status,
+    bool? is24Hours,
+    bool? isOnline,
+    String? currency,
+    BusinessHours? businessHours,
+  }) {
+    return PharmacySettings(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      ownerName: ownerName ?? this.ownerName,
+      email: email ?? this.email,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+      address: address ?? this.address,
+      licenseNumber: licenseNumber ?? this.licenseNumber,
+      status: status ?? this.status,
+      is24Hours: is24Hours ?? this.is24Hours,
+      isOnline: isOnline ?? this.isOnline,
+      currency: currency ?? this.currency,
+      businessHours: businessHours ?? this.businessHours,
+    );
   }
 }
 
@@ -107,5 +135,25 @@ class BusinessHours {
       'friday': friday,
       'saturday': saturday,
     };
+  }
+
+  BusinessHours copyWith({
+    String? sunday,
+    String? monday,
+    String? tuesday,
+    String? wednesday,
+    String? thursday,
+    String? friday,
+    String? saturday,
+  }) {
+    return BusinessHours(
+      sunday: sunday ?? this.sunday,
+      monday: monday ?? this.monday,
+      tuesday: tuesday ?? this.tuesday,
+      wednesday: wednesday ?? this.wednesday,
+      thursday: thursday ?? this.thursday,
+      friday: friday ?? this.friday,
+      saturday: saturday ?? this.saturday,
+    );
   }
 }

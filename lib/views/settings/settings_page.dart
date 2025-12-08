@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../controllers/settings_controller.dart';
 import '../../models/settings_model.dart';
+import '../employees/employees_page.dart';
 
 class SettingsPage extends StatelessWidget {
   SettingsPage({super.key});
@@ -35,6 +36,47 @@ class SettingsPage extends StatelessWidget {
 
               // أزرار الحفظ
               _buildActionButtons(),
+
+              // في نهاية ملف SettingsPage.dart بعد _buildActionButtons()
+
+// إدارة الموظفين
+              Card(
+                elevation: 4,
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.people, color: Colors.purple),
+                          SizedBox(width: 8),
+                          Text(
+                            'إدارة الموظفين',
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'إدارة موظفي الصيدلية، الأدوار، والصلاحيات',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                      const SizedBox(height: 20),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.people_alt),
+                          label: const Text('إدارة الموظفين'),
+                          onPressed: () {
+                            Get.to(() => EmployeesPage());
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         );
@@ -157,7 +199,7 @@ class SettingsPage extends StatelessWidget {
                     subtitle: const Text('الصيدلية مفتوحة 24 ساعة'),
                     value: settings.is24Hours,
                     onChanged: (value) {
-                      _updateSetting('is24Hours', value);
+                      //_updateSetting('is24Hours', value);
                     },
                   ),
                 ),
@@ -167,7 +209,7 @@ class SettingsPage extends StatelessWidget {
                     subtitle: const Text('الصيدلية متاحة للطلبات'),
                     value: settings.isOnline,
                     onChanged: (value) {
-                      _updateSetting('isOnline', value);
+                     // _updateSetting('isOnline', value);
                     },
                   ),
                 ),
@@ -264,13 +306,6 @@ class SettingsPage extends StatelessWidget {
             const SizedBox(height: 20),
             Row(
               children: [
-                Expanded(
-                  child: _buildFinancialField('رقم السجل الضريبي', settings.taxNumber),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: _buildFinancialField('نسبة الضريبة', '${settings.taxRate}%'),
-                ),
                 const SizedBox(width: 20),
                 Expanded(
                   child: _buildFinancialField('العملة', settings.currency),
@@ -345,25 +380,7 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
-  void _updateSetting(String key, dynamic value) {
-    final currentSettings = settingsController.settings.value;
-    final newSettings = PharmacySettings(
-      name: currentSettings.name,
-      ownerName: currentSettings.ownerName,
-      email: currentSettings.email,
-      phoneNumber: currentSettings.phoneNumber,
-      address: currentSettings.address,
-      licenseNumber: currentSettings.licenseNumber,
-      status: currentSettings.status,
-      is24Hours: key == 'is24Hours' ? value : currentSettings.is24Hours,
-      isOnline: key == 'isOnline' ? value : currentSettings.isOnline,
-      taxNumber: currentSettings.taxNumber,
-      taxRate: currentSettings.taxRate,
-      currency: currentSettings.currency,
-      businessHours: currentSettings.businessHours,
-    );
-    settingsController.updateSettings(newSettings);
-  }
+
 
   void _showEditPharmacyInfoDialog() {
     // TODO: تنفيذ نافذة تعديل معلومات الصيدلية
@@ -379,4 +396,7 @@ class SettingsPage extends StatelessWidget {
     // TODO: تنفيذ نافذة تعديل الإعدادات المالية
     Get.snackbar('تعديل', 'سيتم تنفيذ نافذة تعديل الإعدادات المالية');
   }
+
+
+
 }
