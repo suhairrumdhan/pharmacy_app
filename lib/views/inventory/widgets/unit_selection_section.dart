@@ -15,6 +15,8 @@ class UnitSelectionSection extends StatelessWidget {
         title: 'نوع الدواء',
         icon: Icons.medical_services,
         children: [
+          const SizedBox(height: 16),
+
           InputDecorator(
             decoration: InputDecoration(
               labelText: 'اختر نوع الدواء',
@@ -39,6 +41,8 @@ class UnitSelectionSection extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 50),
+
         ],
       );
     });

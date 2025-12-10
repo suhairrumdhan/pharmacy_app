@@ -150,7 +150,7 @@ class MedicinesTableStyle {
   static EdgeInsets get statItemPadding => EdgeInsets.symmetric(horizontal: 12, vertical: 6);
 
   // Sizes
-  static double get medicineIconSize => 50;
+  static double get medicineIconSize => 80;
   static double get headerIconSize => 24;
   static double get actionIconSize => 16;
   static double get statIconSize => 20;

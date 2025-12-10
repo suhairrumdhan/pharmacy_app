@@ -17,6 +17,7 @@ class SignUpPage extends StatefulWidget {
 
 class _SignUpPageState extends State<SignUpPage> {
   late final SignUpLogic logic;
+  bool showPass = false;
 
   @override
   void initState() {
@@ -34,17 +35,11 @@ class _SignUpPageState extends State<SignUpPage> {
     super.dispose();
   }
 
-  void _onSignUpSuccess() {
-    // Handle successful signup if needed
-  }
-
-  void _navigateToLogin() {
-    Get.off(() => const LoginPage());
-  }
+  void _onSignUpSuccess() {}
+  void _navigateToLogin() => Get.off(() => const LoginPage());
 
   void _showOverlay() {
     logic.removeOverlay();
-
     if (logic.searchResults.isNotEmpty && logic.searchFocusNode.hasFocus) {
       logic.overlayEntry = SearchOverlay.createOverlay(
         layerLink: logic.layerLink,
@@ -53,7 +48,6 @@ class _SignUpPageState extends State<SignUpPage> {
         onSelectResult: logic.selectSearchResult,
         getIconForType: logic.getIconForType,
       );
-
       Overlay.of(context).insert(logic.overlayEntry!);
     }
   }
@@ -61,49 +55,69 @@ class _SignUpPageState extends State<SignUpPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SingleChildScrollView(
-        child: Center(
-          child: Container(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.9,
-              minWidth: 800,
-            ),
-            padding: const EdgeInsets.all(20),
-            margin: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: const [
-                BoxShadow(
-                  blurRadius: 12,
-                  color: Colors.black12,
-                  offset: Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Form(
-              key: logic.formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 10),
-                  const Center(
-                    child: Text(
-                      "تسجيل صيدلية",
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  _buildMainContent(),
-                ],
+      body: Stack(
+        children: [
+          // الخلفية - صورة
+          Container(
+            decoration: const BoxDecoration(
+              image: DecorationImage(
+                image: AssetImage('assets/images/bg.jpg'), // نفس الصورة المستخدمة في LoginPage
+                fit: BoxFit.cover,
               ),
             ),
           ),
-        ),
+
+          // طبقة شفافة لتعتيم الخلفية قليلاً
+          Container(
+            color: Colors.black.withOpacity(0.3),
+          ),
+
+          // المحتوى
+          SingleChildScrollView(
+            child: Center(
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.9,
+                  minWidth: 800,
+                ),
+                padding: const EdgeInsets.all(20),
+                margin: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.9), // صندوق شبه شفاف
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: const [
+                    BoxShadow(
+                      blurRadius: 12,
+                      color: Colors.black12,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Form(
+                  key: logic.formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 10),
+                      const Center(
+                        child: Text(
+                          "تسجيل صيدلية",
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      _buildMainContent(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -112,17 +126,9 @@ class _SignUpPageState extends State<SignUpPage> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Left Column - Account and Pharmacy Info
-        Expanded(
-          flex: 6,
-          child: _buildAccountAndPharmacyInfo(),
-        ),
+        Expanded(flex: 6, child: _buildAccountAndPharmacyInfo()),
         const SizedBox(width: 30),
-        // Right Column - Map Section
-        Expanded(
-          flex: 7,
-          child: _buildMapSection(),
-        ),
+        Expanded(flex: 7, child: _buildMapSection()),
       ],
     );
   }
@@ -151,8 +157,13 @@ class _SignUpPageState extends State<SignUpPage> {
                 controller: logic.emailController,
                 label: "البريد الإلكتروني",
                 icon: Icons.email,
+                focusNode: logic.emailFocus,
                 keyboardType: TextInputType.emailAddress,
                 validator: logic.emailValidator,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) {
+                  FocusScope.of(context).requestFocus(logic.passwordFocus);
+                },
                 onChanged: (value) => logic.controller.email.value = value,
               ),
             ),
@@ -162,8 +173,22 @@ class _SignUpPageState extends State<SignUpPage> {
                 controller: logic.passwordController,
                 label: "كلمة المرور",
                 icon: Icons.lock,
-                obscureText: true,
+                obscureText: !showPass,
+                focusNode: logic.passwordFocus,
                 validator: logic.passwordValidator,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) {
+                  FocusScope.of(context).requestFocus(logic.pharmacyNameFocus);
+                },
+                suffixIcon: IconButton(
+                  icon:
+                  Icon(showPass ? Icons.visibility : Icons.visibility_off),
+                  onPressed: () {
+                    setState(() {
+                      showPass = !showPass;
+                    });
+                  },
+                ),
                 onChanged: (value) => logic.controller.password.value = value,
               ),
             ),
@@ -183,7 +208,13 @@ class _SignUpPageState extends State<SignUpPage> {
                 controller: logic.pharmacyNameController,
                 label: "اسم الصيدلية",
                 icon: Icons.local_pharmacy,
-                validator: (value) => logic.requiredValidator(value, 'اسم الصيدلية'),
+                focusNode: logic.pharmacyNameFocus,
+                validator: (value) =>
+                    logic.requiredValidator(value, 'اسم الصيدلية'),
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) {
+                  FocusScope.of(context).requestFocus(logic.ownerNameFocus);
+                },
                 onChanged: (value) => logic.controller.pharmacyName.value = value,
               ),
             ),
@@ -193,7 +224,13 @@ class _SignUpPageState extends State<SignUpPage> {
                 controller: logic.ownerNameController,
                 label: "اسم المالك",
                 icon: Icons.person,
-                validator: (value) => logic.requiredValidator(value, 'اسم المالك'),
+                focusNode: logic.ownerNameFocus,
+                validator: (value) =>
+                    logic.requiredValidator(value, 'اسم المالك'),
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) {
+                  FocusScope.of(context).requestFocus(logic.licenseFocus);
+                },
                 onChanged: (value) => logic.controller.ownerName.value = value,
               ),
             ),
@@ -207,7 +244,13 @@ class _SignUpPageState extends State<SignUpPage> {
                 controller: logic.licenseController,
                 label: "رقم الترخيص",
                 icon: Icons.badge,
-                validator: (value) => logic.requiredValidator(value, 'رقم الترخيص'),
+                focusNode: logic.licenseFocus,
+                validator: (value) =>
+                    logic.requiredValidator(value, 'رقم الترخيص'),
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) {
+                  FocusScope.of(context).requestFocus(logic.phoneFocus);
+                },
                 onChanged: (value) => logic.controller.licenseNumber.value = value,
               ),
             ),
@@ -217,8 +260,13 @@ class _SignUpPageState extends State<SignUpPage> {
                 controller: logic.phoneController,
                 label: "رقم الهاتف",
                 icon: Icons.phone,
+                focusNode: logic.phoneFocus,
                 keyboardType: TextInputType.phone,
                 validator: logic.phoneValidator,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) {
+                  FocusScope.of(context).requestFocus(logic.addressFocus);
+                },
                 onChanged: (value) => logic.controller.phoneNumber.value = value,
               ),
             ),
@@ -229,8 +277,11 @@ class _SignUpPageState extends State<SignUpPage> {
           controller: logic.addressController,
           label: "وصف الموقع أو أقرب نقطة دالة",
           icon: Icons.location_on,
+          focusNode: logic.addressFocus,
           maxLines: 2,
           validator: (value) => logic.requiredValidator(value, 'وصف الموقع'),
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => logic.handleSignUp(),
           onChanged: (value) => logic.controller.address.value = value,
         ),
       ],
@@ -284,7 +335,8 @@ class _SignUpPageState extends State<SignUpPage> {
                       controller: TextEditingController(text: logic.searchText),
                       focusNode: logic.searchFocusNode,
                       decoration: InputDecoration(
-                        hintText: "ابحث عن مكان (مثال: طرابلس، حديقة، مستشفى...)",
+                        hintText:
+                        "ابحث عن مكان (مثال: طرابلس، حديقة، مستشفى...)",
                         border: InputBorder.none,
                         suffixIcon: logic.isSearching
                             ? const Padding(
@@ -379,17 +431,14 @@ class _SignUpPageState extends State<SignUpPage> {
               onMyLocation: () async {
                 logic.isMovingMarker = true;
                 setState(() {});
-
                 await logic.controller.getCurrentLocation();
                 if (logic.controller.selectedLocation.value != null) {
                   logic.controller.selectedLocation.value =
                       logic.controller.selectedLocation.value;
                   logic.updateSearchControllerWithCoordinates(
-                    logic.controller.selectedLocation.value!,
-                  );
+                      logic.controller.selectedLocation.value!);
                   logic.removeOverlay();
                 }
-
                 logic.isMovingMarker = false;
                 setState(() {});
               },
@@ -398,9 +447,7 @@ class _SignUpPageState extends State<SignUpPage> {
                 logic.currentMapCenter = null;
                 logic.searchText = '';
                 logic.removeOverlay();
-
                 setState(() {});
-
                 Get.snackbar(
                   "تم المسح",
                   "تم مسح الموقع المحدد",
@@ -419,7 +466,6 @@ class _SignUpPageState extends State<SignUpPage> {
   Widget _buildFlutterMap() {
     return Obx(() {
       final currentLocation = logic.controller.selectedLocation.value;
-
       return FlutterMap(
         mapController: logic.mapController,
         options: MapOptions(
@@ -468,14 +514,11 @@ class _SignUpPageState extends State<SignUpPage> {
   Widget _buildLocationStatus() {
     return Obx(() {
       final selectedLocation = logic.controller.selectedLocation.value;
-      final address = logic.controller.address.value;
-
       return SignUpWidgets.buildLocationStatus(
         hasLocation: selectedLocation != null,
         onCopyCoordinates: selectedLocation != null
             ? () => logic.copyToClipboard(
-          "${selectedLocation.latitude.toStringAsFixed(6)}, ${selectedLocation.longitude.toStringAsFixed(6)}",
-        )
+            "${selectedLocation.latitude.toStringAsFixed(6)}, ${selectedLocation.longitude.toStringAsFixed(6)}")
             : () {},
       );
     });

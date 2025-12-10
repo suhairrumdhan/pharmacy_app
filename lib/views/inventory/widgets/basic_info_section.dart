@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../controllers/add_medicine_controller.dart';
-import 'package:intl/intl.dart';
 
 import '../add_medicine_dialog.dart';
 
@@ -186,10 +185,15 @@ Widget _buildSection({
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 26),
           ...children,
+          const SizedBox(height: 26),
+
         ],
+
       ),
+
     ),
+
   );
 }

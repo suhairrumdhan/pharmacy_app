@@ -10,9 +10,6 @@ class PurchaseInfoSection extends StatelessWidget {
 
   PurchaseInfoSection({super.key, required this.controller});
 
-  // ------------------------------
-  // 🔵 المتغيرات المحلية
-  // ------------------------------
   final Rx<PurchaseType> purchaseType = PurchaseType.retail.obs;
 
   final TextEditingController retailPrice = TextEditingController();
@@ -22,7 +19,6 @@ class PurchaseInfoSection extends StatelessWidget {
   final TextEditingController piecesPerBox = TextEditingController();
   final TextEditingController boxPrice = TextEditingController();
 
-  // حساب الكمية النهائية
   int get totalPieces {
     if (purchaseType.value == PurchaseType.wholesale) {
       int b = int.tryParse(boxCount.text) ?? 0;
@@ -32,7 +28,6 @@ class PurchaseInfoSection extends StatelessWidget {
     return int.tryParse(retailQty.text) ?? 0;
   }
 
-  // حساب سعر القطعة
   double get pricePerPiece {
     if (purchaseType.value == PurchaseType.wholesale) {
       double bp = double.tryParse(boxPrice.text) ?? 0;
@@ -48,7 +43,6 @@ class PurchaseInfoSection extends StatelessWidget {
       title: ' الشراء والمخزون',
       icon: Icons.shopping_cart,
       children: [
-
         // ---------------------- Radio Buttons ----------------------
         Obx(() => Row(
           children: [
@@ -72,13 +66,17 @@ class PurchaseInfoSection extends StatelessWidget {
         )),
         const SizedBox(height: 16),
 
-        // ---------------------- UI Switch ----------------------
+        // ---------------------- Animated Switch ----------------------
         Obx(() {
-          if (purchaseType.value == PurchaseType.retail) {
-            return _buildRetailFields();
-          } else {
-            return _buildWholesaleFields();
-          }
+          return ClipRect(
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.fastOutSlowIn,
+              child: purchaseType.value == PurchaseType.retail
+                  ? _buildRetailFields()
+                  : _buildWholesaleFields(),
+            ),
+          );
         }),
 
         const SizedBox(height: 16),
@@ -103,24 +101,17 @@ class PurchaseInfoSection extends StatelessWidget {
     );
   }
 
-  // ----------------------------------------------------------
-  // 🔵  UI — شراء قطاعي
-  // ----------------------------------------------------------
+  // ---------------------- UI — شراء قطاعي ----------------------
   Widget _buildRetailFields() {
     return Column(
+      key: const ValueKey("retail"),
       children: [
         Row(
           children: [
             Expanded(
               child: TextFormField(
                 controller: retailPrice,
-                decoration: InputDecoration(
-                  labelText: 'سعر الشراء للقطعة',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.attach_money),
-                  filled: true,
-                  fillColor: Colors.grey[50],
-                ),
+                decoration: _input("سعر الشراء للقطعة", Icons.attach_money),
                 onChanged: (_) => purchaseType.refresh(),
                 keyboardType: TextInputType.number,
               ),
@@ -129,13 +120,7 @@ class PurchaseInfoSection extends StatelessWidget {
             Expanded(
               child: TextFormField(
                 controller: retailQty,
-                decoration: InputDecoration(
-                  labelText: 'الكمية بالقطع',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.inventory),
-                  filled: true,
-                  fillColor: Colors.grey[50],
-                ),
+                decoration: _input("الكمية بالقطع", Icons.inventory),
                 onChanged: (_) => purchaseType.refresh(),
                 keyboardType: TextInputType.number,
               ),
@@ -146,24 +131,17 @@ class PurchaseInfoSection extends StatelessWidget {
     );
   }
 
-  // ----------------------------------------------------------
-  // 🔵  UI — شراء جملة (صناديق)
-  // ----------------------------------------------------------
+  // ---------------------- UI — شراء جملة ----------------------
   Widget _buildWholesaleFields() {
     return Column(
+      key: const ValueKey("wholesale"),
       children: [
         Row(
           children: [
             Expanded(
               child: TextFormField(
                 controller: boxCount,
-                decoration: InputDecoration(
-                  labelText: 'عدد الصناديق',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.inventory_2),
-                  filled: true,
-                  fillColor: Colors.grey[50],
-                ),
+                decoration: _input("عدد الصناديق", Icons.inventory_2),
                 onChanged: (_) => purchaseType.refresh(),
                 keyboardType: TextInputType.number,
               ),
@@ -172,13 +150,7 @@ class PurchaseInfoSection extends StatelessWidget {
             Expanded(
               child: TextFormField(
                 controller: piecesPerBox,
-                decoration: InputDecoration(
-                  labelText: 'عدد القطع في الصندوق',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.format_list_numbered),
-                  filled: true,
-                  fillColor: Colors.grey[50],
-                ),
+                decoration: _input("عدد القطع في الصندوق", Icons.format_list_numbered),
                 onChanged: (_) => purchaseType.refresh(),
                 keyboardType: TextInputType.number,
               ),
@@ -188,24 +160,27 @@ class PurchaseInfoSection extends StatelessWidget {
         const SizedBox(height: 16),
         TextFormField(
           controller: boxPrice,
-          decoration: InputDecoration(
-            labelText: 'سعر الصندوق الواحد',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            prefixIcon: const Icon(Icons.attach_money),
-            filled: true,
-            fillColor: Colors.grey[50],
-          ),
+          decoration: _input("سعر الصندوق الواحد", Icons.attach_money),
           onChanged: (_) => purchaseType.refresh(),
           keyboardType: TextInputType.number,
         ),
       ],
     );
   }
+
+  // ---------------------- Input Decoration Helper ----------------------
+  InputDecoration _input(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      prefixIcon: Icon(icon),
+      filled: true,
+      fillColor: Colors.grey[50],
+    );
+  }
 }
 
-// ----------------------------------------------------------
-// 🔵  Section Wrapper
-// ----------------------------------------------------------
+// ---------------------- Section Wrapper ----------------------
 Widget _buildSection({
   required String title,
   required IconData icon,

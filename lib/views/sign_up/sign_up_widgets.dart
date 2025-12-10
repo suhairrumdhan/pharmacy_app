@@ -58,10 +58,22 @@ class SignUpWidgets {
     int maxLines = 1,
     String? Function(String?)? validator,
     void Function(String)? onChanged,
+    Widget? suffixIcon,       // 👈 تمت إضافتها
+
+    // ⬅ إضافات جديدة لتمكين التنقل بين الحقول
+    FocusNode? focusNode,
+    TextInputAction textInputAction = TextInputAction.next,
+    void Function(String)? onSubmitted,
+
     bool enabled = true,
+
   }) {
     return TextFormField(
       controller: controller,
+      focusNode: focusNode,
+      textInputAction: textInputAction,
+      onFieldSubmitted: onSubmitted,
+
       decoration: InputDecoration(
         labelText: label,
         border: const OutlineInputBorder(),
@@ -69,7 +81,10 @@ class SignUpWidgets {
         filled: true,
         fillColor: Colors.grey[50],
         enabled: enabled,
+        suffixIcon: suffixIcon,      // 👈 هنا مكانه الصحيح
+
       ),
+
       obscureText: obscureText,
       keyboardType: keyboardType,
       maxLines: maxLines,

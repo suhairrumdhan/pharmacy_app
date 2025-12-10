@@ -155,7 +155,10 @@ Widget _buildSection({
           ),
           const SizedBox(height: 16),
           ...children,
+          const SizedBox(height: 26),
+
         ],
+
       ),
     ),
   );

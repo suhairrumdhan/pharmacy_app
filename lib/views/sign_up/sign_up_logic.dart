@@ -31,6 +31,14 @@ class SignUpLogic {
   bool isMovingMarker = false;
   LatLng? currentMapCenter;
   double currentZoom = 12.0;
+  // Focus nodes for navigating with Enter
+  final FocusNode emailFocus = FocusNode();
+  final FocusNode passwordFocus = FocusNode();
+  final FocusNode pharmacyNameFocus = FocusNode();
+  final FocusNode ownerNameFocus = FocusNode();
+  final FocusNode licenseFocus = FocusNode();
+  final FocusNode phoneFocus = FocusNode();
+  final FocusNode addressFocus = FocusNode();
 
   // Callback functions
   VoidCallback? onSignUpSuccess;
