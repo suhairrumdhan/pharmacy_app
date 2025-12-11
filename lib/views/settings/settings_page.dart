@@ -1,3 +1,9 @@
+
+
+
+
+
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:pharmacy_desktop/views/settings/widgets/business_hours_widget.dart';
@@ -42,7 +48,7 @@ class SettingsPage extends StatelessWidget {
                     if (!(settings.is24Hours ?? false))
                       buildBusinessHoursCard(context,settings.businessHours),
                     if (!(settings.is24Hours ?? false))
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 18),
                   ],
                 ),
 

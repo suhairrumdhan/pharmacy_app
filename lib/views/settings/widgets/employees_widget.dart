@@ -1,5 +1,12 @@
+
+
+
+
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+
+import '../dialogs/employee_management_dialog.dart';
 
 Widget buildEmployeesCard() {
   return Card(
@@ -63,6 +70,7 @@ Widget buildEmployeesCard() {
                       child: _buildManagementButton(
                         title: 'إضافة/حذف/تعديل الموظفين',
                         icon: Icons.person_add_rounded,
+                        onTap: () => _showEmployeeDialog(),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -114,8 +122,74 @@ Widget buildEmployeesCard() {
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+Widget _buildManagementButton({
+  required String title,
+  required IconData icon,
+  VoidCallback? onTap,
+  Color? iconColor,
+  Color? backgroundColor,
+}) {
+  return MouseRegion(
+    cursor: SystemMouseCursors.click, // ← الآن المؤشر يعمل على كامل المساحة
+    child: GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: backgroundColor ?? Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.blue.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+          border: Border.all(
+            color: Colors.blue.withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: (iconColor ?? Colors.blue.shade700).withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              padding: const EdgeInsets.all(10),
+              child: Icon(
+                icon,
+                color: iconColor ?? Colors.blue.shade700,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade800,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Transform.rotate(
+              angle: 3.14,
+              child: Icon(
+                Icons.chevron_left_rounded,
+                color: (iconColor ?? Colors.blue.shade700).withOpacity(0.8),
+                size: 28,
+              ),
+            ),
           ],
         ),
       ),
@@ -123,73 +197,18 @@ Widget buildEmployeesCard() {
   );
 }
 
-// دالة لبناء زر الإدارة (بنفس تصميم الزر الأصلي)
-Widget _buildManagementButton({
-  required String title,
-  required IconData icon,
-}) {
-  return MouseRegion(
-    cursor: SystemMouseCursors.click, // هذا يجعل الماوس يتحول ليد
-    child: Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.blue.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 8,
-        ),
-        leading: Container(
-          decoration: BoxDecoration(
-            color: Colors.blue.withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          padding: const EdgeInsets.all(8),
-          child: Icon(
-            icon,
-            color: Colors.blue.shade700,
-            size: 22,
-          ),
-        ),
-        title: Text(
-          title,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            color: Colors.grey.shade800,
-            fontSize: 14,
-          ),
-        ),
-        trailing: Icon(
-          Icons.chevron_left_rounded,
-          color: Colors.blue.shade700,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        onTap: () {
-          Get.snackbar(
-            'قيد التطوير',
-            'صفحة "$title" قيد التطوير',
-            backgroundColor: Colors.blue.shade50,
-            colorText: Colors.blue.shade800,
-            snackPosition: SnackPosition.BOTTOM,
-            margin: const EdgeInsets.all(16),
-            borderRadius: 12,
-            icon: Icon(
-              Icons.info_rounded,
-              color: Colors.blue.shade700,
-            ),
-          );
-        },
-      ),
-    ),
+
+// Helper function to show the dialog
+void _showEmployeeDialog() {
+  Get.dialog(
+    EmployeeManagementDialog(),
+    barrierDismissible: true,
   );
+  // var context;
+  // showDialog(
+  //   context: context,
+  //   builder: (context) => EmployeeManagementDialog(),
+  // );
 }
+
+
