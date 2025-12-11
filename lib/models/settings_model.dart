@@ -1,99 +1,190 @@
-// models/settings_model.dart
+// models/pharmacy_settings.dart
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class PharmacySettings {
-  final String id; // أضفنا حقل ID
+  final String uid;
   final String name;
   final String ownerName;
+  final String ownerIdNumber;
   final String email;
   final String phoneNumber;
   final String address;
+  final String description;
   final String licenseNumber;
   final String status;
+  final String userType;
   final bool is24Hours;
   final bool isOnline;
-  final String currency;
+  final String? imageUrl;
+  final PharmacyLocation location;
   final BusinessHours businessHours;
+  final Timestamp createdAt;
+  final Timestamp updatedAt;
 
   PharmacySettings({
-    required this.id, // مطلوب الآن
+    required this.uid,
     required this.name,
     required this.ownerName,
+    required this.ownerIdNumber,
     required this.email,
     required this.phoneNumber,
     required this.address,
+    required this.description,
     required this.licenseNumber,
     required this.status,
+    required this.userType,
     required this.is24Hours,
     required this.isOnline,
-    required this.currency,
+    required this.imageUrl,
+    required this.location,
     required this.businessHours,
+    required this.createdAt,
+    required this.updatedAt,
   });
 
-  factory PharmacySettings.fromMap(Map<String, dynamic> data) {
+  // القيمة الافتراضية
+  factory PharmacySettings.empty() {
     return PharmacySettings(
-      id: data['id'] ?? '',
-      name: data['name'] ?? '',
-      ownerName: data['ownerName'] ?? '',
-      email: data['email'] ?? '',
-      phoneNumber: data['phoneNumber'] ?? '',
-      address: data['address'] ?? '',
-      licenseNumber: data['licenseNumber'] ?? '',
-      status: data['status'] ?? '',
+      uid: '',
+      name: '',
+      ownerName: '',
+      ownerIdNumber: '',
+      email: '',
+      phoneNumber: '',
+      address: '',
+      description: '',
+      licenseNumber: '',
+      status: 'pending',
+      userType: 'pharmacy',
+      is24Hours: false,
+      isOnline: false,
+      imageUrl: null,
+      location: PharmacyLocation(latitude: 0, longitude: 0),
+      businessHours: BusinessHours.empty(), // لازم توفرها
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    );
+  }
+
+
+  factory PharmacySettings.fromMap(Map<String, dynamic> data, String documentId) {
+    return PharmacySettings(
+      uid: data['uid'],
+      name: data['name'],
+      ownerName: data['ownerName'],
+      ownerIdNumber: data['ownerIdNumber'],
+      email: data['email'],
+      phoneNumber: data['phoneNumber'],
+      address: data['address'],
+      description: data['description'],
+      licenseNumber: data['licenseNumber'],
+      status: data['status'],
+      userType: data['userType'] ?? 'pharmacy',
       is24Hours: data['is24Hours'] ?? false,
       isOnline: data['isOnline'] ?? false,
-      currency: data['currency'] ?? 'دينار',
+      imageUrl: data['imageUrl']??'',
+      location: PharmacyLocation.fromMap(data['location'] ?? {}),
       businessHours: BusinessHours.fromMap(data['businessHours'] ?? {}),
+      createdAt: data['createdAt'] ?? Timestamp.now(),
+      updatedAt: data['updatedAt'] ?? Timestamp.now(),
+    );
+  }
+  Map<String, dynamic> toMap() {
+    return {
+      'uid': uid,
+      'name': name,
+      'ownerName': ownerName,
+      'ownerIdNumber': ownerIdNumber,
+      'email': email,
+      'phoneNumber': phoneNumber,
+      'address': address,
+      'description': description,
+      'licenseNumber': licenseNumber,
+      'status': status,
+      'userType': userType,
+      'is24Hours': is24Hours,
+      'isOnline': isOnline,
+      'imageUrl': imageUrl,
+      'location': location.toMap(),
+      'businessHours': businessHours.toMap(),
+      'createdAt': createdAt,
+      'updatedAt': updatedAt,
+    };
+  }
+
+  PharmacySettings copyWith({
+    String? name,
+    String? ownerName,
+    String? ownerIdNumber,
+    String? email,
+    String? phoneNumber,
+    String? address,
+    String? description,
+    String? licenseNumber,
+    String? status,
+    bool? is24Hours,
+    bool? isOnline,
+    String? imageUrl,
+    PharmacyLocation? location,
+    BusinessHours? businessHours,
+    Timestamp? updatedAt, // هذا ضروري!
+  }) {
+    return PharmacySettings(
+      uid: uid,
+      name: name ?? this.name,
+      ownerName: ownerName ?? this.ownerName,
+      ownerIdNumber: ownerIdNumber ?? this.ownerIdNumber,
+      email: email ?? this.email,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+      address: address ?? this.address,
+      description: description ?? this.description,
+      licenseNumber: licenseNumber ?? this.licenseNumber,
+      status: status ?? this.status,
+      userType: this.userType,
+      is24Hours: is24Hours ?? this.is24Hours,
+      isOnline: isOnline ?? this.isOnline,
+      imageUrl: imageUrl ?? this.imageUrl,
+      location: location ?? this.location,
+      businessHours: businessHours ?? this.businessHours,
+      createdAt: createdAt,
+      updatedAt: Timestamp.now(),
+    );
+  }
+}
+class PharmacyLocation {
+  final double latitude;
+  final double longitude;
+
+  PharmacyLocation({
+    required this.latitude,
+    required this.longitude,
+  });
+
+  factory PharmacyLocation.fromMap(Map<String, dynamic> data) {
+    return PharmacyLocation(
+      latitude: data['latitude']?.toDouble() ?? 0.0,
+      longitude: data['longitude']?.toDouble() ?? 0.0,
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
-      'id': id,
-      'name': name,
-      'ownerName': ownerName,
-      'email': email,
-      'phoneNumber': phoneNumber,
-      'address': address,
-      'licenseNumber': licenseNumber,
-      'status': status,
-      'is24Hours': is24Hours,
-      'isOnline': isOnline,
-      'currency': currency,
-      'businessHours': businessHours.toMap(),
+      'latitude': latitude,
+      'longitude': longitude,
     };
   }
 
-  PharmacySettings copyWith({
-    String? id,
-    String? name,
-    String? ownerName,
-    String? email,
-    String? phoneNumber,
-    String? address,
-    String? licenseNumber,
-    String? status,
-    bool? is24Hours,
-    bool? isOnline,
-    String? currency,
-    BusinessHours? businessHours,
+  PharmacyLocation copyWith({
+    double? latitude,
+    double? longitude,
   }) {
-    return PharmacySettings(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      ownerName: ownerName ?? this.ownerName,
-      email: email ?? this.email,
-      phoneNumber: phoneNumber ?? this.phoneNumber,
-      address: address ?? this.address,
-      licenseNumber: licenseNumber ?? this.licenseNumber,
-      status: status ?? this.status,
-      is24Hours: is24Hours ?? this.is24Hours,
-      isOnline: isOnline ?? this.isOnline,
-      currency: currency ?? this.currency,
-      businessHours: businessHours ?? this.businessHours,
+    return PharmacyLocation(
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
     );
   }
 }
-
 class BusinessHours {
   final String sunday;
   final String monday;
@@ -113,7 +204,18 @@ class BusinessHours {
     required this.saturday,
   });
 
-  factory BusinessHours.fromMap(Map<String, dynamic> data) {
+  factory BusinessHours.fromMap(Map<String, dynamic> data, {bool is24Hours = false}) {
+    if (is24Hours) {
+      return BusinessHours(
+        sunday: '24 Hours',
+        monday: '24 Hours',
+        tuesday: '24 Hours',
+        wednesday: '24 Hours',
+        thursday: '24 Hours',
+        friday: '24 Hours',
+        saturday: '24 Hours',
+      );
+    }
     return BusinessHours(
       sunday: data['sunday'] ?? '09:00 - 18:00',
       monday: data['monday'] ?? '09:00 - 18:00',
@@ -122,6 +224,30 @@ class BusinessHours {
       thursday: data['thursday'] ?? '09:00 - 18:00',
       friday: data['friday'] ?? '09:00 - 18:00',
       saturday: data['saturday'] ?? '09:00 - 18:00',
+    );
+  }
+
+  factory BusinessHours.empty({bool is24Hours = false}) {
+    if (is24Hours) {
+      return BusinessHours(
+        sunday: '24 Hours',
+        monday: '24 Hours',
+        tuesday: '24 Hours',
+        wednesday: '24 Hours',
+        thursday: '24 Hours',
+        friday: '24 Hours',
+        saturday: '24 Hours',
+      );
+    }
+
+    return BusinessHours(
+      sunday: '09:00 - 18:00',
+      monday: '09:00 - 18:00',
+      tuesday: '09:00 - 18:00',
+      wednesday: '09:00 - 18:00',
+      thursday: '09:00 - 18:00',
+      friday: '09:00 - 18:00',
+      saturday: '09:00 - 18:00',
     );
   }
 
@@ -135,25 +261,5 @@ class BusinessHours {
       'friday': friday,
       'saturday': saturday,
     };
-  }
-
-  BusinessHours copyWith({
-    String? sunday,
-    String? monday,
-    String? tuesday,
-    String? wednesday,
-    String? thursday,
-    String? friday,
-    String? saturday,
-  }) {
-    return BusinessHours(
-      sunday: sunday ?? this.sunday,
-      monday: monday ?? this.monday,
-      tuesday: tuesday ?? this.tuesday,
-      wednesday: wednesday ?? this.wednesday,
-      thursday: thursday ?? this.thursday,
-      friday: friday ?? this.friday,
-      saturday: saturday ?? this.saturday,
-    );
   }
 }

@@ -1,446 +1,662 @@
 // controllers/settings_controller.dart
 
-import 'package:get/get.dart';
+import 'dart:async';
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/settings_model.dart';
-import 'auth_controller.dart';
-
 class SettingsController extends GetxController {
-  // الحصول على الـ UID من AuthController أو Firebase مباشرة
+  // ====== Dependencies ======
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+  final ImagePicker _imagePicker = ImagePicker();
+
+  // ====== Basic state ======
   String get pharmacyId => FirebaseAuth.instance.currentUser?.uid ?? '';
 
-  var settings = PharmacySettings(
-    id: '',
-    name: '',
-    ownerName: '',
-    email: '',
-    phoneNumber: '',
-    address: '',
-    licenseNumber: '',
-    status: '',
-    is24Hours: false,
-    isOnline: false,
-    currency: '',
-    businessHours: BusinessHours(
-      sunday: '09:00 - 18:00',
-      monday: '09:00 - 18:00',
-      tuesday: '09:00 - 18:00',
-      wednesday: '09:00 - 18:00',
-      thursday: '09:00 - 18:00',
-      friday: '09:00 - 18:00',
-      saturday: '09:00 - 18:00',
-    ),
-  ).obs;
-
   var isLoading = false.obs;
+  var isUploadingImage = false.obs;
   var errorMessage = ''.obs;
+  var successMessage = ''.obs;
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  // ====== Rx model holder ======
+  var settings = PharmacySettings.empty().obs;
 
+  // ====== Text controllers for UI binding ======
+  final nameController = TextEditingController();
+  final ownerNameController = TextEditingController();
+  final ownerIdNumberController = TextEditingController();
+  final emailController = TextEditingController();
+  final phoneController = TextEditingController();
+  final addressController = TextEditingController();
+  final licenseNumberController = TextEditingController();
+
+  // ====== Reactive simple fields ======
+  var imageUrl = ''.obs;
+  var latitude = 0.0.obs;
+  var longitude = 0.0.obs;
+
+  // ====== Field-specific error messages ======
+  final RxMap<String, String?> fieldErrors = <String, String?>{
+    'name': null,
+    'ownerName': null,
+    'ownerIdNumber': null,
+    'email': null,
+    'phone': null,
+    'address': null,
+    'description': null,
+    'licenseNumber': null,
+  }.obs;
+
+  void initializeControllers(PharmacySettings settings) {
+    nameController.text = settings.name ?? '';
+    ownerNameController.text = settings.ownerName ?? '';
+    ownerIdNumberController.text = settings.ownerIdNumber ?? '';
+    emailController.text = settings.email ?? '';
+    phoneController.text = settings.phoneNumber ?? '';
+    addressController.text = settings.address ?? '';
+    licenseNumberController.text = settings.licenseNumber ?? '';
+  }
   @override
   void onInit() {
     super.onInit();
 
-    // انتظر حتى يكون هناك مستخدم مسجل الدخول
-    ever(Get.find<AuthController>().pharmacyData, (data) {
-      if (data.isNotEmpty && pharmacyId.isNotEmpty) {
-        loadSettings();
-      }
-    });
-
-    // أو يمكنك استخدام هذا إذا كنت تريد تحميل الإعدادات مباشرة
+    // إذا كان المستخدم موجودًا، حمّل الإعدادات تلقائياً
     if (pharmacyId.isNotEmpty) {
       loadSettings();
+      startRealtimeListener();
     }
   }
 
-  // تحميل الإعدادات من Firebase Firestore
+  @override
+  void onClose() {
+    // تنظيف TextEditingControllers
+    nameController.dispose();
+    ownerNameController.dispose();
+    ownerIdNumberController.dispose();
+    emailController.dispose();
+    phoneController.dispose();
+    addressController.dispose();
+    licenseNumberController.dispose();
+    super.onClose();
+  }
+
   Future<void> loadSettings() async {
+    if (pharmacyId.isEmpty) {
+      errorMessage('لم يتم العثور على معرف الصيدلية');
+      return;
+    }
+
     try {
-      if (pharmacyId.isEmpty) {
-        errorMessage('لم يتم العثور على معرف الصيدلية');
-        return;
-      }
-
       isLoading(true);
-      errorMessage('');
+      errorMessage.value = '';
 
-      print('جاري تحميل إعدادات الصيدلية ID: $pharmacyId');
+      final doc = await _firestore.collection('pharmacies').doc(pharmacyId).get();
+      final data = doc.data() ?? {};
 
-      // جلب بيانات الصيدلية من collection 'pharmacies'
-      final pharmacyDoc = await _firestore
-          .collection('pharmacies')
-          .doc(pharmacyId)
-          .get();
+      // معالجة الموقع
+      final locData = (data['location'] is Map)
+          ? Map<String, dynamic>.from(data['location'])
+          : {};
 
-      if (!pharmacyDoc.exists) {
-        // إذا لم توجد بيانات، نبحث في pharmacyRequests
-        await _loadFromPharmacyRequests();
-        return;
-      }
+      final lat = _parseDouble(locData['latitude']) ??
+          _parseDouble(data['latitude']) ??
+          0.0;
 
-      final pharmacyData = pharmacyDoc.data()!;
+      final lng = _parseDouble(locData['longitude']) ??
+          _parseDouble(data['longitude']) ??
+          0.0;
 
-      // جلب أوقات العمل إذا كانت في وثيقة منفصلة
+      // معالجة أوقات العمل
       Map<String, dynamic> businessHoursData = {};
-      final businessHoursDoc = await _firestore
-          .collection('pharmacies')
-          .doc(pharmacyId)
-          .collection('settings')
-          .doc('businessHours')
-          .get();
+      try {
+        final businessHoursDoc = await _firestore
+            .collection('pharmacies')
+            .doc(pharmacyId)
+            .collection('settings')
+            .doc('businessHours')
+            .get();
 
-      if (businessHoursDoc.exists) {
-        businessHoursData = businessHoursDoc.data()!;
+        if (businessHoursDoc.exists && businessHoursDoc.data() != null) {
+          businessHoursData = businessHoursDoc.data()!;
+        } else if (data['businessHours'] is Map) {
+          businessHoursData = Map<String, dynamic>.from(data['businessHours']);
+        }
+      } catch (e) {
+        print('Error loading business hours: $e');
       }
 
-      // تحديث الإعدادات
-      settings.value = PharmacySettings(
-        id: pharmacyId,
-        name: pharmacyData['name']?.toString() ?? '',
-        ownerName: pharmacyData['ownerName']?.toString() ?? '',
-        email: pharmacyData['email']?.toString() ?? '',
-        phoneNumber: pharmacyData['phoneNumber']?.toString() ?? '',
-        address: pharmacyData['address']?.toString() ?? '',
-        licenseNumber: pharmacyData['licenseNumber']?.toString() ?? '',
-        status: pharmacyData['status']?.toString() ?? 'pending',
-        is24Hours: pharmacyData['is24Hours'] ?? false,
-        isOnline: pharmacyData['isOnline'] ?? false,
-        currency: pharmacyData['currency']?.toString() ?? 'دينار',
-        businessHours: BusinessHours(
-          sunday: businessHoursData['sunday']?.toString() ?? '09:00 - 18:00',
-          monday: businessHoursData['monday']?.toString() ?? '09:00 - 18:00',
-          tuesday: businessHoursData['tuesday']?.toString() ?? '09:00 - 18:00',
-          wednesday: businessHoursData['wednesday']?.toString() ?? '09:00 - 18:00',
-          thursday: businessHoursData['thursday']?.toString() ?? '09:00 - 18:00',
-          friday: businessHoursData['friday']?.toString() ?? '09:00 - 18:00',
-          saturday: businessHoursData['saturday']?.toString() ?? '09:00 - 18:00',
+      final is24 = data['is24Hours'] ?? false;
+
+      final loaded = PharmacySettings(
+        uid: data['uid']?.toString() ?? '',
+        name: data['name']?.toString() ?? '',
+        ownerName: data['ownerName']?.toString() ?? '',
+        ownerIdNumber: data['ownerIdNumber']?.toString() ?? '',
+        email: data['email']?.toString() ?? '',
+        phoneNumber: data['phoneNumber']?.toString() ?? '',
+        address: data['address']?.toString() ?? '',
+        description: data['description']?.toString() ?? '',
+        licenseNumber: data['licenseNumber']?.toString() ?? '',
+        status: data['status']?.toString() ?? 'pending',
+        userType: data['userType']?.toString() ?? 'pharmacy',
+        is24Hours: is24,
+        isOnline: data['isOnline'] ?? false,
+        imageUrl: data['imageUrl']?.toString() ?? '',
+        location: PharmacyLocation(latitude: lat, longitude: lng),
+
+        // *** الإصلاح هنا ***
+        businessHours: BusinessHours.fromMap(
+          businessHoursData,
+          is24Hours: is24,
         ),
+
+        createdAt: (data['createdAt'] is Timestamp)
+            ? data['createdAt']
+            : Timestamp.now(),
+        updatedAt: (data['updatedAt'] is Timestamp)
+            ? data['updatedAt']
+            : Timestamp.now(),
       );
 
-      print('تم تحميل الإعدادات بنجاح: ${settings.value.name}');
+      // تحديث الحالة + الكونترولرز
+      settings.value = loaded;
+      imageUrl.value = loaded.imageUrl ?? '';
+      latitude.value = loaded.location?.latitude ?? 0.0;
+      longitude.value = loaded.location?.longitude ?? 0.0;
 
-    } catch (e) {
+      nameController.text = loaded.name ?? '';
+      ownerNameController.text = loaded.ownerName ?? '';
+      ownerIdNumberController.text = loaded.ownerIdNumber ?? '';
+      emailController.text = loaded.email ?? '';
+      phoneController.text = loaded.phoneNumber ?? '';
+      addressController.text = loaded.address ?? '';
+      licenseNumberController.text = loaded.licenseNumber ?? '';
+    } catch (e, st) {
       errorMessage('فشل في تحميل الإعدادات: $e');
-      print('Error loading settings: $e');
+      print('loadSettings error: $e\n$st');
     } finally {
       isLoading(false);
     }
   }
 
-  // تحميل البيانات من طلبات التسجيل (إذا كانت الصيدلية في حالة انتظار الموافقة)
-  Future<void> _loadFromPharmacyRequests() async {
+
+
+  /// اختيار صورة من المعرض ورفعها تلقائياً
+  Future<void> pickAndUploadImage() async {
+    if (pharmacyId.isEmpty) {
+      _showErrorSnackbar('المستخدم غير موثّق');
+      return;
+    }
+
     try {
-      final requestDoc = await _firestore
-          .collection('pharmacyRequests')
-          .doc(pharmacyId)
-          .get();
-
-      if (!requestDoc.exists) {
-        errorMessage('لا توجد بيانات للصيدلية');
-        return;
-      }
-
-      final requestData = requestDoc.data()!;
-
-      settings.value = PharmacySettings(
-        id: pharmacyId,
-        name: requestData['pharmacyName']?.toString() ?? '',
-        ownerName: requestData['ownerName']?.toString() ?? '',
-        email: requestData['email']?.toString() ?? '',
-        phoneNumber: requestData['phoneNumber']?.toString() ?? '',
-        address: requestData['address']?.toString() ?? '',
-        licenseNumber: requestData['licenseNumber']?.toString() ?? '',
-        status: requestData['status']?.toString() ?? 'pending',
-        is24Hours: false, // قيمة افتراضية للطلبات الجديدة
-        isOnline: false,  // قيمة افتراضية للطلبات الجديدة
-        currency: 'دينار', // قيمة افتراضية
-        businessHours: BusinessHours(
-          sunday: '09:00 - 18:00',
-          monday: '09:00 - 18:00',
-          tuesday: '09:00 - 18:00',
-          wednesday: '09:00 - 18:00',
-          thursday: '09:00 - 18:00',
-          friday: '09:00 - 18:00',
-          saturday: '09:00 - 18:00',
-        ),
+      final XFile? image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
       );
+
+      if (image == null) return;
+
+      await _uploadImageFile(File(image.path));
     } catch (e) {
-      errorMessage('فشل في تحميل بيانات الطلب: $e');
-      print('Error loading from requests: $e');
+      _showErrorSnackbar('فشل في اختيار الصورة: $e');
+    }
+  }
+  Future<String?> _uploadImageFile(File file) async {
+    if (pharmacyId.isEmpty) return null;
+    try {
+      isUploadingImage(true);
+      final ext = file.path.split('.').last.toLowerCase();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = 'pharmacy_logo_$timestamp.$ext';
+      final ref = _storage.ref().child('pharmacies/$pharmacyId/imageUrl/$fileName');
+      final metadata = SettableMetadata(
+        contentType: 'image/$ext',
+        customMetadata: {
+          'uploadedBy': pharmacyId,
+          'uploadedAt': timestamp.toString(),
+          'originalName': file.path.split('/').last,
+        },
+      );
+      final uploadTask = ref.putFile(file, metadata);
+      uploadTask.snapshotEvents.listen((taskSnapshot) {
+        final progress = (taskSnapshot.bytesTransferred / taskSnapshot.totalBytes) * 100;
+        print('Upload progress: ${progress.toStringAsFixed(2)}%');
+      });
+      final snapshot = await uploadTask;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+      await _firestore.collection('pharmacies').doc(pharmacyId).update({
+        'imageUrl': downloadUrl,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      imageUrl.value = downloadUrl;
+      if (settings.value != null) {
+        settings.value = settings.value!.copyWith(
+          imageUrl: downloadUrl,
+          updatedAt: Timestamp.now(),
+        );
+      }
+      return downloadUrl;
+    } catch (e, st) {
+      _showErrorSnackbar('فشل في رفع الصورة: ${e.toString()}');
+      return null;
+    } finally {
+      isUploadingImage(false);
+    }
+  }
+  Future<void> deleteCurrentImage() async {
+    if (pharmacyId.isEmpty || imageUrl.value.isEmpty) return;
+
+    try {
+      isUploadingImage(true);
+      final currentUrl = imageUrl.value;
+      try {
+        final ref = _storage.refFromURL(currentUrl);
+        await ref.delete();
+      } catch (e) {
+        print('Note: Could not delete from Storage: $e');
+      }
+      await _firestore.collection('pharmacies').doc(pharmacyId).update({
+        'imageUrl': FieldValue.delete(),
+      });
+      imageUrl.value = '';
+      if (settings.value != null) {
+        settings.value = settings.value!.copyWith(
+          imageUrl: '',
+        );
+      }
+    } catch (e) {
+      _showErrorSnackbar('فشل في حذف الصورة: $e');
+    } finally {
+      isUploadingImage(false);
     }
   }
 
-  // تحديث الإعدادات وحفظها في Firebase
-  Future<bool> updateSettings(PharmacySettings newSettings) async {
+
+  Future<bool> updateSettings({bool requireLocation = false}) async {
+    if (pharmacyId.isEmpty) {
+      errorMessage('لم يتم العثور على معرف الصيدلية');
+      return false;
+    }
+
+    if (!validateAllFields(requireLocation: requireLocation)) {
+      return false;
+    }
+
     try {
-      if (pharmacyId.isEmpty) {
-        errorMessage('لم يتم العثور على معرف الصيدلية');
-        return false;
+      isLoading(true);
+      errorMessage.value = '';
+
+      final updateData = <String, dynamic>{
+        'name': nameController.text.trim(),
+        'ownerName': ownerNameController.text.trim(),
+        'ownerIdNumber': ownerIdNumberController.text.trim(),
+        'email': emailController.text.trim(),
+        'phoneNumber': phoneController.text.trim(),
+        'address': addressController.text.trim(),
+        'licenseNumber': licenseNumberController.text.trim(),
+        'is24Hours': settings.value?.is24Hours ?? false,
+        'isOnline': settings.value?.isOnline ?? false,
+      };
+
+      // إضافة الصورة إذا موجودة
+      if (imageUrl.value.isNotEmpty) {
+        updateData['imageUrl'] = imageUrl.value;
       }
 
-      isLoading(true);
+      // إضافة الموقع
+      if (latitude.value != 0.0 || longitude.value != 0.0) {
+        updateData['location'] = {
+          'latitude': latitude.value,
+          'longitude': longitude.value,
+        };
+        updateData['latitude'] = latitude.value;
+        updateData['longitude'] = longitude.value;
+      }
 
-      // تحديث بيانات الصيدلية الرئيسية
-      await _firestore
-          .collection('pharmacies')
-          .doc(pharmacyId)
-          .update({
-        'name': newSettings.name,
-        'ownerName': newSettings.ownerName,
-        'email': newSettings.email,
-        'phoneNumber': newSettings.phoneNumber,
-        'address': newSettings.address,
-        'licenseNumber': newSettings.licenseNumber,
-        'is24Hours': newSettings.is24Hours,
-        'isOnline': newSettings.isOnline,
-        'currency': newSettings.currency,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      // تحديث Firestore فقط للبيانات الأساسية، بدون ساعات العمل
+      await _firestore.collection('pharmacies').doc(pharmacyId).update(updateData);
 
-      // تحديث أوقات العمل في وثيقة منفصلة
-      await _firestore
-          .collection('pharmacies')
-          .doc(pharmacyId)
-          .collection('settings')
-          .doc('businessHours')
-          .set({
-        'sunday': newSettings.businessHours.sunday,
-        'monday': newSettings.businessHours.monday,
-        'tuesday': newSettings.businessHours.tuesday,
-        'wednesday': newSettings.businessHours.wednesday,
-        'thursday': newSettings.businessHours.thursday,
-        'friday': newSettings.businessHours.friday,
-        'saturday': newSettings.businessHours.saturday,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      // تحديث القيمة المحلية
-      settings.value = newSettings.copyWith(id: pharmacyId);
-
-      // تحديث بيانات الصيدلية في AuthController
-      Get.find<AuthController>().loadPharmacyData();
+      // تحديث الحالة المحلية
+      if (settings.value != null) {
+        final newSettings = settings.value!.copyWith(
+          name: nameController.text.trim(),
+          ownerName: ownerNameController.text.trim(),
+          ownerIdNumber: ownerIdNumberController.text.trim(),
+          email: emailController.text.trim(),
+          phoneNumber: phoneController.text.trim(),
+          address: addressController.text.trim(),
+          licenseNumber: licenseNumberController.text.trim(),
+          imageUrl: imageUrl.value.isNotEmpty
+              ? imageUrl.value
+              : settings.value!.imageUrl,
+          location: PharmacyLocation(
+            latitude: latitude.value,
+            longitude: longitude.value,
+          ),
+        );
+        settings.value = newSettings;
+      }
 
       return true;
     } catch (e) {
       errorMessage('فشل في حفظ الإعدادات: $e');
-      print('Error saving settings: $e');
+      print('updateSettings error: $e');
       return false;
     } finally {
       isLoading(false);
     }
   }
 
-  // تحديث أوقات العمل فقط
-  Future<bool> updateBusinessHours(BusinessHours newHours) async {
-    try {
-      if (pharmacyId.isEmpty) return false;
+  Future<void> saveBusinessHours(BusinessHours newHours) async {
+    final currentSettings = this.settings.value;
+    if (currentSettings == null) return;
 
-      isLoading(true);
+    final pharmacyId = this.pharmacyId;
+    final bh = newHours;
 
-      // حفظ أوقات العمل في Firebase
-      await _firestore
-          .collection('pharmacies')
-          .doc(pharmacyId)
-          .collection('settings')
-          .doc('businessHours')
-          .set({
-        'sunday': newHours.sunday,
-        'monday': newHours.monday,
-        'tuesday': newHours.tuesday,
-        'wednesday': newHours.wednesday,
-        'thursday': newHours.thursday,
-        'friday': newHours.friday,
-        'saturday': newHours.saturday,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      // تحديث القيمة المحلية
-      final currentSettings = settings.value;
-      settings.value = currentSettings.copyWith(
-        businessHours: newHours,
-      );
-
-      return true;
-    } catch (e) {
-      errorMessage('فشل في حفظ أوقات العمل: $e');
-      print('Error saving business hours: $e');
-      return false;
-    } finally {
-      isLoading(false);
+    // إعداد البيانات
+    final toSave = currentSettings.is24Hours
+        ? {
+      'sunday': '24 Hours',
+      'monday': '24 Hours',
+      'tuesday': '24 Hours',
+      'wednesday': '24 Hours',
+      'thursday': '24 Hours',
+      'friday': '24 Hours',
+      'saturday': '24 Hours',
     }
+        : {
+      'sunday': bh.sunday,
+      'monday': bh.monday,
+      'tuesday': bh.tuesday,
+      'wednesday': bh.wednesday,
+      'thursday': bh.thursday,
+      'friday': bh.friday,
+      'saturday': bh.saturday,
+    };
+
+    // المرجع للكولكشن/دوكومنت
+    final docRef = _firestore
+        .collection('pharmacies')
+        .doc(pharmacyId)
+        .collection('settings')
+        .doc('businessHours');
+
+    // التحقق إذا كان الدوكومنت موجود أو لا
+    final docSnapshot = await docRef.get();
+    if (!docSnapshot.exists) {
+      // إذا الدوكومنت غير موجود، سيتم إنشاؤه تلقائيًا مع set
+    }
+
+    // حفظ البيانات مع merge للتأكد من عدم مسح أي بيانات أخرى
+    await docRef.set({
+      ...toSave,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    // تحديث الحالة المحلية عبر Rx
+    this.settings.value = currentSettings.copyWith(businessHours: bh);
   }
 
-  // تحديث الحالة المتاحة (isOnline)
   Future<bool> updateOnlineStatus(bool isOnline) async {
+    if (pharmacyId.isEmpty) return false;
     try {
-      if (pharmacyId.isEmpty) return false;
-
-      await _firestore
-          .collection('pharmacies')
-          .doc(pharmacyId)
-          .update({
+      await _firestore.collection('pharmacies').doc(pharmacyId).update({
         'isOnline': isOnline,
         'lastStatusUpdate': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      final currentSettings = settings.value;
-      settings.value = currentSettings.copyWith(isOnline: isOnline);
-
+      if (settings.value != null) {
+        settings.value = settings.value!.copyWith(isOnline: isOnline);
+      }
       return true;
     } catch (e) {
       errorMessage('فشل في تحديث الحالة: $e');
-      print('Error updating online status: $e');
       return false;
     }
   }
 
-  // تحديث وضع 24 ساعة
-  Future<bool> update24HoursStatus(bool is24Hours) async {
+  Future<bool> update24HoursStatus(bool is24) async {
+    if (pharmacyId.isEmpty) return false;
     try {
-      if (pharmacyId.isEmpty) return false;
-
-      await _firestore
-          .collection('pharmacies')
-          .doc(pharmacyId)
-          .update({
-        'is24Hours': is24Hours,
+      await _firestore.collection('pharmacies').doc(pharmacyId).update({
+        'is24Hours': is24,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      final currentSettings = settings.value;
-      settings.value = currentSettings.copyWith(is24Hours: is24Hours);
-
+      if (settings.value != null) {
+        settings.value = settings.value!.copyWith(is24Hours: is24);
+      }
       return true;
     } catch (e) {
       errorMessage('فشل في تحديث وضع 24 ساعة: $e');
-      print('Error updating 24 hours status: $e');
       return false;
     }
   }
 
-  // تحديث العملة
-  Future<bool> updateCurrency(String currency) async {
-    try {
-      if (pharmacyId.isEmpty) return false;
+  Future<void> toggle24HoursWithUI() async {
+    final newValue = !(settings.value?.is24Hours ?? false);
+    final success = await update24HoursStatus(newValue);
 
-      await _firestore
-          .collection('pharmacies')
-          .doc(pharmacyId)
-          .update({
-        'currency': currency,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+    if (success) {
+      final message = newValue ? 'تم تفعيل وضع 24 ساعة' : 'تم إيقاف وضع 24 ساعة';
+      _showSuccessSnackbar(message);
+    } else {
+      _showErrorSnackbar('فشل في تحديث وضع 24 ساعة');
+    }
+  }
 
-      final currentSettings = settings.value;
-      settings.value = currentSettings.copyWith(currency: currency);
+  Future<void> toggleOnlineStatusWithUI() async {
+    final newValue = !(settings.value?.isOnline ?? false);
+    final success = await updateOnlineStatus(newValue);
 
+    if (success) {
+      final message = newValue ? 'تم تفعيل الحالة المتاحة' : 'تم إيقاف الحالة المتاحة';
+      _showSuccessSnackbar(message);
+    } else {
+      _showErrorSnackbar('فشل في تحديث الحالة المتاحة');
+    }
+  }
+
+  Future<bool> saveSettingsWithUI({bool requireLocation = false}) async {
+    final success = await updateSettings(requireLocation: requireLocation);
+
+    if (success) {
+      _showSuccessSnackbar('تم حفظ الإعدادات بنجاح');
       return true;
-    } catch (e) {
-      errorMessage('فشل في تحديث العملة: $e');
-      print('Error updating currency: $e');
+    } else {
+      final error = errorMessage.value.isNotEmpty
+          ? errorMessage.value
+          : 'فشل في حفظ الإعدادات';
+      _showErrorSnackbar(error);
       return false;
     }
   }
 
-  // التحقق مما إذا كان وقت العمل الحالي ضمن ساعات العمل
-  bool isWithinBusinessHours() {
-    final now = DateTime.now();
-    final currentDay = now.weekday; // 1 = Monday, 7 = Sunday
+  Future<void> refreshSettingsWithUI() async {
+    Get.dialog(
+      const Center(child: CircularProgressIndicator()),
+      barrierDismissible: false,
+    );
 
-    if (settings.value.is24Hours) return true;
-
-    final hours = settings.value.businessHours;
-    String todayHours = '';
-
-    switch (currentDay) {
-      case 1: todayHours = hours.monday; break;
-      case 2: todayHours = hours.tuesday; break;
-      case 3: todayHours = hours.wednesday; break;
-      case 4: todayHours = hours.thursday; break;
-      case 5: todayHours = hours.friday; break;
-      case 6: todayHours = hours.saturday; break;
-      case 7: todayHours = hours.sunday; break;
-    }
-
-    // تحليل أوقات العمل (تنسيق: "09:00 - 18:00")
     try {
-      final parts = todayHours.split(' - ');
-      if (parts.length != 2) return false;
-
-      final openTime = parts[0].trim();
-      final closeTime = parts[1].trim();
-
-      final openHour = int.parse(openTime.split(':')[0]);
-      final openMinute = int.parse(openTime.split(':')[1]);
-
-      final closeHour = int.parse(closeTime.split(':')[0]);
-      final closeMinute = int.parse(closeTime.split(':')[1]);
-
-      final nowTime = now.hour * 60 + now.minute;
-      final openTimeInMinutes = openHour * 60 + openMinute;
-      final closeTimeInMinutes = closeHour * 60 + closeMinute;
-
-      return nowTime >= openTimeInMinutes && nowTime <= closeTimeInMinutes;
+      await loadSettings();
+      Get.back();
+      _showSuccessSnackbar('تم تحديث البيانات بنجاح');
     } catch (e) {
-      return false;
+      Get.back();
+      _showErrorSnackbar('فشل في تحديث البيانات: $e');
     }
   }
-
-  // الحصول على حالة الصيدلية الحالية (بناءً على الوقت وisOnline)
-  String getCurrentStatus() {
-    if (!settings.value.isOnline) return 'غير متصل';
-    if (settings.value.is24Hours) return 'متصل 24 ساعة';
-    if (isWithinBusinessHours()) return 'متصل';
-    return 'خارج أوقات العمل';
+  void _showSuccessSnackbar(String message) {
+    successMessage.value = message;
+    Get.snackbar(
+      'نجاح',
+      message,
+      backgroundColor: Colors.green,
+      colorText: Colors.white,
+      duration: const Duration(seconds: 2),
+      snackPosition: SnackPosition.TOP,
+    );
   }
 
-  // تحديث صورة الصيدلية
-  Future<bool> updatePharmacyImage(String imageUrl) async {
-    try {
-      if (pharmacyId.isEmpty) return false;
-
-      await _firestore
-          .collection('pharmacies')
-          .doc(pharmacyId)
-          .update({
-        'imageUrl': imageUrl,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      return true;
-    } catch (e) {
-      errorMessage('فشل في تحديث الصورة: $e');
-      print('Error updating pharmacy image: $e');
-      return false;
-    }
+  void _showErrorSnackbar(String message) {
+    errorMessage.value = message;
+    Get.snackbar(
+      'خطأ',
+      message,
+      backgroundColor: Colors.red,
+      colorText: Colors.white,
+      duration: const Duration(seconds: 3),
+      snackPosition: SnackPosition.TOP,
+    );
   }
 
-  // الاستماع للتغييرات في الوقت الحقيقي
+  bool get is24HoursValue => settings.value?.is24Hours ?? false;
+  bool get isOnlineValue => settings.value?.isOnline ?? false;
+  String get imageUrlValue => settings.value?.imageUrl ?? '';
+  String get nameValue => settings.value?.name ?? '';
+  PharmacySettings? get currentSettings => settings.value;
+  bool get hasImage => imageUrl.value.isNotEmpty;
+  StreamSubscription<DocumentSnapshot>? _settingsSub;
+
   void startRealtimeListener() {
     if (pharmacyId.isEmpty) return;
-
-    _firestore
+    _settingsSub?.cancel();
+    _settingsSub = _firestore
         .collection('pharmacies')
         .doc(pharmacyId)
         .snapshots()
         .listen((snapshot) {
-      if (snapshot.exists) {
-        final data = snapshot.data()!;
-
-        final currentSettings = settings.value;
-        settings.value = currentSettings.copyWith(
-          isOnline: data['isOnline'] ?? currentSettings.isOnline,
-          is24Hours: data['is24Hours'] ?? currentSettings.is24Hours,
-          name: data['name']?.toString() ?? currentSettings.name,
+      if (!snapshot.exists) return;
+      final data = snapshot.data() as Map<String, dynamic>;
+      if (settings.value != null) {
+        settings.value = settings.value!.copyWith(
+          isOnline: data['isOnline'] ?? settings.value!.isOnline,
+          is24Hours: data['is24Hours'] ?? settings.value!.is24Hours,
+          name: data['name']?.toString() ?? settings.value!.name,
         );
+      }
+      if (data['imageUrl'] != null && data['imageUrl'] != imageUrl.value) {
+        imageUrl.value = data['imageUrl'].toString();
       }
     });
   }
 
-  // إعادة تحميل الإعدادات
-  Future<void> refreshSettings() async {
-    await loadSettings();
+  void stopRealtimeListener() {
+    _settingsSub?.cancel();
+    _settingsSub = null;
+  }
+
+  void setLocation(double lat, double lng) {
+    latitude.value = lat;
+    longitude.value = lng;
+  }
+
+  void clearFieldErrors() {
+    fieldErrors.keys.forEach((k) => fieldErrors[k] = null);
+    fieldErrors.refresh();
+    errorMessage('');
+    successMessage('');
+  }
+  double? _parseDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
+  String? validateName(String value) {
+    if (value.trim().isEmpty) return 'الرجاء إدخال اسم الصيدلية';
+    if (value.trim().length < 2) return 'اسم الصيدلية قصير جدا';
+    return null;
+  }
+
+  String? validateOwnerName(String value) {
+    if (value.trim().isEmpty) return 'الرجاء إدخال اسم المالك';
+    if (value.trim().length < 2) return 'اسم المالك قصير جدا';
+    return null;
+  }
+
+  String? validateOwnerIdNumber(String value) {
+    if (value.trim().isEmpty) return 'الرجاء إدخال رقم الهوية أو جواز السفر';
+    final v = value.trim();
+    if (v.length < 4 || v.length > 30) return 'رقم الهوية غير صالح';
+    final reg = RegExp(r'^[\w\-\/]+$');
+    if (!reg.hasMatch(v)) return 'يوجد أحرف غير مسموح بها في رقم الهوية';
+    return null;
+  }
+
+  String? validateEmail(String value) {
+    if (value.trim().isEmpty) return 'الرجاء إدخال البريد الإلكتروني';
+    final reg = RegExp(r"^[\w\.\-]+@([\w\-]+\.)+[a-zA-Z]{2,}$");
+    if (!reg.hasMatch(value.trim())) return 'البريد الإلكتروني غير صالح';
+    return null;
+  }
+
+  String? validatePhone(String value) {
+    if (value.trim().isEmpty) return 'الرجاء إدخال رقم الهاتف';
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 7 || digits.length > 15) return 'رقم الهاتف يجب أن يحتوي بين 7 و 15 رقم';
+    return null;
+  }
+
+  String? validateAddress(String value) {
+    if (value.trim().isEmpty) return 'الرجاء إدخال العنوان';
+    return null;
+  }
+
+  String? validateDescription(String value) {
+    if (value.trim().isEmpty) return 'الرجاء إدخال الوصف';
+    if (value.trim().length < 4) return 'الوصف قصير جدا';
+    return null;
+  }
+
+  String? validateLicenseNumber(String value) {
+    if (value.trim().isEmpty) return 'الرجاء إدخال رقم الترخيص';
+    if (value.trim().length < 3) return 'رقم الترخيص غير صالح';
+    return null;
+  }
+
+  bool validateLocation() {
+    if (latitude.value == 0.0 && longitude.value == 0.0) {
+      errorMessage('إحداثيات الموقع غير محددة');
+      return false;
+    }
+    return true;
+  }
+
+  bool validateAllFields({bool requireLocation = false}) {
+    fieldErrors['name'] = validateName(nameController.text);
+    fieldErrors['ownerName'] = validateOwnerName(ownerNameController.text);
+    fieldErrors['ownerIdNumber'] = validateOwnerIdNumber(ownerIdNumberController.text);
+    fieldErrors['email'] = validateEmail(emailController.text);
+    fieldErrors['phone'] = validatePhone(phoneController.text);
+    fieldErrors['address'] = validateAddress(addressController.text);
+    fieldErrors['licenseNumber'] = validateLicenseNumber(licenseNumberController.text);
+
+    fieldErrors.refresh();
+
+    final hasFieldError = fieldErrors.values.any((v) => v != null);
+
+    if (hasFieldError) {
+      errorMessage('يرجى تصحيح الحقول المشار إليها');
+      return false;
+    }
+
+    if (requireLocation && !validateLocation()) {
+      return false;
+    }
+
+    errorMessage('');
+    return true;
   }
 }
