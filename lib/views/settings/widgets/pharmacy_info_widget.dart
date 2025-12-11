@@ -30,7 +30,7 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
           colors: [
             Colors.blue.shade50,
             Colors.white,
-            Colors.blue.shade50,
+            Colors.blue.shade100,
           ],
         ),
       ),

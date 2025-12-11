@@ -2,34 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 Widget buildEmployeesCard() {
-  // قائمة الخيارات الستة
-  final options = [
-    {
-      'title': 'إضافة/حذف/تعديل الموظفين',
-      'icon': Icons.person_add_rounded,
-    },
-    {
-      'title': 'الصلاحيات والأدوار',
-      'icon': Icons.admin_panel_settings_rounded,
-    },
-    {
-      'title': 'الحضور والشفتات',
-      'icon': Icons.calendar_today_rounded,
-    },
-    {
-      'title': 'الرواتب',
-      'icon': Icons.payments_rounded,
-    },
-    {
-      'title': 'سجل العمليات',
-      'icon': Icons.history_rounded,
-    },
-    {
-      'title': 'الأمن والصلاحيات',
-      'icon': Icons.security_rounded,
-    },
-  ];
-
   return Card(
     elevation: 6,
     shape: RoundedRectangleBorder(
@@ -54,7 +26,7 @@ Widget buildEmployeesCard() {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: MainAxisAlignment.start,
               children: [
                 Container(
                   decoration: BoxDecoration(
@@ -68,38 +40,19 @@ Widget buildEmployeesCard() {
                     size: 28,
                   ),
                 ),
-                Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  color: Colors.grey.shade400,
-                  size: 18,
+                const SizedBox(width: 10),
+                Text(
+                  'إدارة الموظفين',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.grey.shade900,
+                  ),
                 ),
+
               ],
             ),
-
-            const SizedBox(height: 16),
-
-            Text(
-              'إدارة الموظفين',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: Colors.grey.shade900,
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            Text(
-              'إدارة موظفي الصيدلية، الأدوار والصلاحيات',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-                height: 1.4,
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
+            const SizedBox(height: 30),
             // تقسيم الأزرار إلى صفوف كل صف يحتوي على زرين
             Column(
               children: [
@@ -161,6 +114,8 @@ Widget buildEmployeesCard() {
                 ),
               ],
             ),
+            const SizedBox(height: 20),
+
           ],
         ),
       ),

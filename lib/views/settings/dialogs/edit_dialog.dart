@@ -36,14 +36,6 @@ void openEditDialog(PharmacySettings settings) {
                   Colors.blue.shade50,
                 ],
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.blue.withOpacity(0.2),
-                  blurRadius: 20,
-                  spreadRadius: 2,
-                  offset: const Offset(0, 10),
-                ),
-              ],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -352,7 +344,7 @@ void openEditDialog(PharmacySettings settings) {
                                   Get.back();
                                 },
                                 style: TextButton.styleFrom(
-                                  backgroundColor: Colors.white,
+                                  backgroundColor: Colors.white.withOpacity(0.5),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                     side: BorderSide(
@@ -405,12 +397,6 @@ void openEditDialog(PharmacySettings settings) {
                                   final success = await controller.updateSettings();
                                   if (success) {
                                     Get.back();
-                                    Get.snackbar(
-                                      'نجاح',
-                                      'تم حفظ التغييرات بنجاح',
-                                      backgroundColor: Colors.green,
-                                      colorText: Colors.white,
-                                    );
                                   }
                                 },
                                 style: TextButton.styleFrom(

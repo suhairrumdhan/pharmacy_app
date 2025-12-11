@@ -262,4 +262,25 @@ class BusinessHours {
       'saturday': saturday,
     };
   }
+
+  // أضف هذه الدالة لتمكين copyWith
+  BusinessHours copyWith({
+    String? sunday,
+    String? monday,
+    String? tuesday,
+    String? wednesday,
+    String? thursday,
+    String? friday,
+    String? saturday,
+  }) {
+    return BusinessHours(
+      sunday: sunday ?? this.sunday,
+      monday: monday ?? this.monday,
+      tuesday: tuesday ?? this.tuesday,
+      wednesday: wednesday ?? this.wednesday,
+      thursday: thursday ?? this.thursday,
+      friday: friday ?? this.friday,
+      saturday: saturday ?? this.saturday,
+    );
+  }
 }

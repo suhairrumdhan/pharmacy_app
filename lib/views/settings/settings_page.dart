@@ -37,14 +37,12 @@ class SettingsPage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     buildEmployeesCard(),
-                    const SizedBox(height: 24),
-
+                    const SizedBox(height: 10),
                     // BUSINESS HOURS (ظهر فقط إذا ليست 24 ساعة)
                     if (!(settings.is24Hours ?? false))
                       buildBusinessHoursCard(context,settings.businessHours),
                     if (!(settings.is24Hours ?? false))
-                      const SizedBox(height: 18),
-
+                      const SizedBox(height: 10),
                   ],
                 ),
 

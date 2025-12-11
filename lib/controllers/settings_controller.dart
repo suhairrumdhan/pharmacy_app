@@ -404,7 +404,51 @@ class SettingsController extends GetxController {
     // تحديث الحالة المحلية عبر Rx
     this.settings.value = currentSettings.copyWith(businessHours: bh);
   }
+// في settings_controller.dart
+  Future<void> toggleDayStatus(String dayKey) async {
+    final settings = this.settings.value;
+    if (settings == null) return;
 
+    final hours = settings.businessHours;
+
+    // الحصول على الوقت الحالي لليوم
+    final currentTime = _getDayTime(dayKey, hours);
+    final isClosed = currentTime.toLowerCase() == 'مغلق';
+
+    // الوقت الجديد
+    final newTime = isClosed ? '09:00 ص - 05:00 م' : 'مغلق';
+
+    // إنشاء ساعات جديدة
+    final newHours = BusinessHours(
+      sunday: dayKey == 'sunday' ? newTime : hours.sunday,
+      monday: dayKey == 'monday' ? newTime : hours.monday,
+      tuesday: dayKey == 'tuesday' ? newTime : hours.tuesday,
+      wednesday: dayKey == 'wednesday' ? newTime : hours.wednesday,
+      thursday: dayKey == 'thursday' ? newTime : hours.thursday,
+      friday: dayKey == 'friday' ? newTime : hours.friday,
+      saturday: dayKey == 'saturday' ? newTime : hours.saturday,
+    );
+
+    // تحديث المحلي
+    this.settings.value = settings.copyWith(businessHours: newHours);
+
+    // حفظ في الفايرستور
+    await saveBusinessHours(newHours);
+  }
+
+// دالة مساعدة داخل الكونترولر
+  String _getDayTime(String dayKey, BusinessHours hours) {
+    switch (dayKey) {
+      case 'sunday': return hours.sunday;
+      case 'monday': return hours.monday;
+      case 'tuesday': return hours.tuesday;
+      case 'wednesday': return hours.wednesday;
+      case 'thursday': return hours.thursday;
+      case 'friday': return hours.friday;
+      case 'saturday': return hours.saturday;
+      default: return 'مغلق';
+    }
+  }
   Future<bool> updateOnlineStatus(bool isOnline) async {
     if (pharmacyId.isEmpty) return false;
     try {
