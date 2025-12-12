@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:get/get.dart';
 import 'package:get/get_core/src/get_main.dart';
+import 'package:iconsax_flutter/iconsax_flutter.dart'; // Added iconsax import
 import 'package:latlong2/latlong.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../controllers/settings_controller.dart';
@@ -55,7 +56,7 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                         ),
                         padding: const EdgeInsets.all(10),
                         child: Icon(
-                          Icons.settings_rounded,
+                          Iconsax.setting_2, // Changed from Icons.settings_rounded
                           color: Colors.blue.shade700,
                           size: 18,
                         ),
@@ -92,7 +93,7 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                       ),
                       padding: const EdgeInsets.all(8),
                       child: Icon(
-                        Icons.edit_rounded,
+                        Iconsax.edit_2, // Changed from Icons.edit_rounded
                         color: Colors.blue.shade700,
                         size: 18,
                       ),
@@ -176,7 +177,7 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.image_not_supported,
+                                      Icon(Iconsax.gallery_slash, // Changed from Icons.image_not_supported
                                           size: 48, color: Colors.grey.shade400),
                                       const SizedBox(height: 8),
                                       Text('لا توجد صورة',
@@ -204,7 +205,7 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                                       child: Column(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
-                                          Icon(Icons.error_outline,
+                                          Icon(Iconsax.close_circle, // Changed from Icons.error_outline
                                               size: 48, color: Colors.grey.shade400),
                                           const SizedBox(height: 8),
                                           Text('خطأ في تحميل الصورة',
@@ -265,7 +266,7 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                                       ),
                                     )
                                         : const Icon(
-                                      Icons.edit_rounded,
+                                      Iconsax.edit_2, // Changed from Icons.edit_rounded
                                       color: Colors.white,
                                       size: 20,
                                     ),
@@ -335,7 +336,7 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                                       ),
                                     )
                                         : const Icon(
-                                      Icons.delete_rounded,
+                                      Iconsax.trash, // Changed from Icons.delete_rounded
                                       color: Colors.white,
                                       size: 20,
                                     ),
@@ -359,14 +360,14 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
               spacing: 12,
               runSpacing: 10,
               children: [
-                _buildCompactInfoField('الاسم', settings.name, Icons.store_rounded),
-                _buildCompactInfoField('المالك', settings.ownerName, Icons.person_rounded),
-                _buildCompactInfoField('رقم هوية المالك', settings.ownerIdNumber, Icons.badge_rounded),
-                _buildCompactInfoField('البريد الإلكتروني', settings.email, Icons.email_rounded),
-                _buildCompactInfoField('رقم الهاتف', settings.phoneNumber, Icons.phone_rounded),
-                _buildCompactInfoField('العنوان', settings.address, Icons.location_on_rounded),
-                _buildCompactInfoField('رقم الترخيص', settings.licenseNumber, Icons.verified_rounded),
-                _buildCompactInfoField('الحالة', settings.status, Icons.check_circle_rounded),
+                _buildCompactInfoField('الاسم', settings.name, Iconsax.shop), // Changed from Icons.store_rounded
+                _buildCompactInfoField('المالك', settings.ownerName, Iconsax.user), // Changed from Icons.person_rounded
+                _buildCompactInfoField('رقم هوية المالك', settings.ownerIdNumber, Iconsax.card), // Changed from Icons.badge_rounded
+                _buildCompactInfoField('البريد الإلكتروني', settings.email, Iconsax.sms), // Changed from Icons.email_rounded
+                _buildCompactInfoField('رقم الهاتف', settings.phoneNumber, Iconsax.call), // Changed from Icons.phone_rounded
+                _buildCompactInfoField('العنوان', settings.address, Iconsax.location), // Changed from Icons.location_on_rounded
+                _buildCompactInfoField('رقم الترخيص', settings.licenseNumber, Iconsax.verify), // Changed from Icons.verified_rounded
+                _buildCompactInfoField('الحالة', settings.status, Iconsax.tick_circle), // Changed from Icons.check_circle_rounded
               ],
             ),
 
@@ -382,7 +383,7 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                   ),
                   padding: const EdgeInsets.all(8),
                   child: Icon(
-                    Icons.location_on_outlined,
+                    Iconsax.location, // Changed from Icons.location_on_outlined
                     color: Colors.blue.shade700,
                     size: 18,
                   ),
@@ -432,7 +433,7 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                             width: 40,
                             height: 40,
                             builder: (ctx) => Icon(
-                              Icons.location_on,
+                              Iconsax.location, // Changed from Icons.location_on
                               color: Colors.blue.shade700,
                               size: 40,
                             ),
@@ -469,7 +470,7 @@ Widget _build24HoursSwitch() {
           ),
           padding: const EdgeInsets.all(8),
           child: Icon(
-            Icons.access_time_rounded,
+            Iconsax.clock, // Changed from Icons.access_time_rounded
             color: Colors.blue.shade700,
             size: 18,
           ),
@@ -506,6 +507,7 @@ Widget _build24HoursSwitch() {
     ),
   );
 }
+
 Widget _buildOnlineStatusSwitch() {
   final controller = Get.find<SettingsController>();
 
@@ -524,7 +526,7 @@ Widget _buildOnlineStatusSwitch() {
           ),
           padding: const EdgeInsets.all(8),
           child: Icon(
-            Icons.online_prediction_rounded,
+            Iconsax.global, // Changed from Icons.online_prediction_rounded
             color: Colors.blue.shade700,
             size: 18,
           ),
@@ -561,6 +563,7 @@ Widget _buildOnlineStatusSwitch() {
     ),
   );
 }
+
 Widget _buildCompactInfoField(String label, String value, IconData icon) {
   return Container(
     width: 240,

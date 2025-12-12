@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:get/get.dart';
+import 'package:iconsax_flutter/iconsax_flutter.dart'; // Added iconsax import
 import 'package:latlong2/latlong.dart';
 
 import '../../../controllers/settings_controller.dart';
@@ -68,7 +69,7 @@ void openEditDialog(PharmacySettings settings) {
                             ),
                             padding: const EdgeInsets.all(10),
                             child: Icon(
-                              Icons.edit_rounded,
+                              Iconsax.edit_2, // Changed from Icons.edit_rounded
                               color: Colors.blue.shade700,
                               size: 20,
                             ),
@@ -103,7 +104,7 @@ void openEditDialog(PharmacySettings settings) {
                           ),
                           padding: const EdgeInsets.all(6),
                           child: Icon(
-                            Icons.close_rounded,
+                            Iconsax.close_circle, // Changed from Icons.close_rounded
                             color: Colors.red.shade600,
                             size: 18,
                           ),
@@ -132,7 +133,7 @@ void openEditDialog(PharmacySettings settings) {
                                 Expanded(
                                   child: _buildEditField(
                                     label: 'الاسم',
-                                    icon: Icons.store_rounded,
+                                    icon: Iconsax.shop, // Changed from Icons.store_rounded
                                     controller: controller.nameController,
                                   ),
                                 ),
@@ -140,7 +141,7 @@ void openEditDialog(PharmacySettings settings) {
                                 Expanded(
                                   child: _buildEditField(
                                     label: 'المالك',
-                                    icon: Icons.person_rounded,
+                                    icon: Iconsax.user, // Changed from Icons.person_rounded
                                     controller: controller.ownerNameController,
                                   ),
                                 ),
@@ -156,7 +157,7 @@ void openEditDialog(PharmacySettings settings) {
                                 Expanded(
                                   child: _buildEditField(
                                     label: 'رقم هوية المالك',
-                                    icon: Icons.badge_rounded,
+                                    icon: Iconsax.card, // Changed from Icons.badge_rounded
                                     controller: controller.ownerIdNumberController,
                                     keyboardType: TextInputType.number,
                                   ),
@@ -165,7 +166,7 @@ void openEditDialog(PharmacySettings settings) {
                                 Expanded(
                                   child: _buildEditField(
                                     label: 'البريد الإلكتروني',
-                                    icon: Icons.email_rounded,
+                                    icon: Iconsax.sms, // Changed from Icons.email_rounded
                                     controller: controller.emailController,
                                     keyboardType: TextInputType.emailAddress,
                                   ),
@@ -182,7 +183,7 @@ void openEditDialog(PharmacySettings settings) {
                                 Expanded(
                                   child: _buildEditField(
                                     label: 'رقم الهاتف',
-                                    icon: Icons.phone_rounded,
+                                    icon: Iconsax.call, // Changed from Icons.phone_rounded
                                     controller: controller.phoneController,
                                     keyboardType: TextInputType.phone,
                                   ),
@@ -191,7 +192,7 @@ void openEditDialog(PharmacySettings settings) {
                                 Expanded(
                                   child: _buildEditField(
                                     label: 'العنوان',
-                                    icon: Icons.location_on_rounded,
+                                    icon: Iconsax.location, // Changed from Icons.location_on_rounded
                                     controller: controller.addressController,
                                     maxLines: 1,
                                   ),
@@ -259,7 +260,7 @@ void openEditDialog(PharmacySettings settings) {
                                           width: 30,
                                           height: 30,
                                           builder: (ctx) => Icon(
-                                            Icons.location_on,
+                                            Iconsax.location, // Changed from Icons.location_on
                                             color: Colors.blue.shade700,
                                             size: 30,
                                           ),
@@ -292,7 +293,7 @@ void openEditDialog(PharmacySettings settings) {
                                     },
                                     decoration: InputDecoration(
                                       prefixIcon: Icon(
-                                        Icons.search,
+                                        Iconsax.search_normal_1, // Changed from Icons.search
                                         color: Colors.blue.shade600,
                                         size: 20,
                                       ),
@@ -357,7 +358,7 @@ void openEditDialog(PharmacySettings settings) {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
-                                      Icons.close_rounded,
+                                      Iconsax.close_circle, // Changed from Icons.close_rounded
                                       color: Colors.grey.shade600,
                                       size: 18,
                                     ),
@@ -421,7 +422,7 @@ void openEditDialog(PharmacySettings settings) {
                                         )
                                       else
                                         Icon(
-                                          Icons.check_rounded,
+                                          Iconsax.tick_circle, // Changed from Icons.check_rounded
                                           color: Colors.white,
                                           size: 18,
                                         ),

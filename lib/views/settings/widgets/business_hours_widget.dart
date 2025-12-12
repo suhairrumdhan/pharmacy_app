@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:iconsax_flutter/iconsax_flutter.dart'; // Added iconsax import
 import '../../../controllers/settings_controller.dart';
 import '../../../models/settings_model.dart';
 
@@ -198,7 +199,7 @@ class _BusinessHoursCardState extends State<BusinessHoursCard> {
                       ),
                       padding: const EdgeInsets.all(8),
                       child: Icon(
-                        Icons.access_time_rounded,
+                        Iconsax.clock, // Changed from Icons.access_time_rounded
                         color: Colors.blue.shade700,
                         size: 20,
                       ),
@@ -307,7 +308,7 @@ class _BusinessHoursCardState extends State<BusinessHoursCard> {
                                           ),
                                           const SizedBox(width: 4),
                                           Icon(
-                                            Icons.access_time,
+                                            Iconsax.clock, // Changed from Icons.access_time
                                             size: 12,
                                             color: Colors.blue.shade600,
                                           ),
@@ -320,7 +321,7 @@ class _BusinessHoursCardState extends State<BusinessHoursCard> {
                                   Padding(
                                     padding: const EdgeInsets.symmetric(horizontal: 8),
                                     child: Icon(
-                                      Icons.arrow_forward,
+                                      Iconsax.arrow_right_2, // Changed from Icons.arrow_forward
                                       size: 14,
                                       color: Colors.blue.shade500,
                                     ),
@@ -356,7 +357,7 @@ class _BusinessHoursCardState extends State<BusinessHoursCard> {
                                           ),
                                           const SizedBox(width: 4),
                                           Icon(
-                                            Icons.access_time,
+                                            Iconsax.clock, // Changed from Icons.access_time
                                             size: 12,
                                             color: Colors.blue.shade600,
                                           ),
@@ -376,7 +377,7 @@ class _BusinessHoursCardState extends State<BusinessHoursCard> {
                                       await _showTimePickerForDay(dayKey, 'end');
                                     },
                                     child: Icon(
-                                      Icons.edit,
+                                      Iconsax.edit_2, // Changed from Icons.edit
                                       size: 14,
                                       color: Colors.blue.shade600,
                                     ),

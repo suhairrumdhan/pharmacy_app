@@ -1,11 +1,6 @@
-
-
-
-
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-
+import 'package:iconsax_flutter/iconsax_flutter.dart'; // Added iconsax import
 import '../dialogs/employee_management_dialog.dart';
 
 Widget buildEmployeesCard() {
@@ -42,7 +37,7 @@ Widget buildEmployeesCard() {
                   ),
                   padding: const EdgeInsets.all(10),
                   child: Icon(
-                    Icons.group_rounded,
+                    Iconsax.profile_2user, // Changed from Icons.group_rounded
                     color: Colors.blue.shade700,
                     size: 28,
                   ),
@@ -56,7 +51,6 @@ Widget buildEmployeesCard() {
                     color: Colors.grey.shade900,
                   ),
                 ),
-
               ],
             ),
             const SizedBox(height: 30),
@@ -69,7 +63,7 @@ Widget buildEmployeesCard() {
                     Expanded(
                       child: _buildManagementButton(
                         title: 'إضافة/حذف/تعديل الموظفين',
-                        icon: Icons.person_add_rounded,
+                        icon: Iconsax.profile_add, // Changed from Icons.person_add_rounded
                         onTap: () => _showEmployeeDialog(),
                       ),
                     ),
@@ -77,7 +71,7 @@ Widget buildEmployeesCard() {
                     Expanded(
                       child: _buildManagementButton(
                         title: 'الصلاحيات والأدوار',
-                        icon: Icons.admin_panel_settings_rounded,
+                        icon: Iconsax.security_user, // Changed from Icons.admin_panel_settings_rounded
                       ),
                     ),
                   ],
@@ -89,14 +83,14 @@ Widget buildEmployeesCard() {
                     Expanded(
                       child: _buildManagementButton(
                         title: 'الحضور والشفتات',
-                        icon: Icons.calendar_today_rounded,
+                        icon: Iconsax.calendar, // Changed from Icons.calendar_today_rounded
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: _buildManagementButton(
                         title: 'الرواتب',
-                        icon: Icons.payments_rounded,
+                        icon: Iconsax.dollar_circle, // Changed from Icons.payments_rounded
                       ),
                     ),
                   ],
@@ -108,14 +102,14 @@ Widget buildEmployeesCard() {
                     Expanded(
                       child: _buildManagementButton(
                         title: 'سجل العمليات',
-                        icon: Icons.history_rounded,
+                        icon: Iconsax.note_1, // Changed from Icons.history_rounded
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: _buildManagementButton(
                         title: 'الأمن والصلاحيات',
-                        icon: Icons.security_rounded,
+                        icon: Iconsax.shield_security, // Changed from Icons.security_rounded
                       ),
                     ),
                   ],
@@ -129,6 +123,7 @@ Widget buildEmployeesCard() {
     ),
   );
 }
+
 Widget _buildManagementButton({
   required String title,
   required IconData icon,
@@ -137,7 +132,7 @@ Widget _buildManagementButton({
   Color? backgroundColor,
 }) {
   return MouseRegion(
-    cursor: SystemMouseCursors.click, // ← الآن المؤشر يعمل على كامل المساحة
+    cursor: SystemMouseCursors.click,
     child: GestureDetector(
       onTap: onTap,
       child: Container(
@@ -185,9 +180,9 @@ Widget _buildManagementButton({
             Transform.rotate(
               angle: 3.14,
               child: Icon(
-                Icons.chevron_left_rounded,
+                Iconsax.arrow_left_2, // Changed from Icons.chevron_left_rounded
                 color: (iconColor ?? Colors.blue.shade700).withOpacity(0.8),
-                size: 28,
+                size: 24, // Slightly reduced size for better proportion
               ),
             ),
           ],
@@ -197,18 +192,10 @@ Widget _buildManagementButton({
   );
 }
 
-
 // Helper function to show the dialog
 void _showEmployeeDialog() {
   Get.dialog(
     EmployeeManagementDialog(),
     barrierDismissible: true,
   );
-  // var context;
-  // showDialog(
-  //   context: context,
-  //   builder: (context) => EmployeeManagementDialog(),
-  // );
 }
-
-
