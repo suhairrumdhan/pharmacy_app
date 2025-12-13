@@ -1,0 +1,2 @@
+module pharmacy.desktop {
+}
