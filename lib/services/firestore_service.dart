@@ -40,7 +40,6 @@ class FirestoreService {
       rethrow;
     }
   }
-
   // التحقق من حالة الموافقة
   Future<Map<String, dynamic>?> checkApprovalStatus(String uid) async {
     try {
@@ -76,27 +75,32 @@ class FirestoreService {
     }
   }
 
-  // إنشاء صيدلية من طلب معتمد
   Future<void> createPharmacyFromRequest(String uid, Map<String, dynamic> requestData) async {
     try {
       Map<String, dynamic> locationData = {
         'latitude': requestData['latitude'] ?? '',
         'longitude': requestData['longitude'] ?? '',
-        'description': requestData['address'] ?? '',
+        'address': requestData['address'] ?? '',
       };
 
       if (requestData.containsKey('location') && requestData['location'] is Map) {
         locationData = requestData['location'];
       }
 
-      await _firestore.collection('pharmacies').doc(uid).set({
+      final pharmacyRef = _firestore.collection('pharmacies').doc(uid);
+      final employeeRef = pharmacyRef.collection('employees').doc('admin');
+      final settingsRef = pharmacyRef.collection('settings').doc('general');
+
+      final batch = _firestore.batch();
+
+      // 1. إنشاء الصيدلية
+      batch.set(pharmacyRef, {
         'uid': uid,
         'name': requestData['pharmacyName'] ?? '',
         'ownerName': requestData['ownerName'] ?? '',
         'email': requestData['email'] ?? '',
         'phoneNumber': requestData['phoneNumber'] ?? '',
         'licenseNumber': requestData['licenseNumber'] ?? '',
-        'address': requestData['address'] ?? '',
         'location': locationData,
         'status': 'approved',
         'userType': 'pharmacy',
@@ -107,20 +111,61 @@ class FirestoreService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      print("✅ تم إنشاء الصيدلية في كولكشن pharmacies");
+      // 2. إنشاء الموظف الافتراضي admin
+      batch.set(employeeRef, {
+        'username': 'admin',
+        'password': 'admin', // ⚠️ يفضل تشفيرها لاحقاً
+        'role': 'admin',
+        'isActive': true,
+        'isDefault': true,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // 3. إنشاء الإعدادات الافتراضية
+      batch.set(settingsRef, {
+        'language': 'ar',
+        'is24Hours': requestData['is24Hours'] ?? false,
+        'notificationsEnabled': true,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // تنفيذ كل العمليات دفعة واحدة
+      await batch.commit();
+
+      print("✅ تم إنشاء الصيدلية وموظف admin والإعدادات بنجاح");
     } catch (e) {
-      print("❌ فشل في إنشاء الصيدلية: $e");
+      print("❌ فشل في إنشاء الصيدلية أو البيانات الافتراضية: $e");
       rethrow;
     }
   }
 
   // جلب بيانات الصيدلية
+
   Future<Map<String, dynamic>?> getPharmacyData(String uid) async {
     try {
-      final doc = await _firestore.collection("pharmacies").doc(uid).get();
-      return doc.exists ? doc.data() : null;
+      // أولاً: البحث في مجموعة pharmacies
+      final pharmacyDoc = await FirebaseFirestore.instance
+          .collection('pharmacies')
+          .doc(uid)
+          .get();
+
+      if (pharmacyDoc.exists) {
+        return pharmacyDoc.data();
+      }
+
+      // ثانياً: البحث في pharmacyRequests (حالة الانتظار)
+      final requestDoc = await FirebaseFirestore.instance
+          .collection('pharmacyRequests')
+          .doc(uid)
+          .get();
+
+      if (requestDoc.exists) {
+        return requestDoc.data();
+      }
+
+      return null;
     } catch (e) {
-      print("❌ خطأ في جلب بيانات الصيدلية: $e");
+      print('Error getting pharmacy data: $e');
       return null;
     }
   }

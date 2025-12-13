@@ -67,73 +67,73 @@ class WaitingApprovalPage extends StatelessWidget {
               const SizedBox(height: 30),
 
               // ---------- زر التحقق ----------
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryColor,
-                  foregroundColor: buttonTextColor,
-                  padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-                  textStyle: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  elevation: 2,
-                  shadowColor: Colors.black.withOpacity(0.1),
-                ),
-                onPressed: () async {
-                  Get.dialog(
-                    Center(
-                      child: CircularProgressIndicator(color: Colors.orange[700]),
-                    ),
-                    barrierDismissible: false,
-                  );
-
-                  try {
-                    // استخدم FirestoreService مباشرة
-                    final user = FirebaseAuth.instance.currentUser;
-                    if (user == null) {
-                      Get.back();
-                      Get.snackbar("خطأ", "لا يوجد مستخدم مسجل", backgroundColor: Colors.red);
-                      return;
-                    }
-
-                    final result = await firestoreService.checkApprovalStatus(user.uid);
-                    Get.back();
-
-                    // التحقق من null بطريقة آمنة
-                    bool approved = result != null &&
-                        result['exists'] == true &&
-                        result['status'] == "approved";
-
-                    if (approved) {
-                      bool reloginSuccess = await controller.reLoginAfterApproval();
-                      if (reloginSuccess) {
-                        await Future.delayed(Duration(milliseconds: 500));
-                        Get.offAll(() => const HomePage());
-                      } else {
-                        Get.snackbar(
-                          "تنبيه",
-                          "تمت الموافقة ولكن هناك مشكلة في التحميل",
-                          backgroundColor: Colors.orange,
-                        );
-                      }
-                    } else {
-                      Get.snackbar(
-                        "الطلب معلق",
-                        "طلبك قيد المعالجة",
-                        backgroundColor: Colors.orange[100],
-                        colorText: Colors.grey[800]!,
-                      );
-                    }
-                  } catch (e) {
-                    Get.back();
-                    Get.snackbar("خطأ", e.toString(), backgroundColor: Colors.red);
-                  }
-                },
-                child: const Text("التحقق من حالة الطلب"),
-              ),
+              // ElevatedButton(
+              //   style: ElevatedButton.styleFrom(
+              //     backgroundColor: primaryColor,
+              //     foregroundColor: buttonTextColor,
+              //     padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+              //     textStyle: const TextStyle(
+              //       fontSize: 16,
+              //       fontWeight: FontWeight.w600,
+              //     ),
+              //     shape: RoundedRectangleBorder(
+              //       borderRadius: BorderRadius.circular(8),
+              //     ),
+              //     elevation: 2,
+              //     shadowColor: Colors.black.withOpacity(0.1),
+              //   ),
+              //   // onPressed: () async {
+              //   //   Get.dialog(
+              //   //     Center(
+              //   //       child: CircularProgressIndicator(color: Colors.orange[700]),
+              //   //     ),
+              //   //     barrierDismissible: false,
+              //   //   );
+              //   //
+              //   //   try {
+              //   //     // استخدم FirestoreService مباشرة
+              //   //     final user = FirebaseAuth.instance.currentUser;
+              //   //     if (user == null) {
+              //   //       Get.back();
+              //   //       Get.snackbar("خطأ", "لا يوجد مستخدم مسجل", backgroundColor: Colors.red);
+              //   //       return;
+              //   //     }
+              //   //
+              //   //     final result = await firestoreService.checkApprovalStatus(user.uid);
+              //   //     Get.back();
+              //   //
+              //   //     // التحقق من null بطريقة آمنة
+              //   //     bool approved = result != null &&
+              //   //         result['exists'] == true &&
+              //   //         result['status'] == "approved";
+              //   //
+              //   //     if (approved) {
+              //   //       bool reloginSuccess = await controller.reLoginAfterApproval();
+              //   //       if (reloginSuccess) {
+              //   //         await Future.delayed(Duration(milliseconds: 500));
+              //   //         Get.offAll(() => const HomePage());
+              //   //       } else {
+              //   //         Get.snackbar(
+              //   //           "تنبيه",
+              //   //           "تمت الموافقة ولكن هناك مشكلة في التحميل",
+              //   //           backgroundColor: Colors.orange,
+              //   //         );
+              //   //       }
+              //   //     } else {
+              //   //       Get.snackbar(
+              //   //         "الطلب معلق",
+              //   //         "طلبك قيد المعالجة",
+              //   //         backgroundColor: Colors.orange[100],
+              //   //         colorText: Colors.grey[800]!,
+              //   //       );
+              //   //     }
+              //   //   } catch (e) {
+              //   //     Get.back();
+              //   //     Get.snackbar("خطأ", e.toString(), backgroundColor: Colors.red);
+              //   //   }
+              //   // },
+              //   child: const Text("التحقق من حالة الطلب"),
+              // ),
 
               const SizedBox(height: 20),
 

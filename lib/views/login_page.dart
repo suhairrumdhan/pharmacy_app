@@ -150,7 +150,7 @@ class _LoginPageState extends State<LoginPage> {
 
                   const SizedBox(height: 15),
                   TextButton(
-                    onPressed: () => Get.to(() => const SignUpPage()),
+                    onPressed: () => Get.to(() =>  SignUpPage()),
                     child: const Text("ليس لديك حساب؟ قم بالتسجيل"),
                   ),
                 ],
