@@ -25,407 +25,116 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int selectedIndex = 0;
   final AuthController authController = Get.find();
+  late List<Widget> pages;
+  late List<SidebarItem> sidebarItems;
 
-  // قائمة الصفحات
-  final List<Widget> pages = [
-    const DashboardPage(),
-    SalesPage(),
-    InventoryPage(),
-    OrdersPage(),
-    SuppliersPage(),
-    InsuranceCompaniesPage(),
-    AccountsPage(),
-    FinancePage(),
-    ChatPage(),
-    SettingsPage(),
+  // قائمة العناوين
+  final List<String> pageTitles = [
+    'لوحة التحكم',
+    'المبيعات',
+    'المخزون',
+    'الطلبات',
+    'الموردين',
+    'شركات التأمين',
+    'الحسابات',
+    'الشؤون المالية',
+    'المراسلات',
+    'الإعدادات',
   ];
 
-  // عناصر القائمة الجانبية مع أيكونات Iconsax
-  final List<SidebarItem> sidebarItems = [
-    SidebarItem(
-      icon: Iconsax.home_2,
-      label: "لوحة التحكم",
-      activeIcon: Iconsax.home_2,
-    ),
-    SidebarItem(
-      icon: Iconsax.shopping_cart,
-      label: "المبيعات",
-      activeIcon: Iconsax.shopping_cart,
-      hasNotification: true,
-    ),
-    SidebarItem(
-      icon: Iconsax.box,
-      label: "المخزون",
-      activeIcon: Iconsax.box,
-    ),
-    SidebarItem(
-      icon: Iconsax.receipt,
-      label: "الطلبات",
-      activeIcon: Iconsax.receipt,
-      hasNotification: true,
-    ),
-    SidebarItem(
-      icon: Iconsax.truck,
-      label: "الموردين",
-      activeIcon: Iconsax.truck,
-    ),
-    SidebarItem(
-      icon: Iconsax.shield_tick,
-      label: "شركات التأمين",
-      activeIcon: Iconsax.shield_tick,
-    ),
-    SidebarItem(
-      icon: Iconsax.wallet,
-      label: "الحسابات",
-      activeIcon: Iconsax.wallet,
-    ),
-    SidebarItem(
-      icon: Iconsax.dollar_circle,
-      label: "الشؤون المالية",
-      activeIcon: Iconsax.dollar_circle,
-    ),
-    SidebarItem(
-      icon: Iconsax.message,
-      label: "المراسلات",
-      activeIcon: Iconsax.message,
-      hasNotification: true,
-    ),
-    SidebarItem(
-      icon: Iconsax.setting_2,
-      label: "الإعدادات",
-      activeIcon: Iconsax.setting_2,
-    ),
+  final List<Map<String, dynamic>> allPages = [
+    {'widget': DashboardPage(), 'permission': 'dashboard.view', 'titleIndex': 0},
+    {'widget': SalesPage(), 'permission': 'sales.view', 'titleIndex': 1},
+    {'widget': InventoryPage(), 'permission': 'inventory.view', 'titleIndex': 2},
+    {'widget': OrdersPage(), 'permission': 'orders.view', 'titleIndex': 3},
+    {'widget': SuppliersPage(), 'permission': 'suppliers.view', 'titleIndex': 4},
+    {'widget': InsuranceCompaniesPage(), 'permission': 'insurance.view', 'titleIndex': 5},
+    {'widget': AccountsPage(), 'permission': 'accounts.view', 'titleIndex': 6},
+    {'widget': FinancePage(), 'permission': 'finance.view', 'titleIndex': 7},
+    {'widget': ChatPage(), 'permission': 'messages.view', 'titleIndex': 8},
+    {'widget': SettingsPage(), 'permission': 'settings.view', 'titleIndex': 9},
   ];
+
+  final List<Map<String, dynamic>> allSidebarItems = [
+    {'item': SidebarItem(icon: Iconsax.home_2, label: "لوحة التحكم", activeIcon: Iconsax.home_2), 'permission': 'dashboard.view'},
+    {'item': SidebarItem(icon: Iconsax.shopping_cart, label: "المبيعات", activeIcon: Iconsax.shopping_cart), 'permission': 'sales.view'},
+    {'item': SidebarItem(icon: Iconsax.box, label: "المخزون", activeIcon: Iconsax.box), 'permission': 'inventory.view'},
+    {'item': SidebarItem(icon: Iconsax.receipt, label: "الطلبات", activeIcon: Iconsax.receipt), 'permission': 'orders.view'},
+    {'item': SidebarItem(icon: Iconsax.truck, label: "الموردين", activeIcon: Iconsax.truck), 'permission': 'suppliers.view'},
+    {'item': SidebarItem(icon: Iconsax.shield_tick, label: "شركات التأمين", activeIcon: Iconsax.shield_tick), 'permission': 'insurance.view'},
+    {'item': SidebarItem(icon: Iconsax.wallet, label: "الحسابات", activeIcon: Iconsax.wallet), 'permission': 'accounts.view'},
+    {'item': SidebarItem(icon: Iconsax.dollar_circle, label: "الشؤون المالية", activeIcon: Iconsax.dollar_circle), 'permission': 'finance.view'},
+    {'item': SidebarItem(icon: Iconsax.message, label: "المراسلات", activeIcon: Iconsax.message), 'permission': 'messages.view'},
+    {'item': SidebarItem(icon: Iconsax.setting_2, label: "الإعدادات", activeIcon: Iconsax.setting_2), 'permission': 'settings.view'},
+  ];
+
+  void _buildUiFromPermissions() {
+    pages = allPages
+        .where((p) => authController.can(p['permission']))
+        .map((p) {
+      final titleIndex = p['titleIndex'] as int;
+      return PageWrapper(
+        title: pageTitles[titleIndex],
+        child: p['widget'] as Widget,
+      );
+    })
+        .toList();
+
+    sidebarItems = allSidebarItems
+        .where((i) => authController.can(i['permission']))
+        .map((i) => i['item'] as SidebarItem)
+        .toList();
+
+    if (selectedIndex >= pages.length) selectedIndex = 0;
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Obx(() {
-        if (authController.pharmacyData.isEmpty) {
+        if (!authController.isPharmacyLoaded.value ||
+            !authController.isPermissionsLoaded.value) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        _buildUiFromPermissions();
+
+        if (pages.isEmpty) {
           return const Center(
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2563EB)),
+            child: Text(
+              'لا توجد صلاحيات لعرض أي صفحة',
+              style: TextStyle(fontSize: 16),
             ),
           );
         }
 
+        if (selectedIndex >= pages.length) {
+          selectedIndex = 0;
+        }
+
+        final String pharmacyName =
+            authController.pharmacyData['pharmacyName'] as String? ?? '';
+
         return Row(
           children: [
-            // الشريط الجانبي الأزرق
             SidebarWidget(
               selectedIndex: selectedIndex,
-              onItemSelected: (index) {
-                setState(() {
-                  selectedIndex = index;
-                });
-              },
-              pharmacyName: authController.pharmacyData["name"],
-              pharmacyAddress: authController.pharmacyData["address"] ?? "",
               sidebarItems: sidebarItems,
+              onItemSelected: (index) {
+                setState(() => selectedIndex = index);
+              },
+              pharmacyName: pharmacyName,
               backgroundColor: const Color(0xFF1E40AF),
               activeColor: const Color(0xFF3B82F6),
               textColor: Colors.white,
               activeTextColor: Colors.white,
             ),
-
-            // المحتوى الرئيسي
             Expanded(
-              child: Container(
-                color: Colors.grey.shade50,
-                child: Column(
-                  children: [
-                    // شريط العنوان مع زر تبديل الحسابات
-                    _buildAppBar(),
-
-                    // المحتوى
-                    Expanded(
-                      child: pages[selectedIndex],
-                    ),
-                  ],
-                ),
-              ),
+              child: pages[selectedIndex],
             ),
           ],
         );
       }),
     );
-  }
-
-  // بناء شريط التطبيق مع زر تبديل الحسابات
-  Widget _buildAppBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // العنوان مع أيقونة الصفحة
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E40AF).withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  sidebarItems[selectedIndex].activeIcon ??
-                      sidebarItems[selectedIndex].icon,
-                  color: const Color(0xFF1E40AF),
-                  size: 28,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Text(
-                sidebarItems[selectedIndex].label,
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E40AF),
-                ),
-              ),
-            ],
-          ),
-
-          // الأزرار في الشريط العلوي
-          Row(
-            children: [
-                _buildAccountSwitchButton(),
-              const SizedBox(width: 16),
-
-              // زر الإشعارات
-              _buildNotificationButton(),
-
-              const SizedBox(width: 16),
-
-              // معلومات المستخدم
-              _buildUserProfile(),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // زر تبديل الحسابات للموظفين
-  Widget _buildAccountSwitchButton() {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E40AF).withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: PopupMenuButton<String>(
-        icon: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Row(
-            children: [
-              Icon(Iconsax.profile_2user, color: const Color(0xFF1E40AF), size: 20),
-              const SizedBox(width: 8),
-              Text(
-                "تبديل الحساب",
-                style: TextStyle(
-                  color: const Color(0xFF1E40AF),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-        onSelected: (value) {
-          _handleAccountSwitch(value);
-        },
-        itemBuilder: (BuildContext context) {
-          return [
-            PopupMenuItem<String>(
-              value: 'employee1',
-              child: Row(
-                children: [
-                  Icon(Iconsax.profile_circle, color: const Color(0xFF1E40AF), size: 20),
-                  const SizedBox(width: 12),
-                  const Text("محمد أحمد (موظف)"),
-                ],
-              ),
-            ),
-            PopupMenuItem<String>(
-              value: 'employee2',
-              child: Row(
-                children: [
-                  Icon(Iconsax.profile_circle, color: const Color(0xFF1E40AF), size: 20),
-                  const SizedBox(width: 12),
-                  const Text("فاطمة علي (صيدلاني)"),
-                ],
-              ),
-            ),
-            PopupMenuItem<String>(
-              value: 'admin',
-              child: Row(
-                children: [
-                  Icon(Iconsax.security_user, color: const Color(0xFF1E40AF), size: 20),
-                  const SizedBox(width: 12),
-                  const Text("حساب المدير"),
-                ],
-              ),
-            ),
-            const PopupMenuDivider(),
-            PopupMenuItem<String>(
-              value: 'logout',
-              child: Row(
-                children: [
-                  Icon(Iconsax.logout, color: Colors.red.shade600, size: 20),
-                  const SizedBox(width: 12),
-                  Text("تسجيل الخروج", style: TextStyle(color: Colors.red.shade600)),
-                ],
-              ),
-            ),
-          ];
-        },
-      ),
-    );
-  }
-
-  // زر الإشعارات
-  Widget _buildNotificationButton() {
-    return Stack(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E40AF).withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(
-            Iconsax.notification,
-            color: const Color(0xFF1E40AF),
-            size: 24,
-          ),
-        ),
-        Positioned(
-          right: 6,
-          top: 6,
-          child: Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-              color: Colors.red,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.white, width: 2),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // معلومات المستخدم
-  Widget _buildUserProfile() {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E40AF).withOpacity(0.1),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                'المستخدم',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: Color(0xFF1E40AF),
-                ),
-              ),
-              Text(
-                'role',
-                style: TextStyle(
-                  color: const Color(0xFF1E40AF).withOpacity(0.7),
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 12),
-          Container(
-            width: 40,
-            height: 40,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF3B82F6), Color(0xFF1E40AF)],
-              ),
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-               'name',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // معالجة تبديل الحساب
-  void _handleAccountSwitch(String value) {
-    if (value == 'logout') {
-      authController.logout();
-      return;
-    }
-
-    Get.snackbar(
-      'تبديل الحساب',
-      'تم التبديل إلى حساب جديد',
-      backgroundColor: const Color(0xFF1E40AF),
-      colorText: Colors.white,
-      snackPosition: SnackPosition.BOTTOM,
-      borderRadius: 12,
-      margin: const EdgeInsets.all(16),
-      icon: Icon(Iconsax.profile_2user, color: Colors.white),
-    );
-  }
-
-  // الحصول على اسم الدور
-  String _getRoleName(String role) {
-    switch (role) {
-      case 'admin':
-        return 'مدير النظام';
-      case 'owner':
-        return 'صاحب الصيدلية';
-      case 'pharmacist':
-        return 'صيدلاني';
-      case 'employee':
-        return 'موظف';
-      default:
-        return 'مستخدم';
-    }
-  }
-
-  // الحصول على الأحرف الأولى من الاسم
-  String _getUserInitials(String name) {
-    if (name.isEmpty) return 'م';
-    List<String> parts = name.split(' ');
-    if (parts.length >= 2) {
-      return parts[0][0] + parts[1][0];
-    }
-    return name[0];
   }
 }
 
@@ -433,6 +142,59 @@ class _HomePageState extends State<HomePage> {
 
 
 
+class PageWrapper extends StatelessWidget {
+  final Widget child;
+  final String title;
+  final List<Widget>? actions;
+
+  const PageWrapper({
+    super.key,
+    required this.child,
+    required this.title,
+    this.actions,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // AppBar مخصص
+        Container(
+          height: 70,
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF2C3E50),
+                ),
+              ),
+              Row(
+                children: [
+                  ...?actions,
+                  const SizedBox(width: 8),
+                  const NotificationButton(),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        // محتوى الصفحة
+        Expanded(
+          child: SingleChildScrollView(
+            child: child,
+          ),
+        ),
+      ],
+    );
+  }
+}
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
@@ -441,126 +203,95 @@ class DashboardPage extends StatelessWidget {
     final SalesController salesController = Get.find();
     final InventoryController inventoryController = Get.find();
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          // بطاقات الإحصائيات
-          GridView.count(
-            crossAxisCount: 4,
-            shrinkWrap: true,
-            crossAxisSpacing: 20,
-            mainAxisSpacing: 20,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [
-              _buildStatCard(
-                Icons.medication,
-                "إجمالي الأدوية",
-                "120",
-                const Color(0xFF2E7D32),
-                Icons.trending_up,
-              ),
-              _buildStatCard(
-                Icons.shopping_cart,
-                "المبيعات اليوم",
-                "1,250 ",
-                const Color(0xFF1976D2),
-                Icons.trending_up,
-              ),
-              _buildStatCard(
-                Icons.pending_actions,
-                "طلبات قيد الانتظار",
-                "8",
-                const Color(0xFFF57C00),
-                Icons.schedule,
-              ),
-              _buildStatCard(
-                Icons.warning,
-                "منخفضة المخزون",
-                "5",
-                const Color(0xFFD32F2F),
-                Icons.inventory_2,
-              ),
-            ],
-          ),
+    return Column(
+      children: [
+        // بطاقات الإحصائيات
+        GridView.count(
+          crossAxisCount: 4,
+          shrinkWrap: true,
+          crossAxisSpacing: 20,
+          mainAxisSpacing: 20,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            _buildStatCard(
+              Icons.medication,
+              "إجمالي الأدوية",
+              "120",
+              const Color(0xFF2E7D32),
+              Icons.trending_up,
+            ),
+            _buildStatCard(
+              Icons.shopping_cart,
+              "المبيعات اليوم",
+              "1,250 ",
+              const Color(0xFF1976D2),
+              Icons.trending_up,
+            ),
+            _buildStatCard(
+              Icons.pending_actions,
+              "طلبات قيد الانتظار",
+              "8",
+              const Color(0xFFF57C00),
+              Icons.schedule,
+            ),
+            _buildStatCard(
+              Icons.warning,
+              "منخفضة المخزون",
+              "5",
+              const Color(0xFFD32F2F),
+              Icons.inventory_2,
+            ),
+          ],
+        ),
 
-          const SizedBox(height: 32),
+        const SizedBox(height: 32),
 
-          // مخططات سريعة
-          Row(
-            children: [
-              Expanded(
-                child: _buildQuickChart("المبيعات الأسبوعية", Colors.blue),
-              ),
-              const SizedBox(width: 20),
-              Expanded(
-                child: _buildQuickChart("الأدوية الأكثر مبيعاً", Colors.green),
-              ),
-            ],
-          ),
-        ],
-      ),
+        // مخططات سريعة
+        Row(
+          children: [
+            Expanded(
+              child: _buildQuickChart("المبيعات الأسبوعية", Colors.blue),
+            ),
+            const SizedBox(width: 20),
+            Expanded(
+              child: _buildQuickChart("الأدوية الأكثر مبيعاً", Colors.green),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
   Widget _buildStatCard(IconData icon, String title, String value, Color color, IconData trendIcon) {
     return Container(
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(30),
-              ),
-              child: Icon(icon, size: 30, color: color),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: color, size: 32),
+          const SizedBox(height: 8),
+          Text(title, style: TextStyle(color: Colors.black54)),
+          const SizedBox(height: 4),
+          Text(value, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Icon(trendIcon, color: color, size: 16),
+        ],
       ),
     );
   }
 
+
   Widget _buildQuickChart(String title, Color color) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      height: 200,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -572,35 +303,20 @@ class DashboardPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF2C3E50),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Container(
-            height: 150,
-            color: Colors.grey.shade100,
-            child: Center(
-              child: Text(
-                "مخطط $title",
-                style: TextStyle(
-                  color: Colors.grey.shade500,
-                ),
-              ),
+          Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          Expanded(
+            child: Container(
+              color: color.withOpacity(0.2),
+              child: const Center(child: Text("Chart Placeholder")),
             ),
           ),
         ],
       ),
     );
   }
-}
 
-// زر الإشعارات
-class NotificationButton extends StatelessWidget {
+}class NotificationButton extends StatelessWidget {
   const NotificationButton({super.key});
 
   @override

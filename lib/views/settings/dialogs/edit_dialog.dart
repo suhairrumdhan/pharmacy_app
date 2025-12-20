@@ -5,15 +5,24 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart'; // Added iconsax import
 import 'package:latlong2/latlong.dart';
-
+import '../../../services/location_service.dart';
 import '../../../controllers/settings_controller.dart';
 import '../../../models/settings_model.dart';
 
 void openEditDialog(PharmacySettings settings) {
   final SettingsController controller = Get.find<SettingsController>();
+  final LocationService locationService = Get.put(LocationService());
 
   // Initialize controllers with current settings
   controller.initializeControllers(settings);
+
+  // تأكد من أن currentMapCenter جاهز قبل فتح الـ dialog
+  if (locationService.currentMapCenter.value == null) {
+    locationService.initializeMap(initialLocation: LatLng(
+      settings.location.latitude != 0 ? settings.location.latitude : 32.871796,
+      settings.location.longitude != 0 ? settings.location.longitude : 13.201452,
+    ));
+  }
 
   Get.dialog(
     Dialog(
@@ -21,27 +30,20 @@ void openEditDialog(PharmacySettings settings) {
       insetPadding: const EdgeInsets.all(20),
       child: SingleChildScrollView(
         child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: 700,
-            maxHeight: 900,
-          ),
+          constraints: const BoxConstraints(maxWidth: 700, maxHeight: 900),
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [
-                  Colors.blue.shade50,
-                  Colors.white,
-                  Colors.blue.shade50,
-                ],
+                colors: [Colors.blue.shade50, Colors.white, Colors.blue.shade50],
               ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Header
+                // Header (كما هو)
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
@@ -68,26 +70,18 @@ void openEditDialog(PharmacySettings settings) {
                               ],
                             ),
                             padding: const EdgeInsets.all(10),
-                            child: Icon(
-                              Iconsax.edit_2, // Changed from Icons.edit_rounded
-                              color: Colors.blue.shade700,
-                              size: 20,
-                            ),
+                            child: Icon(Iconsax.edit_2, color: Colors.blue.shade700, size: 20),
                           ),
                           const SizedBox(width: 12),
                           Text(
                             'تعديل إعدادات الصيدلية',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey.shade900,
-                            ),
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey.shade900),
                           ),
                         ],
                       ),
                       IconButton(
                         onPressed: () {
-                          controller.initializeControllers(settings); // Reset to original values
+                          controller.initializeControllers(settings);
                           Get.back();
                         },
                         icon: Container(
@@ -103,11 +97,7 @@ void openEditDialog(PharmacySettings settings) {
                             ],
                           ),
                           padding: const EdgeInsets.all(6),
-                          child: Icon(
-                            Iconsax.close_circle, // Changed from Icons.close_rounded
-                            color: Colors.red.shade600,
-                            size: 18,
-                          ),
+                          child: Icon(Iconsax.close_circle, color: Colors.red.shade600, size: 18),
                         ),
                       ),
                     ],
@@ -120,7 +110,7 @@ void openEditDialog(PharmacySettings settings) {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Pharmacy Settings in two columns
+                      // Two-column fields
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
@@ -130,73 +120,21 @@ void openEditDialog(PharmacySettings settings) {
                             width: double.infinity,
                             child: Row(
                               children: [
-                                Expanded(
-                                  child: _buildEditField(
-                                    label: 'الاسم',
-                                    icon: Iconsax.shop, // Changed from Icons.store_rounded
-                                    controller: controller.nameController,
-                                  ),
-                                ),
+                                Expanded(child: _buildEditField(label: 'الاسم', icon: Iconsax.shop, controller: controller.nameController)),
                                 const SizedBox(width: 16),
-                                Expanded(
-                                  child: _buildEditField(
-                                    label: 'المالك',
-                                    icon: Iconsax.user, // Changed from Icons.person_rounded
-                                    controller: controller.ownerNameController,
-                                  ),
-                                ),
+                                Expanded(child: _buildEditField(label: 'المالك', icon: Iconsax.user, controller: controller.ownerNameController)),
                               ],
                             ),
                           ),
-
                           // Row 2
                           SizedBox(
                             width: double.infinity,
                             child: Row(
                               children: [
-                                Expanded(
-                                  child: _buildEditField(
-                                    label: 'رقم هوية المالك',
-                                    icon: Iconsax.card, // Changed from Icons.badge_rounded
-                                    controller: controller.ownerIdNumberController,
-                                    keyboardType: TextInputType.number,
-                                  ),
-                                ),
+                                Expanded(child: _buildEditField(label: 'رقم الهاتف', icon: Iconsax.call, controller: controller.phoneController, keyboardType: TextInputType.phone)),
                                 const SizedBox(width: 16),
-                                Expanded(
-                                  child: _buildEditField(
-                                    label: 'البريد الإلكتروني',
-                                    icon: Iconsax.sms, // Changed from Icons.email_rounded
-                                    controller: controller.emailController,
-                                    keyboardType: TextInputType.emailAddress,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                                Expanded(child: _buildEditField(label: 'العنوان', icon: Iconsax.location, controller: controller.addressController, maxLines: 1)),
 
-                          // Row 3
-                          SizedBox(
-                            width: double.infinity,
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: _buildEditField(
-                                    label: 'رقم الهاتف',
-                                    icon: Iconsax.call, // Changed from Icons.phone_rounded
-                                    controller: controller.phoneController,
-                                    keyboardType: TextInputType.phone,
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: _buildEditField(
-                                    label: 'العنوان',
-                                    icon: Iconsax.location, // Changed from Icons.location_on_rounded
-                                    controller: controller.addressController,
-                                    maxLines: 1,
-                                  ),
-                                ),
                               ],
                             ),
                           ),
@@ -218,223 +156,180 @@ void openEditDialog(PharmacySettings settings) {
                           ],
                         ),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Map Preview
-                            Container(
-                              height: 150,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.blue.shade50),
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: FlutterMap(
-                                  options: MapOptions(
-                                    center: LatLng(
-                                      settings.location.latitude != 0.0
-                                          ? settings.location.latitude
-                                          : 13.7136,
-                                      settings.location.longitude != 0.0
-                                          ? settings.location.longitude
-                                          : 31.6753,
+                            // ====== الخريطة ======
+                            SizedBox(
+                              height: 200,
+                              child: Obx(() {
+                                final lat = controller.latitude.value;
+                                final lng = controller.longitude.value;
+
+                                final mapCenter = (lat != 0.0 && lng != 0.0)
+                                    ? LatLng(lat, lng)
+                                    : LatLng(33.8886, 22.5555); // قيمة افتراضية
+
+                                // MapController محلي
+                                final mapController = MapController();
+                                final zoom = 15.0; // zoom محلي
+
+                                // تحديث مركز الخريطة بعد البناء
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  if (lat != 0.0 && lng != 0.0) {
+                                    mapController.move(mapCenter, zoom);
+                                  }
+                                });
+
+                                return ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: FlutterMap(
+                                    mapController: mapController,
+                                    options: MapOptions(
+                                      center: mapCenter,
+                                      zoom: zoom,
                                     ),
-                                    zoom: 12.0,
+                                    children: [
+                                      TileLayer(
+                                        urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                                        userAgentPackageName: "com.pharmacy2.app",
+                                      ),
+                                      MarkerLayer(
+                                        markers: [
+                                          if (lat != 0.0 && lng != 0.0)
+                                            Marker(
+                                              point: LatLng(lat, lng),
+                                              width: 40,
+                                              height: 40,
+                                              builder: (ctx) => Icon(
+                                                Icons.location_on,
+                                                color: Colors.blue.shade700,
+                                                size: 40,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ],
                                   ),
-                                  children: [
-                                    TileLayer(
-                                      urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-                                      userAgentPackageName: "com.example.app2",
-                                    ),
-                                    MarkerLayer(
-                                      markers: [
-                                        Marker(
-                                          point: LatLng(
-                                            controller.latitude.value != 0.0
-                                                ? controller.latitude.value
-                                                : 24.7136,
-                                            controller.longitude.value != 0.0
-                                                ? controller.longitude.value
-                                                : 46.6753,
-                                          ),
-                                          width: 30,
-                                          height: 30,
-                                          builder: (ctx) => Icon(
-                                            Iconsax.location, // Changed from Icons.location_on
-                                            color: Colors.blue.shade700,
-                                            size: 30,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
+                                );
+                              }),
                             ),
+
                             const SizedBox(height: 12),
 
-                            // Search box
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: BackdropFilter(
-                                filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.shade50.withOpacity(0.7),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: Colors.blue.shade100.withOpacity(0.6),
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  child: TextField(
-                                    onChanged: (value) {
-                                      // Add your search function here
-                                    },
-                                    decoration: InputDecoration(
-                                      prefixIcon: Icon(
-                                        Iconsax.search_normal_1, // Changed from Icons.search
-                                        color: Colors.blue.shade600,
-                                        size: 20,
-                                      ),
-                                      hintText: 'ابحث عن موقع...',
-                                      hintStyle: TextStyle(
-                                        color: Colors.blue.shade400,
-                                        fontSize: 14,
-                                      ),
-                                      border: InputBorder.none,
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        vertical: 12,
-                                        horizontal: 16,
-                                      ),
-                                    ),
-                                    style: TextStyle(
-                                      color: Colors.blue.shade800,
-                                      fontSize: 14,
-                                    ),
-                                    cursorColor: Colors.blue.shade600,
-                                  ),
-                                ),
+                            // ====== حقل البحث ======
+                            TextField(
+                              controller: locationService.searchController,
+                              focusNode: locationService.searchFocusNode,
+                              style: TextStyle(color: Colors.blue),
+                              decoration: InputDecoration(
+                                hintText: 'ابحث عن موقع...',
+                                hintStyle: TextStyle(color: Colors.blue.shade300),
+                                prefixIcon: Icon(Icons.search, color: Colors.blue),
                               ),
+                              onChanged: (value) => locationService.searchPlace(value),
                             ),
-                          ],
+
+                            const SizedBox(height: 8),
+
+                            // ====== اقتراحات البحث Scrollable ======
+// ===== قائمة النتائج مع تحديث الخريطة محليًا فقط =====
+                            Obx(() => ConstrainedBox(
+                              constraints: BoxConstraints(maxHeight: 100),
+                              child: ListView.builder(
+                                shrinkWrap: true,
+                                itemCount: locationService.searchResults.length,
+                                itemBuilder: (context, index) {
+                                  final result = locationService.searchResults[index];
+                                  return ListTile(
+                                    title: Text(
+                                      result['name'],
+                                      style: TextStyle(color: Colors.blue.shade900),
+                                    ),
+                                    onTap: () {
+                                      // ===== تحديث العنوان فقط =====
+                                      controller.addressController.text = result['name'];
+
+                                      // ===== تحديث مركز الخريطة محليًا فقط =====
+                                      locationService.currentMapCenter.value = LatLng(result['lat'], result['lon']);
+                                      locationService.currentZoom.value = 15.0; // أو أي قيمة مناسبة للزووم
+
+                                      // ===== تحديث حقل البحث =====
+                                      locationService.searchController.text = result['name'];
+
+                                      // ===== مسح النتائج لإخفاء ListView =====
+                                      locationService.searchResults.value = [];
+                                    },
+                                  );
+                                },
+                              ),
+                            )),                          ],
                         ),
                       ),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 50),
 
                       // Action Buttons
                       Row(
                         children: [
-                          // Cancel Button
                           Expanded(
                             child: Container(
                               height: 48,
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(12),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.grey.withOpacity(0.2),
-                                    blurRadius: 6,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ],
+                                boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.2), blurRadius: 6, offset: const Offset(0, 3))],
                               ),
                               child: TextButton(
-                                onPressed: () {
-                                  controller.initializeControllers(settings); // Reset to original values
-                                  Get.back();
-                                },
+                                onPressed: () { controller.initializeControllers(settings); Get.back(); },
                                 style: TextButton.styleFrom(
                                   backgroundColor: Colors.white.withOpacity(0.5),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                    side: BorderSide(
-                                      color: Colors.grey.shade300,
-                                      width: 1,
-                                    ),
-                                  ),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade300, width: 1)),
                                 ),
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(
-                                      Iconsax.close_circle, // Changed from Icons.close_rounded
-                                      color: Colors.grey.shade600,
-                                      size: 18,
-                                    ),
+                                    Icon(Iconsax.close_circle, color: Colors.grey.shade600, size: 18),
                                     const SizedBox(width: 8),
-                                    Text(
-                                      'إلغاء',
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.grey.shade600,
-                                      ),
-                                    ),
+                                    Text('إلغاء', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.grey.shade600)),
                                   ],
                                 ),
                               ),
                             ),
                           ),
                           const SizedBox(width: 20),
-
-                          // Save Button
                           Expanded(
                             child: Container(
                               height: 48,
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(12),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.blue.withOpacity(0.3),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ],
+                                boxShadow: [BoxShadow(color: Colors.blue.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3))],
                               ),
                               child: TextButton(
                                 onPressed: () async {
-                                  // Save changes
-                                  final success = await controller.updateSettings();
-                                  if (success) {
-                                    Get.back();
+                                  // 1️⃣ تأكد أن هناك إحداثيات مختارة
+                                  if (locationService.currentMapCenter.value == null) {
+                                    Get.snackbar('خطأ', 'الرجاء تحديد الموقع قبل الحفظ');
+                                    return;
                                   }
-                                },
-                                style: TextButton.styleFrom(
-                                  backgroundColor: Colors.blue.shade700,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
+
+                                  // 2️⃣ تحديث الكونترولر بالإحداثيات المختارة
+                                  controller.latitude.value = locationService.currentMapCenter.value!.latitude;
+                                  controller.longitude.value = locationService.currentMapCenter.value!.longitude;
+
+                                  // 3️⃣ تحديث باقي الإعدادات في Firestore
+                                  final success = await controller.updateSettings(requireLocation: true);
+
+                                  // 4️⃣ إغلاق الشاشة إذا تم الحفظ بنجاح
+                                  if (success) Get.back();
+                                },                                style: TextButton.styleFrom(backgroundColor: Colors.blue.shade700, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                                 child: Obx(() {
                                   final isLoading = controller.isLoading.value;
                                   return Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       if (isLoading)
-                                        const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        )
+                                        const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                                       else
-                                        Icon(
-                                          Iconsax.tick_circle, // Changed from Icons.check_rounded
-                                          color: Colors.white,
-                                          size: 18,
-                                        ),
+                                        Icon(Iconsax.tick_circle, color: Colors.white, size: 18),
                                       const SizedBox(width: 8),
-                                      Text(
-                                        isLoading ? 'جاري الحفظ...' : 'حفظ التغييرات',
-                                        style: const TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.white,
-                                        ),
-                                      ),
+                                      Text(isLoading ? 'جاري الحفظ...' : 'حفظ التغييرات', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white)),
                                     ],
                                   );
                                 }),

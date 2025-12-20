@@ -1,17 +1,45 @@
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:pharmacy_desktop/views/settings/widgets/business_hours_widget.dart';
 import 'package:pharmacy_desktop/views/settings/widgets/employees_widget.dart';
 import '../../controllers/settings_controller.dart';
+import '../../controllers/auth_controller.dart';
 import 'widgets/pharmacy_info_widget.dart';
 
 class SettingsPage extends StatelessWidget {
   SettingsPage({super.key});
+
   final SettingsController settingsController = Get.put(SettingsController());
+  final AuthController authController = Get.find();
 
   @override
   Widget build(BuildContext context) {
+    // تحقق من الصلاحية قبل عرض أي شيء
+    if (!authController.can('settings.view')) {
+      // المستخدم غير مخول، نعرض ديالوج تحذيري
+      Future.microtask(() {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text("تنبيه"),
+              content: const Text("أنت غير مخول للوصول إلى صفحة الإعدادات."),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text("موافق"),
+                ),
+              ],
+            ),
+          );
+        });
+      });
+
+      // نرجع ودجت فارغ لمنع أي عرض خاطئ
+      return const SizedBox.shrink();
+    }
+
+    // المستخدم مخول، نعرض الصفحة
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Obx(() {
@@ -20,7 +48,7 @@ class SettingsPage extends StatelessWidget {
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // النصف الأيسر: الودجت الجديد المدمج
+            // النصف الأيسر: ودجت معلومات الصيدلية
             Expanded(
               flex: 1,
               child: SingleChildScrollView(
@@ -30,7 +58,7 @@ class SettingsPage extends StatelessWidget {
 
             const SizedBox(width: 24),
 
-            // النصف الأيمن: باقي المكونات
+            // النصف الأيمن: الموظفين وساعات العمل
             Expanded(
               flex: 1,
               child: SingleChildScrollView(
@@ -39,14 +67,12 @@ class SettingsPage extends StatelessWidget {
                   children: [
                     buildEmployeesCard(),
                     const SizedBox(height: 10),
-                    // BUSINESS HOURS (ظهر فقط إذا ليست 24 ساعة)
-                    if (!(settings.is24Hours ?? false))
-                      buildBusinessHoursCard(context,settings.businessHours),
-                    if (!(settings.is24Hours ?? false))
+                    if (!(settings.is24Hours ))
+                      buildBusinessHoursCard(context, settings.businessHours),
+                    if (!(settings.is24Hours ))
                       const SizedBox(height: 18),
                   ],
                 ),
-
               ),
             ),
           ],
@@ -54,6 +80,4 @@ class SettingsPage extends StatelessWidget {
       }),
     );
   }
-
-
 }

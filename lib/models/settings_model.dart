@@ -10,10 +10,8 @@ class PharmacySettings {
   final String email;
   final String phoneNumber;
   final String address;
-  final String description;
   final String licenseNumber;
   final String status;
-  final String userType;
   final bool is24Hours;
   final bool isOnline;
   final String? imageUrl;
@@ -30,10 +28,8 @@ class PharmacySettings {
     required this.email,
     required this.phoneNumber,
     required this.address,
-    required this.description,
     required this.licenseNumber,
     required this.status,
-    required this.userType,
     required this.is24Hours,
     required this.isOnline,
     required this.imageUrl,
@@ -53,10 +49,8 @@ class PharmacySettings {
       email: '',
       phoneNumber: '',
       address: '',
-      description: '',
       licenseNumber: '',
       status: 'pending',
-      userType: 'pharmacy',
       is24Hours: false,
       isOnline: false,
       imageUrl: null,
@@ -76,14 +70,12 @@ class PharmacySettings {
       ownerIdNumber: data['ownerIdNumber'],
       email: data['email'],
       phoneNumber: data['phoneNumber'],
-      address: data['address'],
-      description: data['description'],
+      address: data['address']?.toString() ?? '',
       licenseNumber: data['licenseNumber'],
       status: data['status'],
-      userType: data['userType'] ?? 'pharmacy',
       is24Hours: data['is24Hours'] ?? false,
       isOnline: data['isOnline'] ?? false,
-      imageUrl: data['imageUrl']??'',
+      imageUrl: data['imageUrl']?.toString() ?? '',
       location: PharmacyLocation.fromMap(data['location'] ?? {}),
       businessHours: BusinessHours.fromMap(data['businessHours'] ?? {}),
       createdAt: data['createdAt'] ?? Timestamp.now(),
@@ -99,10 +91,8 @@ class PharmacySettings {
       'email': email,
       'phoneNumber': phoneNumber,
       'address': address,
-      'description': description,
       'licenseNumber': licenseNumber,
       'status': status,
-      'userType': userType,
       'is24Hours': is24Hours,
       'isOnline': isOnline,
       'imageUrl': imageUrl,
@@ -138,10 +128,8 @@ class PharmacySettings {
       email: email ?? this.email,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       address: address ?? this.address,
-      description: description ?? this.description,
       licenseNumber: licenseNumber ?? this.licenseNumber,
       status: status ?? this.status,
-      userType: this.userType,
       is24Hours: is24Hours ?? this.is24Hours,
       isOnline: isOnline ?? this.isOnline,
       imageUrl: imageUrl ?? this.imageUrl,
@@ -152,6 +140,7 @@ class PharmacySettings {
     );
   }
 }
+
 class PharmacyLocation {
   final double latitude;
   final double longitude;
@@ -162,16 +151,29 @@ class PharmacyLocation {
   });
 
   factory PharmacyLocation.fromMap(Map<String, dynamic> data) {
+    final latFromMap = _parseDouble(data['lat']);
+    final lngFromMap = _parseDouble(data['lng']);
+
+    double latFromCoords = 0.0;
+    double lngFromCoords = 0.0;
+    if (data['locationCoordinates'] is List &&
+        (data['locationCoordinates'] as List).length >= 2) {
+      final coords = data['locationCoordinates'] as List;
+      latFromCoords = _parseDouble(coords[0]) ?? 0.0;
+      lngFromCoords = _parseDouble(coords[1]) ?? 0.0;
+    }
+
     return PharmacyLocation(
-      latitude: data['latitude']?.toDouble() ?? 0.0,
-      longitude: data['longitude']?.toDouble() ?? 0.0,
+      latitude: latFromMap ?? latFromCoords ?? 0.0,
+      longitude: lngFromMap ?? lngFromCoords ?? 0.0,
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
-      'latitude': latitude,
-      'longitude': longitude,
+      'lat': latitude,
+      'lng': longitude,
+      'locationCoordinates': [latitude, longitude], // تحديث المصفوفة
     };
   }
 
@@ -179,12 +181,23 @@ class PharmacyLocation {
     double? latitude,
     double? longitude,
   }) {
+    final newLat = latitude ?? this.latitude;
+    final newLng = longitude ?? this.longitude;
     return PharmacyLocation(
-      latitude: latitude ?? this.latitude,
-      longitude: longitude ?? this.longitude,
+      latitude: newLat,
+      longitude: newLng,
     );
   }
+
+  static double? _parseDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
 }
+
 class BusinessHours {
   final String sunday;
   final String monday;
@@ -217,13 +230,13 @@ class BusinessHours {
       );
     }
     return BusinessHours(
-      sunday: data['sunday'] ?? '09:00 - 18:00',
-      monday: data['monday'] ?? '09:00 - 18:00',
-      tuesday: data['tuesday'] ?? '09:00 - 18:00',
-      wednesday: data['wednesday'] ?? '09:00 - 18:00',
-      thursday: data['thursday'] ?? '09:00 - 18:00',
-      friday: data['friday'] ?? '09:00 - 18:00',
-      saturday: data['saturday'] ?? '09:00 - 18:00',
+      sunday: data['sunday'] ?? '   09:00 ص - 6:00م',
+      monday: data['monday'] ?? '09:00 ص - 6:00م',
+      tuesday: data['tuesday'] ?? '09:00 ص - 6:00م',
+      wednesday: data['wednesday'] ?? '09:00 ص - 6:00م',
+      thursday: data['thursday'] ?? '09:00 ص - 6:00م',
+      friday: data['friday'] ?? '09:00 ص - 6:00م',
+      saturday: data['saturday'] ?? '09:00 ص - 6:00م',
     );
   }
 

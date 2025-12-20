@@ -4,9 +4,10 @@ import 'package:get/get.dart';
 import 'package:get/get_core/src/get_main.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart'; // Added iconsax import
 import 'package:latlong2/latlong.dart';
-import 'package:image_picker/image_picker.dart';
+import '../../../controllers/auth_controller.dart';
 import '../../../controllers/settings_controller.dart';
 import '../../../models/settings_model.dart';
+import '../../../services/location_service.dart';
 import '../dialogs/edit_dialog.dart';
 
 Widget buildPharmacySettingsCard(PharmacySettings settings) {
@@ -16,6 +17,8 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
   final hasValidLocation = lat != 0.0 || lng != 0.0;
   final mapCenter = hasValidLocation ? LatLng(lat, lng) : LatLng(0.0, 0.0);
   final initialZoom = hasValidLocation ? 16.0 : 2.0;
+  final LocationService locationService = Get.put(LocationService());
+  final auth = Get.find<AuthController>();
 
   return Card(
     elevation: 6,
@@ -75,10 +78,10 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
 
                   /// زر التعديل في الجانب الأيمن
                   IconButton(
-                    onPressed: () {
-                      // افتح دياالوج التعديل هنا
-                      openEditDialog(settings);
-                    },
+                    onPressed: auth.can('settings.update')
+                        ? () => openEditDialog(settings)
+                        : null,
+
                     icon: Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
@@ -94,7 +97,9 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                       padding: const EdgeInsets.all(8),
                       child: Icon(
                         Iconsax.edit_2, // Changed from Icons.edit_rounded
-                        color: Colors.blue.shade700,
+                        color: auth.can('settings.update')
+                            ? Colors.blue.shade700
+                            : Colors.grey.shade400,
                         size: 18,
                       ),
                     ),
@@ -131,7 +136,6 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                               // وضع 24 ساعة - نظيف جداً
                               _build24HoursSwitch(),
                               const SizedBox(height: 20),
-
                               // الحالة المتاحة - نظيف جداً
                               _buildOnlineStatusSwitch(),
                             ],
@@ -230,8 +234,8 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                               final isUploading = controller.isUploadingImage.value;
 
                               return GestureDetector(
-                                onTap: (isLoading || isUploading)
-                                    ? null // تعطيل الزر أثناء التحميل
+                                onTap: (!auth.can('settings.edit_image') || isLoading || isUploading)
+                                    ? null
                                     : () {
                                   controller.pickAndUploadImage();
                                 },
@@ -239,13 +243,16 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                                   width: 40,
                                   height: 40,
                                   decoration: BoxDecoration(
-                                    color: (isLoading || isUploading)
+                                    color: (!auth.can('settings.edit_image') || isLoading || isUploading)
                                         ? Colors.grey.shade400
                                         : Colors.blue.shade700,
+
                                     borderRadius: BorderRadius.circular(20),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.blue.withOpacity((isLoading || isUploading) ? 0.1 : 0.3),
+                                        color: Colors.blue.withOpacity(
+                                          (!auth.can('settings.edit_image') || isLoading || isUploading) ? 0.1 : 0.3,
+                                        ),
                                         blurRadius: 6,
                                         offset: const Offset(0, 3),
                                       ),
@@ -286,10 +293,9 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                               bottom: 12,
                               left: 12,
                               child: GestureDetector(
-                                onTap: isDeleting
+                                onTap: (!auth.can('settings.delete_image') || isDeleting)
                                     ? null
                                     : () {
-                                  // تأكيد قبل الحذف
                                   Get.defaultDialog(
                                     title: 'تأكيد الحذف',
                                     middleText: 'هل أنت متأكد من حذف صورة الصيدلية؟',
@@ -309,13 +315,16 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                                   width: 40,
                                   height: 40,
                                   decoration: BoxDecoration(
-                                    color: isDeleting
+                                    color: (!auth.can('settings.delete_image') || isDeleting)
                                         ? Colors.grey.shade400
                                         : Colors.red.shade600,
+
                                     borderRadius: BorderRadius.circular(20),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.red.withOpacity(isDeleting ? 0.1 : 0.3),
+                                        color: Colors.red.withOpacity(
+                                          (!auth.can('settings.delete_image') || isDeleting) ? 0.1 : 0.3,
+                                        ),
                                         blurRadius: 6,
                                         offset: const Offset(0, 3),
                                       ),
@@ -365,9 +374,9 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
                 _buildCompactInfoField('رقم هوية المالك', settings.ownerIdNumber, Iconsax.card), // Changed from Icons.badge_rounded
                 _buildCompactInfoField('البريد الإلكتروني', settings.email, Iconsax.sms), // Changed from Icons.email_rounded
                 _buildCompactInfoField('رقم الهاتف', settings.phoneNumber, Iconsax.call), // Changed from Icons.phone_rounded
-                _buildCompactInfoField('العنوان', settings.address, Iconsax.location), // Changed from Icons.location_on_rounded
                 _buildCompactInfoField('رقم الترخيص', settings.licenseNumber, Iconsax.verify), // Changed from Icons.verified_rounded
                 _buildCompactInfoField('الحالة', settings.status, Iconsax.tick_circle), // Changed from Icons.check_circle_rounded
+                _buildCompactInfoField('العنوان', settings.address, Iconsax.location,), // Changed from Icons.location_on_rounded
               ],
             ),
 
@@ -400,50 +409,72 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
               ],
             ),
             const SizedBox(height: 12),
-            Container(
-              height: 220,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.blue.shade100),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.blue.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: FlutterMap(
-                  options: MapOptions(
-                    center: mapCenter,
-                    zoom: initialZoom,
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-                      userAgentPackageName: "com.example.app2",
-                    ),
-                    MarkerLayer(
-                      markers: [
-                        if (hasValidLocation)
-                          Marker(
-                            point: LatLng(lat, lng),
-                            width: 40,
-                            height: 40,
-                            builder: (ctx) => Icon(
-                              Iconsax.location, // Changed from Icons.location_on
-                              color: Colors.blue.shade700,
-                              size: 40,
-                            ),
-                          ),
-                      ],
+            Obx(() {
+              final lat = controller.latitude.value;
+              final lng = controller.longitude.value;
+
+              // قيمة افتراضية لو لم يتم تحديد الموقع
+              final mapCenter = (lat != 0.0 && lng != 0.0)
+                  ? LatLng(lat, lng)
+                  : LatLng(33.8886, 22.5555);
+
+              // إنشاء MapController محلي
+              final mapController = MapController();
+              final zoom = 15.0; // قيمة zoom محلية
+
+              // تحديث مركز الخريطة بعد البناء
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (lat != 0.0 && lng != 0.0) {
+                  mapController.move(mapCenter, zoom);
+                }
+              });
+
+              return Container(
+                height: 220,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.shade100),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.blue.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
                     ),
                   ],
                 ),
-              ),
-            ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: FlutterMap(
+                    mapController: mapController,
+                    options: MapOptions(
+                      center: mapCenter,
+                      zoom: zoom,
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                        userAgentPackageName: "com.pharmacy22.app",
+                      ),
+                      MarkerLayer(
+                        markers: [
+                          if (lat != 0.0 && lng != 0.0)
+                            Marker(
+                              point: LatLng(lat, lng),
+                              width: 40,
+                              height: 40,
+                              builder: (ctx) => Icon(
+                                Iconsax.location,
+                                color: Colors.blue.shade700,
+                                size: 40,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
             const SizedBox(height: 10),
 
           ],
@@ -454,6 +485,8 @@ Widget buildPharmacySettingsCard(PharmacySettings settings) {
 }
 
 Widget _build24HoursSwitch() {
+  final auth = Get.find<AuthController>();
+
   final controller = Get.find<SettingsController>();
   return Container(
     decoration: BoxDecoration(
@@ -498,11 +531,20 @@ Widget _build24HoursSwitch() {
             ],
           ),
         ),
-        Obx(() => Switch(
-          value: controller.is24HoursValue, // استخدم الجيتر
-          onChanged: (_) => controller.toggle24HoursWithUI(), // استخدم الدالة الجديدة
-          activeColor: Colors.blue.shade700,
-        )),
+        Obx(() {
+          final canEdit24h = auth.can('settings.update_24h');
+
+          return Tooltip(
+            message: canEdit24h ? '' : 'ليس لديك صلاحية تعديل وضع 24 ساعة',
+            child: Switch(
+              value: controller.is24HoursValue,
+              onChanged: canEdit24h
+                  ? (_) => controller.toggle24HoursWithUI()
+                  : null,
+              activeColor: Colors.blue.shade700,
+            ),
+          );
+        }),
       ],
     ),
   );
@@ -554,11 +596,19 @@ Widget _buildOnlineStatusSwitch() {
             ],
           ),
         ),
-        Obx(() => Switch(
-          value: controller.isOnlineValue, // استخدم الجيتر
-          onChanged: (_) => controller.toggleOnlineStatusWithUI(), // استخدم الدالة الجديدة
-          activeColor: Colors.blue.shade700,
-        )),
+        Obx(() {
+          final auth = Get.find<AuthController>();
+          final canEditOnline = auth.can('settings.update_online');
+
+          return Switch(
+            value: controller.isOnlineValue,
+            onChanged: canEditOnline
+                ? (_) => controller.toggleOnlineStatusWithUI()
+                : null, // تعطيل السويتش تلقائياً
+            activeColor: Colors.blue.shade700,
+          );
+        }),
+
       ],
     ),
   );

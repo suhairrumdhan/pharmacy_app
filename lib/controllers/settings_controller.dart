@@ -99,17 +99,28 @@ class SettingsController extends GetxController {
       final data = doc.data() ?? {};
 
       // معالجة الموقع
+      // التعامل مع الماب location
       final locData = (data['location'] is Map)
           ? Map<String, dynamic>.from(data['location'])
           : {};
 
-      final lat = _parseDouble(locData['latitude']) ??
-          _parseDouble(data['latitude']) ??
-          0.0;
+      // أولاً: خط العرض والطول
+      final lat = _parseDouble(locData['lat']) ??
+          _parseDouble(data['lat']) ??
+          (data['locationCoordinates'] is List && data['locationCoordinates'].length >= 1
+              ? _parseDouble(data['locationCoordinates'][0])
+              : 0.0);
 
-      final lng = _parseDouble(locData['longitude']) ??
-          _parseDouble(data['longitude']) ??
-          0.0;
+      final lng = _parseDouble(locData['lng']) ??
+          _parseDouble(data['lng']) ??
+          (data['locationCoordinates'] is List && data['locationCoordinates'].length >= 2
+              ? _parseDouble(data['locationCoordinates'][1])
+              : 0.0);
+
+      // العنوان
+      final address = locData['address']?.toString() ??
+          data['address']?.toString() ??
+          'no address';
 
       // معالجة أوقات العمل
       Map<String, dynamic> businessHoursData = {};
@@ -134,22 +145,19 @@ class SettingsController extends GetxController {
 
       final loaded = PharmacySettings(
         uid: data['uid']?.toString() ?? '',
-        name: data['name']?.toString() ?? '',
+        name: data['pharmacyName']?.toString() ?? '',
         ownerName: data['ownerName']?.toString() ?? '',
         ownerIdNumber: data['ownerIdNumber']?.toString() ?? '',
         email: data['email']?.toString() ?? '',
         phoneNumber: data['phoneNumber']?.toString() ?? '',
-        address: data['address']?.toString() ?? '',
-        description: data['description']?.toString() ?? '',
+        address: address,
         licenseNumber: data['licenseNumber']?.toString() ?? '',
         status: data['status']?.toString() ?? 'pending',
-        userType: data['userType']?.toString() ?? 'pharmacy',
         is24Hours: is24,
         isOnline: data['isOnline'] ?? false,
         imageUrl: data['imageUrl']?.toString() ?? '',
-        location: PharmacyLocation(latitude: lat, longitude: lng),
+        location: PharmacyLocation(latitude: lat!, longitude: lng!),
 
-        // *** الإصلاح هنا ***
         businessHours: BusinessHours.fromMap(
           businessHoursData,
           is24Hours: is24,
@@ -174,7 +182,7 @@ class SettingsController extends GetxController {
       ownerIdNumberController.text = loaded.ownerIdNumber ?? '';
       emailController.text = loaded.email ?? '';
       phoneController.text = loaded.phoneNumber ?? '';
-      addressController.text = loaded.address ?? '';
+      addressController.text = loaded.address ?? '**';
       licenseNumberController.text = loaded.licenseNumber ?? '';
     } catch (e, st) {
       errorMessage('فشل في تحميل الإعدادات: $e');
@@ -449,6 +457,7 @@ class SettingsController extends GetxController {
       default: return 'مغلق';
     }
   }
+
   Future<bool> updateOnlineStatus(bool isOnline) async {
     if (pharmacyId.isEmpty) return false;
     try {
@@ -487,26 +496,23 @@ class SettingsController extends GetxController {
   }
 
   Future<void> toggle24HoursWithUI() async {
-    final newValue = !(settings.value?.is24Hours ?? false);
-    final success = await update24HoursStatus(newValue);
 
-    if (success) {
-      final message = newValue ? 'تم تفعيل وضع 24 ساعة' : 'تم إيقاف وضع 24 ساعة';
-      _showSuccessSnackbar(message);
-    } else {
-      _showErrorSnackbar('فشل في تحديث وضع 24 ساعة');
+    try{
+      final newValue = !(settings.value?.is24Hours ?? false);
+      final success = await update24HoursStatus(newValue);
+    }catch (e) {
+      _showErrorSnackbar('فشل في تحديث وضع 24 ساعة',);
     }
   }
 
   Future<void> toggleOnlineStatusWithUI() async {
-    final newValue = !(settings.value?.isOnline ?? false);
-    final success = await updateOnlineStatus(newValue);
+    try {
 
-    if (success) {
-      final message = newValue ? 'تم تفعيل الحالة المتاحة' : 'تم إيقاف الحالة المتاحة';
-      _showSuccessSnackbar(message);
-    } else {
-      _showErrorSnackbar('فشل في تحديث الحالة المتاحة');
+      final newValue = !(settings.value?.isOnline ?? false);
+      await updateOnlineStatus(newValue);
+
+    }catch(e){
+      _showSuccessSnackbar('فشل في تحديث   ');
     }
   }
 
@@ -540,6 +546,7 @@ class SettingsController extends GetxController {
       _showErrorSnackbar('فشل في تحديث البيانات: $e');
     }
   }
+
   void _showSuccessSnackbar(String message) {
     successMessage.value = message;
     Get.snackbar(

@@ -7,8 +7,11 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:http/http.dart' as http;
 
+import '../controllers/settings_controller.dart';
+
 class LocationService extends GetxService {
   // --- Map Controller ---
+  final RxBool isMapReady = false.obs;
   final MapController mapController = MapController();
 
   // --- Rx Variables ---
@@ -347,7 +350,58 @@ class LocationService extends GetxService {
 
   }
 
+  void saveSelectedLocation(LatLng location) async {
+    try {
+      // 🔍 الحصول على اسم المكان من الإحداثيات (Reverse Geocoding)
+      final url = Uri.parse(
+          'https://nominatim.openstreetmap.org/reverse'
+              '?format=json'
+              '&lat=${location.latitude}'
+              '&lon=${location.longitude}'
+              '&zoom=18'
+              '&addressdetails=1'
+              '&accept-language=ar'
+      );
 
+      final response = await http.get(
+        url,
+        headers: {
+          'User-Agent': 'PharmacyApp/2.0 (contact: suheerrumdhan@gmail.com)',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        // تحديث القيم
+        addressDescription.value = data['display_name'] ?? 'موقع غير معروف';
+        addressController.text = addressDescription.value;
+        currentMapCenter.value = location;
+
+        // إرسال الموقع للـ SettingsController
+        if (Get.isRegistered<SettingsController>()) {
+          final controller = Get.find<SettingsController>();
+          controller.latitude.value = location.latitude;
+          controller.longitude.value = location.longitude;
+          controller.addressController.text = addressDescription.value;
+        }
+
+        Get.snackbar(
+          "تم تحديد الموقع",
+          addressDescription.value,
+          backgroundColor: Colors.green,
+          colorText: Colors.white,
+        );
+      }
+    } catch (e) {
+      print("خطأ في عكس الجيوكودينغ: $e");
+
+      // إذا فشل الحصول على الاسم، استخدم الإحداثيات
+      addressDescription.value = "${location.latitude.toStringAsFixed(4)}, ${location.longitude.toStringAsFixed(4)}";
+      addressController.text = addressDescription.value;
+    }
+  }
   Future<void> copyToClipboard(String text) async {
     await Clipboard.setData(ClipboardData(text: text));
     Get.snackbar(

@@ -1,45 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../core/security/default_permissions.dart';
 
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // إنشاء طلب الصيدلية
-  Future<void> createPharmacyRequest({
-    required String userId,
-    required String email,
-    required String pharmacyName,
-    required String ownerName,
-    required String licenseNumber,
-    required String phoneNumber,
-    required String address,
-    required double latitude,
-    required double longitude,
-  }) async {
-    try {
-      await _firestore.collection('pharmacyRequests').doc(userId).set({
-        'userId': userId,
-        'email': email.trim(),
-        'pharmacyName': pharmacyName.trim(),
-        'ownerName': ownerName.trim(),
-        'licenseNumber': licenseNumber.trim(),
-        'phoneNumber': phoneNumber.trim(),
-        'address': address.trim(),
-        'location': {
-          'latitude': latitude,
-          'longitude': longitude,
-          'description': address.trim(),
-        },
-        'status': 'pending',
-        'requestDate': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
-        'userType': 'pharmacy',
-      });
-      print("✅ طلب الصيدلية مخلوق في Firestore");
-    } catch (e) {
-      print("❌ فشل في حفظ طلب الصيدلية: $e");
-      rethrow;
-    }
-  }
   // التحقق من حالة الموافقة
   Future<Map<String, dynamic>?> checkApprovalStatus(String uid) async {
     try {
@@ -74,72 +38,137 @@ class FirestoreService {
       rethrow;
     }
   }
+  Future<bool> pharmacyExists(String uid) async {
+    final doc =
+    await _firestore.collection('pharmacies').doc(uid).get();
+    return doc.exists;
+  }
 
-  Future<void> createPharmacyFromRequest(String uid, Map<String, dynamic> requestData) async {
+  Future<void> createPharmacyFromRequest(
+      String uid,
+      Map<String, dynamic> requestData,
+      ) async {
     try {
-      Map<String, dynamic> locationData = {
-        'latitude': requestData['latitude'] ?? '',
-        'longitude': requestData['longitude'] ?? '',
-        'address': requestData['address'] ?? '',
-      };
-
-      if (requestData.containsKey('location') && requestData['location'] is Map) {
-        locationData = requestData['location'];
-      }
-
       final pharmacyRef = _firestore.collection('pharmacies').doc(uid);
       final employeeRef = pharmacyRef.collection('employees').doc('admin');
       final settingsRef = pharmacyRef.collection('settings').doc('general');
+      final rolesRef = pharmacyRef.collection('roles');
+      final permissionsRef = pharmacyRef.collection('permissions');
 
       final batch = _firestore.batch();
 
-      // 1. إنشاء الصيدلية
+      // 1️⃣ الصيدلية
       batch.set(pharmacyRef, {
-        'uid': uid,
-        'name': requestData['pharmacyName'] ?? '',
-        'ownerName': requestData['ownerName'] ?? '',
+        'id': uid,
         'email': requestData['email'] ?? '',
-        'phoneNumber': requestData['phoneNumber'] ?? '',
+        'pharmacyName': requestData['pharmacyName'] ?? '',
+        'ownerName': requestData['ownerName'] ?? '',
         'licenseNumber': requestData['licenseNumber'] ?? '',
-        'location': locationData,
-        'status': 'approved',
-        'userType': 'pharmacy',
-        'isOnline': true,
+        'licenseFileUrl': requestData['licenseFileUrl'] ?? '',
+        'ownerIdFileUrl': requestData['ownerIdFileUrl'] ?? '',
+        'phoneNumber': requestData['phoneNumber'] ?? '',
+        'locationCoordinates': requestData['locationCoordinates'] ?? {},
+        'location': requestData['location'] ?? {},
+        'ownerIdNumber': requestData['ownerIdNumber'] ?? '',
         'is24Hours': requestData['is24Hours'] ?? false,
+        'isOnline': true,
+        'status': 'approved',
+        'approvedDate': FieldValue.serverTimestamp(),
+        'approvedBy': 'admin',
         'imageUrl': requestData['imageUrl'] ?? '',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      // 2. إنشاء الموظف الافتراضي admin
+      // 2️⃣ الموظف admin
       batch.set(employeeRef, {
         'username': 'admin',
-        'password': 'admin', // ⚠️ يفضل تشفيرها لاحقاً
-        'role': 'admin',
+        'password': 'admin',
+        'roleId' : 'admin',
         'isActive': true,
-        'isDefault': true,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // 3. إنشاء الإعدادات الافتراضية
+      // 3️⃣ Roles الافتراضية
+      for (final role in DefaultPermissions.defaultRoles) {
+        batch.set(
+          rolesRef.doc(role['id']),
+          {
+            ...role,
+          },
+        );
+      }
+
+      // 4️⃣ Permissions لكل Role
+      batch.set(permissionsRef.doc('admin'), {
+        'permissions': DefaultPermissions.adminPermissions,
+      });
+
+      batch.set(permissionsRef.doc('pharmacist'), {
+        'permissions': DefaultPermissions.pharmacistPermissions,
+      });
+
+      batch.set(permissionsRef.doc('cashier'), {
+        'permissions': DefaultPermissions.cashierPermissions,
+      });
+
+      // 5️⃣ Settings
       batch.set(settingsRef, {
-        'language': 'ar',
         'is24Hours': requestData['is24Hours'] ?? false,
         'notificationsEnabled': true,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // تنفيذ كل العمليات دفعة واحدة
       await batch.commit();
-
-      print("✅ تم إنشاء الصيدلية وموظف admin والإعدادات بنجاح");
     } catch (e) {
-      print("❌ فشل في إنشاء الصيدلية أو البيانات الافتراضية: $e");
       rethrow;
     }
   }
 
-  // جلب بيانات الصيدلية
+
+
+  Future<List<Map<String, dynamic>>> getEmployees(String pharmacyId) async {
+    try {
+      final snapshot = await _firestore
+          .collection('pharmacies')
+          .doc(pharmacyId)
+          .collection('employees')
+          .get();
+
+      return snapshot.docs.map((doc) => doc.data()).toList();
+    } catch (e) {
+      print("❌ خطأ في جلب الموظفين: $e");
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>?> getEmployeeByCredentials({
+    required String pharmacyId,
+    required String username,
+    required String password,
+  }) async {
+    try {
+      final query = await _firestore
+          .collection('pharmacies')
+          .doc(pharmacyId)
+          .collection('employees')
+          .where('username', isEqualTo: username)
+          .where('password', isEqualTo: password) // ⚠️ لاحقاً يمكن تشفير الباسوورد
+          .where('isActive', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      if (query.docs.isEmpty) {
+        return null; // الموظف غير موجود أو غير نشط
+      }
+
+      return query.docs.first.data();
+    } catch (e) {
+      print("❌ خطأ في جلب الموظف: $e");
+      return null;
+    }
+  }
+
 
   Future<Map<String, dynamic>?> getPharmacyData(String uid) async {
     try {
@@ -169,4 +198,68 @@ class FirestoreService {
       return null;
     }
   }
+
+
+  // static const Map<String, bool> adminPermissions = {
+  //   // Dashboard
+  //   'dashboard.view': true,
+  //   'dashboard.analytics.view': true,
+  //   'dashboard.reports.view': true,
+  //
+  //   // Sales
+  //   'sales.view': true,
+  //   'sales.create': true,
+  //   'sales.edit': true,
+  //   'sales.delete': true,
+  //   'sales.refund': true,
+  //   'sales.override_price': true,
+  //   'sales.view_history': true,
+  //
+  //   // Inventory
+  //   'inventory.view': true,
+  //   'inventory.create': true,
+  //   'inventory.update': true,
+  //   'inventory.delete': true,
+  //   'inventory.adjust_quantity': true,
+  //   'inventory.view_cost': true,
+  //   'inventory.expiry.manage': true,
+  //
+  //   // Orders
+  //   'orders.view': true,
+  //   'orders.create': true,
+  //   'orders.update_status': true,
+  //   'orders.cancel': true,
+  //   'orders.assign': true,
+  //   'orders.external_sync': true,
+  //
+  //   // Employees & Roles
+  //   'employees.view': true,
+  //   'employees.create': true,
+  //   'employees.update': true,
+  //   'employees.delete': true,
+  //   'roles.manage': true,
+  //
+  //   // Settings
+  //   'settings.view': true,
+  //   'settings.update': true,
+  // };
+  // static const List<Map<String, dynamic>> defaultRoles = [
+  //   {
+  //     'id': 'admin',
+  //     'name': 'Administrator',
+  //     'isSystem': true,
+  //   },
+  //   {
+  //     'id': 'pharmacist',
+  //     'name': 'Pharmacist',
+  //     'isSystem': true,
+  //   },
+  //   {
+  //     'id': 'cashier',
+  //     'name': 'Cashier',
+  //     'isSystem': true,
+  //   },
+  // ];
+
+
 }
