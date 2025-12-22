@@ -160,7 +160,6 @@ abstract class DefaultPermissions {
 ];
 }
 
-// أضف الكلاس المساعد في نفس الملف بعد DefaultPermissions
 class DefaultPermissionsHelper {
   static Map<String, bool> getPermissionsForRole(String roleId) {
     switch (roleId) {

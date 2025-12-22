@@ -5,20 +5,19 @@ class Employee {
   final String name;
   final String username;
   final String phone;
-  final String roleId; // For permission lookup
+  final String roleId;
   final String contractType;
   final DateTime hiringDate;
-  final Map<String, bool> permissionOverrides; // Employee-specific overrides
-  final bool hasCustomPermissions; // Flag to enable/disable custom permissions
+  final Map<String, bool> permissionOverrides;
+  final bool hasCustomPermissions;
   final bool isActive;
   final DateTime createdAt;
   final Map<String, dynamic> createdBy;
   final DateTime? updatedAt;
   final Map<String, dynamic>? updatedBy;
   final String? password;
-  final String? idCardUrl; // رابط صورة البطاقة
-  final String? certificateUrl; // رابط الشهادة
-  final List<String> certificatesUrls; // قائمة روابط الشهادات (إذا متعددة)
+  final String? idCardImageUrl;
+  final String? certificateImageUrl;
 
   Employee({
     required this.id,
@@ -34,24 +33,35 @@ class Employee {
     this.updatedAt,
     this.updatedBy,
     this.password,
-    this.idCardUrl,
-    this.certificateUrl,
-    List<String>? certificatesUrls,
+    this.idCardImageUrl,
+    this.certificateImageUrl,
     Map<String, bool>? permissionOverrides,
-    bool? hasCustomPermissions, // إضافة معامل اختياري
+    bool? hasCustomPermissions,
   }) :
         permissionOverrides = permissionOverrides ?? {},
-        certificatesUrls = certificatesUrls ?? [],
-        hasCustomPermissions = hasCustomPermissions ?? false; // القيمة الافتراضية
+        hasCustomPermissions = hasCustomPermissions ?? false;
 
   factory Employee.fromMap(String id, Map<String, dynamic> data) {
     try {
+      print('🔍 تحويل بيانات الموظف - ID: $id');
+      print('   - المرفقات الواردة:');
+      print('     * certificateImageUrl: ${data['certificateImageUrl']}');
+      print('     * idCardImageUrl: ${data['idCardImageUrl']}');
+
+      // استخدام الأسماء المباشرة من Firestore
+      final idCardUrl = data['idCardImageUrl']?.toString();
+      final certificateUrl = data['certificateImageUrl']?.toString();
+
+      print('   - المرفقات المستخرجة:');
+      print('     * idCardImageUrl: $idCardUrl');
+      print('     * certificateImageUrl: $certificateUrl');
+
       return Employee(
         id: id,
         name: _parseString(data['name']),
         username: _parseString(data['username']),
         phone: _parseString(data['phone']),
-        roleId: _parseString(data['roleId']), // تأكد من وجود هذا الحقل
+        roleId: _parseString(data['roleId'], defaultValue: 'pharmacist'),
         contractType: _parseString(data['contractType'], defaultValue: 'دوام كامل'),
         hiringDate: _parseDateTime(data['hiringDate']),
         isActive: data['isActive'] == true,
@@ -62,14 +72,14 @@ class Employee {
         password: data['password']?.toString(),
         permissionOverrides: _parsePermissionOverrides(data['permissionOverrides']),
         hasCustomPermissions: data['hasCustomPermissions'] == true,
-        idCardUrl: data['idCardUrl']?.toString(),
-        certificateUrl: data['certificateUrl']?.toString(),
-        certificatesUrls: _parseStringList(data['certificatesUrls']),
+        // استخدام الأسماء الجديدة فقط
+        idCardImageUrl: idCardUrl,
+        certificateImageUrl: certificateUrl,
       );
     } catch (e, stackTrace) {
-      print('Error parsing Employee with id $id: $e');
-      print('Data: $data');
-      print('Stack trace: $stackTrace');
+      print('❌ خطأ في تحليل بيانات الموظف مع id $id: $e');
+      print('📊 البيانات الواردة: $data');
+      print('📜 Stack trace: $stackTrace');
 
       // Fallback employee with safe defaults
       return Employee(
@@ -77,16 +87,18 @@ class Employee {
         name: _parseString(data['name']),
         username: _parseString(data['username']),
         phone: _parseString(data['phone']),
-        roleId: _parseString(data['roleId'], defaultValue: 'pharmacist'), // قيمة افتراضية آمنة
+        roleId: _parseString(data['roleId'], defaultValue: 'pharmacist'),
         contractType: _parseString(data['contractType'], defaultValue: 'دوام كامل'),
         hiringDate: DateTime.now(),
         isActive: true,
         createdAt: DateTime.now(),
         createdBy: {},
+        // استخدام الأسماء الجديدة فقط
+        idCardImageUrl: data['idCardImageUrl']?.toString(),
+        certificateImageUrl: data['certificateImageUrl']?.toString(),
       );
     }
   }
-
   // Helper methods for safe parsing
   static String _parseString(dynamic value, {String defaultValue = ''}) {
     if (value == null) return defaultValue;
@@ -153,20 +165,9 @@ class Employee {
     }
   }
 
-  static List<String> _parseStringList(dynamic value) {
-    if (value == null) return [];
-    try {
-      if (value is List) {
-        return List<String>.from(value.map((e) => e.toString()));
-      }
-      return [];
-    } catch (_) {
-      return [];
-    }
-  }
 
   Map<String, dynamic> toMap() {
-    return {
+    final map = <String, dynamic>{
       'id': id,
       'name': name,
       'username': username,
@@ -179,15 +180,23 @@ class Employee {
       'hasCustomPermissions': hasCustomPermissions,
       'createdAt': Timestamp.fromDate(createdAt),
       'createdBy': createdBy,
-      if (updatedAt != null) 'updatedAt': Timestamp.fromDate(updatedAt!),
-      if (updatedBy != null) 'updatedBy': updatedBy,
-      if (password != null) 'password': password,
-      if (idCardUrl != null) 'idCardUrl': idCardUrl,
-      if (certificateUrl != null) 'certificateUrl': certificateUrl,
-      if (certificatesUrls.isNotEmpty) 'certificatesUrls': certificatesUrls,
     };
-  }
 
+    // إضافة الحقول الاختيارية
+    if (updatedAt != null) map['updatedAt'] = Timestamp.fromDate(updatedAt!);
+    if (updatedBy != null) map['updatedBy'] = updatedBy;
+    if (password != null) map['password'] = password;
+
+    // حفظ المرفقات باستخدام نفس الأسماء في Firestore
+    if (idCardImageUrl != null && idCardImageUrl!.isNotEmpty) {
+      map['idCardImageUrl'] = idCardImageUrl;
+    }
+    if (certificateImageUrl != null && certificateImageUrl!.isNotEmpty) {
+      map['certificateImageUrl'] = certificateImageUrl;
+    }
+
+    return map;
+  }
   // دالة copyWith لإنشاء نسخة معدلة من الكائن
   Employee copyWith({
     String? id,
@@ -205,9 +214,8 @@ class Employee {
     DateTime? updatedAt,
     Map<String, dynamic>? updatedBy,
     String? password,
-    String? idCardUrl,
-    String? certificateUrl,
-    List<String>? certificatesUrls,
+    String? idCardImageUrl,
+    String? certificateImageUrl,
   }) {
     return Employee(
       id: id ?? this.id,
@@ -225,14 +233,44 @@ class Employee {
       updatedAt: updatedAt ?? this.updatedAt,
       updatedBy: updatedBy ?? this.updatedBy,
       password: password ?? this.password,
-      idCardUrl: idCardUrl ?? this.idCardUrl,
-      certificateUrl: certificateUrl ?? this.certificateUrl,
-      certificatesUrls: certificatesUrls ?? this.certificatesUrls,
+      idCardImageUrl: idCardImageUrl ?? this.idCardImageUrl,
+      certificateImageUrl: certificateImageUrl ?? this.certificateImageUrl,
     );
   }
 
   @override
   String toString() {
-    return 'Employee(id: $id, name: $name, username: $username, roleId: $roleId, hasCustomPermissions: $hasCustomPermissions, isActive: $isActive)';
+    return 'Employee(id: $id, name: $name, username: $username, roleId: $roleId, '
+        'isActive: $isActive, idCardImageUrl: $idCardImageUrl, '
+        'certificateImageUrl: $certificateImageUrl)';
+  }
+
+  // دالة مساعدة للتحقق من وجود مرفقات
+  bool get hasIdCard => idCardImageUrl != null && idCardImageUrl!.isNotEmpty;
+  bool get hasCertificate => certificateImageUrl != null && certificateImageUrl!.isNotEmpty;
+
+  // دالة للحصول على اسم الملف من الرابط
+  String? get idCardFileName {
+    if (idCardImageUrl == null || idCardImageUrl!.isEmpty) return null;
+    try {
+      final uri = Uri.parse(idCardImageUrl!);
+      final path = uri.path;
+      final parts = path.split('/');
+      return parts.last;
+    } catch (e) {
+      return 'ملف_الهوية';
+    }
+  }
+
+  String? get certificateFileName {
+    if (certificateImageUrl == null || certificateImageUrl!.isEmpty) return null;
+    try {
+      final uri = Uri.parse(certificateImageUrl!);
+      final path = uri.path;
+      final parts = path.split('/');
+      return parts.last;
+    } catch (e) {
+      return 'ملف_الشهادة';
+    }
   }
 }

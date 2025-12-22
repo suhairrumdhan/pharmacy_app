@@ -115,23 +115,6 @@ class PermissionsSection extends StatelessWidget {
                       color: hasCustomPermissions ? Colors.blue.shade700 : Colors.grey.shade600,
                     ),
                   ),
-
-                  // رسالة إرشادية فقط عندما تكون الصلاحيات معطلة
-                  if (!hasCustomPermissions)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 4),
-                        Text(
-                          'لتعديل الصلاحيات، قم بتمكين "الصلاحيات المخصصة" أولا',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.blue.shade600,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ],
-                    ),
                 ],
               );
             }),
@@ -378,9 +361,6 @@ class PermissionsSection extends StatelessWidget {
     return GestureDetector(
       onTap: () async {
         final newValue = !value;
-        print('تغيير صلاحية: $permissionKey من $value إلى $newValue');
-
-        // تحديث مباشرة في الـ controller
         await controller.updatePermissionOverride(
           employeeId: employeeId,
           permissionKey: permissionKey,
@@ -388,7 +368,6 @@ class PermissionsSection extends StatelessWidget {
         );
       },
       child: Obx(() {
-        // إعادة الحصول على القيمة الحالية للتأكد من التحديث
         final currentEmployee = controller.currentEmployee.value;
         final currentOverrides = currentEmployee?.permissionOverrides ?? {};
         final currentHasOverride = currentOverrides.containsKey(permissionKey);
