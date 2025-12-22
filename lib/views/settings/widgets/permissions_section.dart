@@ -75,16 +75,21 @@ class PermissionsSection extends StatelessWidget {
                     ),
                   ],
                 ),
-                // Toggle Custom Permissions
                 Obx(() {
-                  final hasCustomPermissions = controller.currentEmployee.value?.hasCustomPermissions ?? false;
-                  final isEditing = controller.currentEmployee.value != null;
+                  final currentEmployee = controller.currentEmployee.value;
+                  final hasCustomPermissions = currentEmployee?.hasCustomPermissions ?? false;
 
                   return Switch.adaptive(
                     value: hasCustomPermissions,
-                    onChanged: isEditing ? (value) {
-                      controller.toggleCustomPermissions(value);
-                    } : null,
+                    onChanged: (value) {
+                      // للموظفين الجدد: تحديث القيمة مباشرة في الكنترولر
+                      if (currentEmployee?.id?.isEmpty ?? true) {
+                        controller.toggleCustomPermissions(value);
+                      } else {
+                        // للموظفين الموجودين: عرض تأكيد قبل التغيير
+                        _showToggleConfirmationDialog(context, value);
+                      }
+                    },
                     activeColor: Colors.blue.shade700,
                   );
                 }),
@@ -95,8 +100,8 @@ class PermissionsSection extends StatelessWidget {
 
             // Description
             Obx(() {
-              final hasCustomPermissions = controller.currentEmployee.value?.hasCustomPermissions ?? false;
-              final isEditing = controller.currentEmployee.value != null;
+              final currentEmployee = controller.currentEmployee.value;
+              final hasCustomPermissions = currentEmployee?.hasCustomPermissions ?? false;
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -110,26 +115,22 @@ class PermissionsSection extends StatelessWidget {
                       color: hasCustomPermissions ? Colors.blue.shade700 : Colors.grey.shade600,
                     ),
                   ),
-                  if (hasCustomPermissions)
-                    const SizedBox(height: 4),
-                  if (hasCustomPermissions)
-                    Text(
-                      'الأزرق: صلاحية أصلية، الأخضر: مفعلة مخصصة، الأحمر: معطلة مخصصة',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.blue.shade600,
-                      ),
-                    ),
-                  if (!isEditing)
-                    const SizedBox(height: 4),
-                  if (!isEditing)
-                    Text(
-                      'يجب حفظ الموظف أولاً لتفعيل الصلاحيات المخصصة',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.orange.shade700,
-                        fontStyle: FontStyle.italic,
-                      ),
+
+                  // رسالة إرشادية فقط عندما تكون الصلاحيات معطلة
+                  if (!hasCustomPermissions)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 4),
+                        Text(
+                          'لتعديل الصلاحيات، قم بتمكين "الصلاحيات المخصصة" أولا',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.blue.shade600,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
                     ),
                 ],
               );
@@ -142,14 +143,14 @@ class PermissionsSection extends StatelessWidget {
               final currentEmployee = controller.currentEmployee.value;
               final hasCustomPermissions = currentEmployee?.hasCustomPermissions ?? false;
 
-              if (!hasCustomPermissions || currentEmployee == null) {
-                // عرض صلاحيات الدور فقط
-                return _buildRolePermissionsGrid(rolePermissions);
+              if (!hasCustomPermissions) {
+                // لا تظهر الصلاحيات عندما تكون معطلة - فقط رسالة
+                return _buildPermissionsDisabledMessage();
               } else {
                 // عرض الصلاحيات المخصصة مع checkboxes
                 return _buildCustomPermissionsGridWithCheckboxes(
                   rolePermissions: rolePermissions,
-                  currentEmployee: currentEmployee,
+                  currentEmployee: currentEmployee!,
                 );
               }
             }),
@@ -159,46 +160,92 @@ class PermissionsSection extends StatelessWidget {
     });
   }
 
-  Widget _buildRolePermissionsGrid(Map<String, bool> rolePermissions) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: rolePermissions.entries.map((entry) {
-        final permissionKey = entry.key;
-        final hasPermission = entry.value;
-        final permissionName = permissionTranslations[permissionKey] ?? permissionKey;
-
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: hasPermission ? Colors.green.shade50 : Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: hasPermission ? Colors.green.shade300 : Colors.grey.shade300,
-              width: 1.5,
+  Widget _buildPermissionsDisabledMessage() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Iconsax.info_circle,
+            color: Colors.blue.shade600,
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'تمكين الصلاحيات المخصصة لعرض وتعديل الصلاحيات',
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.blue.shade700,
+              fontWeight: FontWeight.w500,
             ),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                hasPermission ? Iconsax.tick_circle : Iconsax.close_circle,
-                size: 16,
-                color: hasPermission ? Colors.green.shade600 : Colors.grey.shade500,
+        ],
+      ),
+    );
+  }
+
+  void _showToggleConfirmationDialog(BuildContext context, bool newValue) {
+    Get.dialog(
+      AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              newValue ? Iconsax.security : Iconsax.security_safe,
+              color: newValue ? Colors.blue.shade700 : Colors.grey.shade600,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              newValue ? 'تفعيل الصلاحيات المخصصة' : 'تعطيل الصلاحيات المخصصة',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: newValue ? Colors.blue.shade800 : Colors.grey.shade800,
               ),
-              const SizedBox(width: 6),
-              Text(
-                permissionName,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: hasPermission ? Colors.green.shade800 : Colors.grey.shade600,
-                ),
-              ),
-            ],
+            ),
+          ],
+        ),
+        content: Text(
+          newValue
+              ? 'سيتم تفعيل وضع الصلاحيات المخصصة. يمكنك الآن تعديل صلاحيات هذا الموظف بشكل فردي.'
+              : 'سيتم تعطيل الصلاحيات المخصصة والعودة إلى صلاحيات الدور الأساسية. جميع التعديلات المخصصة سيتم حفظها.',
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.grey.shade700,
           ),
-        );
-      }).toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: Text(
+              'إلغاء',
+              style: TextStyle(
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Get.back();
+              controller.toggleCustomPermissions(newValue);
+            },
+            style: TextButton.styleFrom(
+              backgroundColor: newValue ? Colors.blue.shade700 : Colors.grey.shade600,
+            ),
+            child: Text(
+              newValue ? 'تفعيل' : 'تعطيل',
+              style: TextStyle(
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -206,31 +253,25 @@ class PermissionsSection extends StatelessWidget {
     required Map<String, bool> rolePermissions,
     required Employee currentEmployee,
   }) {
-    final currentOverrides = currentEmployee.permissionOverrides;
+    return Obx(() {
+      // الحصول على أحدث البيانات من الـ controller
+      final updatedEmployee = controller.currentEmployee.value ?? currentEmployee;
+      final currentOverrides = updatedEmployee.permissionOverrides;
 
-    return Column(
-      children: [
-        // بناء المجموعات
-        ..._buildPermissionGroupsWithCheckboxes(
-          rolePermissions: rolePermissions,
-          currentOverrides: currentOverrides,
-          employeeId: currentEmployee.id,
-        ),
-
-        // الإحصائيات
-        const SizedBox(height: 16),
-        _buildPermissionsStats(currentOverrides, rolePermissions),
-
-        // أزرار التحكم
-        const SizedBox(height: 16),
-        _buildPermissionActionButtons(currentEmployee),
-      ],
-    );
+      return Column(
+        children: [
+          // بناء المجموعات
+          ..._buildPermissionGroupsWithCheckboxes(
+            rolePermissions: rolePermissions,
+            employeeId: updatedEmployee.id,
+          ),
+        ],
+      );
+    });
   }
 
   List<Widget> _buildPermissionGroupsWithCheckboxes({
     required Map<String, bool> rolePermissions,
-    required Map<String, bool> currentOverrides,
     required String employeeId,
   }) {
     // الحصول على الصلاحيات الفعلية الموجودة في rolePermissions
@@ -246,61 +287,63 @@ class PermissionsSection extends StatelessWidget {
         return const SizedBox.shrink();
       }
 
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              children: [
-                Container(
-                  width: 4,
-                  height: 16,
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade700,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  group.key,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue.shade800,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: validPermissions.map((permissionKey) {
-              final permissionName = permissionTranslations[permissionKey] ?? permissionKey;
-              final hasBasePermission = rolePermissions[permissionKey] ?? false;
-              final hasOverride = currentOverrides.containsKey(permissionKey);
-              final overrideValue = currentOverrides[permissionKey] ?? false;
-              final effectivePermission = hasOverride ? overrideValue : hasBasePermission;
+      return Obx(() {
+        // الحصول على أحدث بيانات الموظف
+        final currentEmployee = controller.currentEmployee.value;
+        if (currentEmployee == null) return const SizedBox.shrink();
 
-              return _buildPermissionCheckbox(
-                label: permissionName,
-                value: effectivePermission,
-                isOverride: hasOverride,
-                onChanged: (value) {
-                  print('تغيير صلاحية: $permissionKey -> $value');
-                  controller.updatePermissionOverride(
-                    employeeId: employeeId,
-                    permissionKey: permissionKey,
-                    value: value!,
-                  );
-                },
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 16),
-        ],
-      );
+        final currentOverrides = currentEmployee.permissionOverrides;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  Container(
+                    width: 4,
+                    height: 16,
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade700,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    group.key,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue.shade800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: validPermissions.map((permissionKey) {
+                final permissionName = permissionTranslations[permissionKey] ?? permissionKey;
+                final hasBasePermission = rolePermissions[permissionKey] ?? false;
+                final hasOverride = currentOverrides.containsKey(permissionKey);
+                final overrideValue = currentOverrides[permissionKey] ?? false;
+                final effectivePermission = hasOverride ? overrideValue : hasBasePermission;
+
+                return _buildPermissionCheckbox(
+                  label: permissionName,
+                  value: effectivePermission,
+                  isOverride: hasOverride,
+                  permissionKey: permissionKey,
+                  employeeId: employeeId,
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16),
+          ],
+        );
+      });
     }).toList();
   }
 
@@ -308,247 +351,106 @@ class PermissionsSection extends StatelessWidget {
     required String label,
     required bool value,
     required bool isOverride,
-    required ValueChanged<bool?> onChanged,
+    required String permissionKey,
+    required String employeeId,
   }) {
     Color backgroundColor;
     Color borderColor;
     Color textColor;
+    Color checkColor;
 
-    if (isOverride) {
-      backgroundColor = value
-          ? Colors.green.shade50
-          : Colors.red.shade50;
-      borderColor = value
-          ? Colors.green.shade300
-          : Colors.red.shade300;
-      textColor = value
-          ? Colors.green.shade800
-          : Colors.red.shade800;
-    } else {
-      backgroundColor = value
-          ? Colors.blue.shade50
-          : Colors.grey.shade100;
-      borderColor = value
-          ? Colors.blue.shade300
-          : Colors.grey.shade300;
-      textColor = value
-          ? Colors.blue.shade800
-          : Colors.grey.shade600;
+    // حالة الصلاحية مفعلة (صح)
+    if (value) {
+      backgroundColor = Colors.blue.shade50;
+      borderColor = Colors.blue.shade300;
+      textColor = Colors.blue.shade800;
+      checkColor = Colors.blue.shade700;
+    }
+    // حالة الصلاحية معطلة (خطأ)
+    else {
+      backgroundColor = Colors.grey.shade100;
+      borderColor = Colors.grey.shade300;
+      textColor = Colors.grey.shade600;
+      checkColor = Colors.grey.shade400;
     }
 
+
     return GestureDetector(
-      onTap: () {
-        onChanged(!value);
+      onTap: () async {
+        final newValue = !value;
+        print('تغيير صلاحية: $permissionKey من $value إلى $newValue');
+
+        // تحديث مباشرة في الـ controller
+        await controller.updatePermissionOverride(
+          employeeId: employeeId,
+          permissionKey: permissionKey,
+          value: newValue,
+        );
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: backgroundColor,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: borderColor, width: 1.5),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 20,
-              height: 20,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                  color: value ? Colors.blue.shade700 : Colors.grey.shade400,
-                  width: 1.5,
-                ),
-              ),
-              child: value
-                  ? Icon(
-                Icons.check,
-                size: 16,
-                color: Colors.blue.shade700,
-              )
-                  : null,
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: textColor,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+      child: Obx(() {
+        // إعادة الحصول على القيمة الحالية للتأكد من التحديث
+        final currentEmployee = controller.currentEmployee.value;
+        final currentOverrides = currentEmployee?.permissionOverrides ?? {};
+        final currentHasOverride = currentOverrides.containsKey(permissionKey);
+        final currentValue = currentHasOverride
+            ? currentOverrides[permissionKey] ?? value
+            : value;
 
-  Widget _buildPermissionActionButtons(Employee currentEmployee) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Container(
-                height: 36,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.blue.withOpacity(0.2),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: TextButton(
-                  onPressed: () {
-                    controller.selectAllPermissions();
-                  },
-                  style: TextButton.styleFrom(
-                    backgroundColor: Colors.blue.shade700,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: Text(
-                    'تفعيل الكل',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Container(
-                height: 36,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.2),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: TextButton(
-                  onPressed: () {
-                    controller.clearAllPermissions();
-                  },
-                  style: TextButton.styleFrom(
-                    backgroundColor: Colors.grey.shade300,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: Text(
-                    'تعطيل الكل',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade700,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-
-        // Reset to Default Button
-        const SizedBox(height: 8),
-        Container(
-          height: 36,
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: borderColor, width: 1.5),
             boxShadow: [
               BoxShadow(
-                color: Colors.orange.withOpacity(0.1),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 3,
+                offset: const Offset(0, 1),
               ),
             ],
           ),
-          child: TextButton(
-            onPressed: () {
-              controller.resetPermissionsToDefault();
-            },
-            style: TextButton.styleFrom(
-              backgroundColor: Colors.orange.shade50,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-                side: BorderSide(color: Colors.orange.shade200),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                  color: currentValue ? checkColor.withOpacity(0.1) : Colors.white,
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(
+                    color: currentValue ? checkColor : Colors.grey.shade400,
+                    width: 2,
+                  ),
+                ),
+                child: currentValue
+                    ? Icon(
+                  Icons.check,
+                  size: 18,
+                  color: checkColor,
+                )
+                    : null,
               ),
-            ),
-            child: Text(
-              'إعادة التعيين للإفتراضي',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.orange.shade800,
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-            ),
+            ],
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPermissionsStats(
-      Map<String, bool> currentOverrides,
-      Map<String, bool> rolePermissions,
-      ) {
-    final totalPermissions = rolePermissions.length;
-    final enabledByDefault = rolePermissions.values.where((v) => v).length;
-    final customEnabled = currentOverrides.values.where((v) => v).length;
-    final customDisabled = currentOverrides.values.where((v) => !v).length;
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.blue.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.blue.shade100),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildStatItem(
-            icon: Iconsax.box,
-            label: 'الإجمالي',
-            value: '$totalPermissions',
-            color: Colors.blue,
-          ),
-          _buildStatItem(
-            icon: Iconsax.tick_circle,
-            label: 'مفعلة افتراضياً',
-            value: '$enabledByDefault',
-            color: Colors.green,
-          ),
-          _buildStatItem(
-            icon: Iconsax.add_circle,
-            label: 'مخصصة مفعلة',
-            value: '$customEnabled',
-            color: Colors.green,
-          ),
-          _buildStatItem(
-            icon: Iconsax.close_circle,
-            label: 'مخصصة معطلة',
-            value: '$customDisabled',
-            color: Colors.red,
-          ),
-        ],
-      ),
+        );
+      }),
     );
   }
 
@@ -596,73 +498,8 @@ class PermissionsSection extends StatelessWidget {
               color: Colors.green.shade600,
             ),
           ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.green.shade100.withOpacity(0.3),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Iconsax.tick_circle,
-                  size: 16,
-                  color: Colors.green.shade700,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${DefaultPermissions.adminPermissions.length} صلاحية مفعلة',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.green.shade800,
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
-    );
-  }
-
-  Widget _buildStatItem({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            icon,
-            size: 16,
-            color: color,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            color: Colors.grey.shade600,
-          ),
-        ),
-      ],
     );
   }
 }

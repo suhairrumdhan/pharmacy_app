@@ -130,7 +130,7 @@ class EmployeeFormSection extends StatelessWidget {
                           label: 'الدور الوظيفي',
                           icon: Iconsax.briefcase,
                           value: controller.selectedRoleDisplay.value,
-                          items: const ['إداري', 'صيدلي', 'محاسب'],
+                          items: const ['ادمن', 'صيدلي', 'محاسب'],
                           onChanged: (value) {
                             if (value != null) {
                               controller.selectedRoleDisplay.value = value;
@@ -189,37 +189,28 @@ class EmployeeFormSection extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Row(
-                    children: [
-                      // Expanded(
-                      //   child: _buildAttachmentButton(
-                      //     icon: Iconsax.card,
-                      //     text: 'صورة البطاقة',
-                      //     onPressed: controller.uploadIdCard,
-                      //   ),
-                      // ),
-                      // const SizedBox(width: 12),
-                      // Expanded(
-                      //   child: _buildAttachmentButton(
-                      //     icon: Iconsax.document_upload,
-                      //     text: 'الشهادات',
-                      //     onPressed: controller.uploadCertificate,
-                      //   ),
-                      // ),
-                    ],
-                  ),
+                  // يمكنك إضافة المرفقات هنا عندما تحتاجها
                 ],
               ),
             ),
 
+            // Permissions Section - تظهر فقط في حالة التعديل
+            Obx(() {
+              if (controller.currentEmployee.value != null) {
+                return Column(
+                  children: [
+                    const SizedBox(height: 24),
+                    PermissionsSection(controller: controller),
+                  ],
+                );
+              } else {
+                return const SizedBox.shrink();
+              }
+            }),
+
             const SizedBox(height: 24),
 
-            // Permissions Section
-            PermissionsSection(controller: controller),
-
-            const SizedBox(height: 24),
-
-            // Action Buttons
+            // أزرار الحفظ/الإضافة والرجوع
             _buildActionButtons(),
           ],
         ),
@@ -229,7 +220,7 @@ class EmployeeFormSection extends StatelessWidget {
 
   String _getRoleId(String displayName) {
     const roleMapping = {
-      'إداري': 'admin',
+      'ادمن': 'admin',
       'صيدلي': 'pharmacist',
       'محاسب': 'cashier',
     };
@@ -239,7 +230,7 @@ class EmployeeFormSection extends StatelessWidget {
   Widget _buildActionButtons() {
     return Row(
       children: [
-        // Cancel/Back Button
+        // زر الرجوع
         Expanded(
           child: Container(
             height: 48,
@@ -255,6 +246,7 @@ class EmployeeFormSection extends StatelessWidget {
             ),
             child: TextButton(
               onPressed: () {
+                controller.cancelPermissionChanges();
                 showForm.value = false;
                 controller.clearForm();
               },
@@ -288,29 +280,47 @@ class EmployeeFormSection extends StatelessWidget {
         ),
         const SizedBox(width: 12),
 
-        // Update Button (يظهر فقط عند التعديل)
-        if (controller.currentEmployee.value != null) ...[
-          Expanded(
-            child: Container(
+        // زر الحفظ/الإضافة - يتغير حسب الحالة
+        Expanded(
+          child: Obx(() {
+            final isAdding = controller.currentEmployee.value == null;
+
+            return Container(
               height: 48,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.orange.withOpacity(0.3),
+                    color: isAdding
+                        ? Colors.green.withOpacity(0.3)
+                        : Colors.blue.withOpacity(0.3),
                     blurRadius: 8,
                     offset: const Offset(0, 3),
                   ),
                 ],
               ),
               child: TextButton(
-                onPressed: () {
-                  controller.updateEmployee(controller.currentEmployee.value!.id);
-                  showForm.value = false;
-                  Get.back();
+                onPressed: () async {
+                  if (isAdding) {
+                    // حالة إضافة موظف جديد
+                    final success = await controller.addEmployee();
+                    if (success) {
+                      showForm.value = false;
+                    }
+                  } else {
+                    // حالة تحديث موظف موجود
+                    final success = await controller.updateEmployee(
+                        controller.currentEmployee.value!.id
+                    );
+                    if (success) {
+                      showForm.value = false;
+                    }
+                  }
                 },
                 style: TextButton.styleFrom(
-                  backgroundColor: Colors.orange.shade700,
+                  backgroundColor: isAdding
+                      ? Colors.green.shade700
+                      : Colors.blue.shade700,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -319,13 +329,13 @@ class EmployeeFormSection extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      Iconsax.refresh,
+                      isAdding ? Iconsax.add : Iconsax.save_2,
                       color: Colors.white,
                       size: 18,
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      'تحديث',
+                      isAdding ? 'إضافة موظف' : 'حفظ التعديلات',
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -335,68 +345,8 @@ class EmployeeFormSection extends StatelessWidget {
                   ],
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: 12),
-        ],
-
-        // Save/Add Button
-        Expanded(
-          child: Container(
-            height: 48,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: controller.currentEmployee.value == null
-                      ? Colors.green.withOpacity(0.3)
-                      : Colors.blue.withOpacity(0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: TextButton(
-              onPressed: () {
-                if (controller.currentEmployee.value == null) {
-                  controller.addEmployee();
-                } else {
-                  controller.updateEmployee(controller.currentEmployee.value!.id);
-                }
-              },
-              style: TextButton.styleFrom(
-                backgroundColor: controller.currentEmployee.value == null
-                    ? Colors.green.shade700
-                    : Colors.blue.shade700,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    controller.currentEmployee.value == null
-                        ? Iconsax.add
-                        : Iconsax.save_2,
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    controller.currentEmployee.value == null
-                        ? 'إضافة موظف'
-                        : 'حفظ التعديلات',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+            );
+          }),
         ),
       ],
     );

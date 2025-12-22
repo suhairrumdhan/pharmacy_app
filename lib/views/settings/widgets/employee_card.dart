@@ -181,7 +181,7 @@ class EmployeeCard extends StatelessWidget {
       width: 36,
       height: 36,
       decoration: BoxDecoration(
-        color: color,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: color, width: 1),
       ),
@@ -215,31 +215,40 @@ class EmployeeCard extends StatelessWidget {
     );
   }
 
+
+  // ===== بديل أبسط للدالة السابقة =====
   void _showDeleteConfirmation(Employee employee) {
-    Get.defaultDialog(
-      title: "تأكيد الحذف",
-      titleStyle: TextStyle(
-        color: Colors.red.shade700,
-        fontWeight: FontWeight.bold,
-        fontSize: 18,
+    // استخدام Get.dialog مع Navigator.pop للتحكم الدقيق
+    Get.dialog(
+      AlertDialog(
+        title: Text(
+          "تأكيد الحذف",
+          style: TextStyle(
+            color: Colors.red.shade700,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Text("هل أنت متأكد من حذف الموظف ${employee.name}؟"),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(Get.context!); // إغلاق هذا الديالوج فقط
+            },
+            child: const Text("إلغاء"),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(Get.context!); // إغلاق هذا الديالوج فقط
+              controller.deleteEmployee(employee.id);
+            },
+            child: Text(
+              "نعم، احذف",
+              style: TextStyle(color: Colors.red.shade700),
+            ),
+          ),
+        ],
       ),
-      middleText: "هل أنت متأكد من حذف الموظف ${employee.name}؟",
-      middleTextStyle: TextStyle(
-        color: Colors.grey.shade800,
-        fontSize: 16,
-      ),
-      textConfirm: "نعم، احذف",
-      textCancel: "إلغاء",
-      confirmTextColor: Colors.white,
-      cancelTextColor: Colors.grey.shade700,
-      buttonColor: Colors.red.shade700,
-      onConfirm: () {
-        controller.deleteEmployee(employee.id);
-        Get.back();
-      },
-      onCancel: () {
-        Get.back();
-      },
+      barrierDismissible: true,
     );
   }
 }

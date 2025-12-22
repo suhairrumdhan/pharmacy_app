@@ -7,8 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../core/security/default_permissions.dart';
 import '../models/employee_model.dart';
 import 'auth_controller.dart';
-import 'package:path/path.dart' as p;
-import 'package:cross_file/cross_file.dart';
+
 class EmployeeController extends GetxController {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final AuthController auth = Get.find<AuthController>();
@@ -30,7 +29,8 @@ class EmployeeController extends GetxController {
   final currentEmployee = Rx<Employee?>(null);
   final searchText = ''.obs;
   final isLoading = false.obs;
-
+  final RxMap<String, bool> _pendingPermissionOverrides = <String, bool>{}.obs;
+  final RxBool _hasPendingChanges = false.obs;
   final usernameError = RxnString();
   final passwordError = RxnString();
   final roleError = RxnString();
@@ -238,6 +238,7 @@ class EmployeeController extends GetxController {
     if (!isValid) return false;
 
     try {
+      // 1. حفظ بيانات الموظف الأساسية
       await _firestore
           .collection('pharmacies')
           .doc(pharmacyId)
@@ -254,12 +255,15 @@ class EmployeeController extends GetxController {
         'updatedBy': actor,
       });
 
+      // 2. حفظ التعديلات المعلقة للصلاحيات (إذا وجدت)
+      if (_hasPendingChanges.value && _pendingPermissionOverrides.isNotEmpty) {
+        await savePermissionChanges(employeeId);
+      }
+
       await _logAction(
         action: 'update_employee',
         targetId: employeeId,
       );
-
-      Get.snackbar('نجاح', 'تم تحديث بيانات الموظف');
       return true;
     } catch (e) {
       print('Error updating employee: $e');
@@ -282,8 +286,6 @@ class EmployeeController extends GetxController {
         action: 'delete_employee',
         targetId: employeeId,
       );
-
-      Get.snackbar('نجاح', 'تم حذف الموظف');
     } catch (e) {
       print('Error deleting employee: $e');
       Get.snackbar('خطأ', 'حدث خطأ أثناء الحذف');
@@ -313,11 +315,8 @@ class EmployeeController extends GetxController {
     nameCtrl.text = e.name;
     usernameCtrl.text = e.username;
     phoneCtrl.text = e.phone;
-
-    // تحويل roleId من الإنجليزية إلى العربية للعرض
     selectedRoleDisplay.value = _translateRoleToArabic(e.roleId);
     selectedRoleId.value = e.roleId;
-
     contractType.value = e.contractType;
     isActive.value = e.isActive;
     hiringDate.value = e.hiringDate;
@@ -354,97 +353,41 @@ class EmployeeController extends GetxController {
 
   // Permission cache for role permissions
   final RxMap<String, Map<String, bool>> _rolePermissions = <String, Map<String, bool>>{}.obs;
-// في EmployeeController class أضف:
-
-// Get permissions for a specific role
   Map<String, bool> getRolePermissions(String roleId) {
     return _rolePermissions[roleId] ?? {};
   }
 
-// Toggle custom permissions mode
+
   void toggleCustomPermissions(bool value) {
     if (currentEmployee.value != null) {
       final employee = currentEmployee.value!;
       final updatedEmployee = employee.copyWith(
         hasCustomPermissions: value,
+        // إذا قمنا بتعطيل الصلاحيات المخصصة، نمسح الـ overrides
+        permissionOverrides: value ? employee.permissionOverrides : {},
       );
+
+      // تحديث مباشرة في الـ currentEmployee
       currentEmployee.value = updatedEmployee;
 
-      // Update in Firestore if needed
-      _firestore
-          .collection('pharmacies')
-          .doc(pharmacyId)
-          .collection('employees')
-          .doc(employee.id)
-          .update({
-        'hasCustomPermissions': value,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      print('✅ تم تغيير hasCustomPermissions إلى: $value');
+
+      // للموظفين الموجودين فقط، قم بالتحديث في Firebase
+      if (!employee.id.isEmpty) {
+        _firestore
+            .collection('pharmacies')
+            .doc(pharmacyId)
+            .collection('employees')
+            .doc(employee.id)
+            .update({
+          'hasCustomPermissions': value,
+          'permissionOverrides': value ? employee.permissionOverrides : {},
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
     }
   }
 
-// Select all permissions
-  void selectAllPermissions() {
-    if (currentEmployee.value == null) return;
-
-    final employeeId = currentEmployee.value!.id;
-    final allPerms = getAllPermissions();
-    final overrides = <String, bool>{};
-
-    for (final perm in allPerms) {
-      overrides[perm] = true;
-    }
-
-    // Update all at once
-    _firestore
-        .collection('pharmacies')
-        .doc(pharmacyId)
-        .collection('employees')
-        .doc(employeeId)
-        .update({
-      'permissionOverrides': overrides,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-
-    // Update local state
-    final index = employees.indexWhere((e) => e.id == employeeId);
-    if (index != -1) {
-      final employee = employees[index];
-      final updatedEmployee = employee.copyWith(
-        permissionOverrides: overrides,
-      );
-      employees[index] = updatedEmployee;
-      currentEmployee.value = updatedEmployee;
-    }
-  }
-
-// Clear all permission overrides
-  void clearAllPermissions() {
-    if (currentEmployee.value == null) return;
-
-    final employeeId = currentEmployee.value!.id;
-
-    _firestore
-        .collection('pharmacies')
-        .doc(pharmacyId)
-        .collection('employees')
-        .doc(employeeId)
-        .update({
-      'permissionOverrides': {},
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-
-    // Update local state
-    final index = employees.indexWhere((e) => e.id == employeeId);
-    if (index != -1) {
-      final employee = employees[index];
-      final updatedEmployee = employee.copyWith(
-        permissionOverrides: {},
-      );
-      employees[index] = updatedEmployee;
-      currentEmployee.value = updatedEmployee;
-    }
-  }
   // Load role permissions from Firestore
   Future<void> loadRolePermissions() async {
     try {
@@ -467,63 +410,141 @@ class EmployeeController extends GetxController {
           _rolePermissions[roleId] = permissions;
         }
       }
-
-      print('Loaded permissions for roles: ${_rolePermissions.keys.join(', ')}');
     } catch (e) {
       print('Error loading role permissions: $e');
     }
   }
 
-
-  // Update permission override for employee
+// تعديل دالة updatePermissionOverride
   Future<bool> updatePermissionOverride({
     required String employeeId,
     required String permissionKey,
     required bool value,
   }) async {
     try {
+      print('🚀 تحديث صلاحية محلياً للموظف $employeeId: $permissionKey -> $value');
+
+      // 1. تخزين التعديل مؤقتاً
+      if (employeeId.isEmpty) {
+        // للموظفين الجدد: تحديث مباشرة في الـ currentEmployee
+        if (currentEmployee.value != null) {
+          final updatedOverrides = Map<String, bool>.from(
+              currentEmployee.value!.permissionOverrides
+          );
+          updatedOverrides[permissionKey] = value;
+
+          final updatedEmployee = currentEmployee.value!.copyWith(
+            permissionOverrides: updatedOverrides,
+            hasCustomPermissions: true,
+          );
+          currentEmployee.value = updatedEmployee;
+          _hasPendingChanges.value = true;
+          return true;
+        }
+        return false;
+      } else {
+        // للموظفين الموجودين: تخزين في pending map
+        _pendingPermissionOverrides[permissionKey] = value;
+        _hasPendingChanges.value = true;
+
+        // تحديث الواجهة فقط (لا Firebase)
+        final currentEmp = currentEmployee.value;
+        if (currentEmp != null) {
+          final updatedOverrides = Map<String, bool>.from(currentEmp.permissionOverrides);
+          updatedOverrides[permissionKey] = value;
+
+          final updatedEmployee = currentEmp.copyWith(
+            permissionOverrides: updatedOverrides,
+            hasCustomPermissions: true,
+          );
+          currentEmployee.value = updatedEmployee;
+        }
+
+        return true;
+      }
+    } catch (e) {
+      print('❌ خطأ في تحديث الصلاحية محلياً: $e');
+      return false;
+    }
+  }
+// دالة جديدة لحفظ التعديلات إلى Firebase
+  Future<bool> savePermissionChanges(String employeeId) async {
+    try {
+      if (_pendingPermissionOverrides.isEmpty) return true;
+
+      print('💾 حفظ التعديلات لـ $employeeId: $_pendingPermissionOverrides');
+
       final employeeDoc = _firestore
           .collection('pharmacies')
           .doc(pharmacyId)
           .collection('employees')
           .doc(employeeId);
 
-      // Get current document
+      // الحصول على الوثيقة الحالية
       final doc = await employeeDoc.get();
-      if (!doc.exists) return false;
+      if (!doc.exists) {
+        return false;
+      }
 
       final data = doc.data() as Map<String, dynamic>;
       final currentOverrides = Map<String, bool>.from(
           data['permissionOverrides'] ?? {}
       );
 
-      // Update the specific permission
-      currentOverrides[permissionKey] = value;
+      currentOverrides.addAll(_pendingPermissionOverrides);
 
-      // Update in Firestore
       await employeeDoc.update({
         'permissionOverrides': currentOverrides,
+        'hasCustomPermissions': true,
         'updatedAt': FieldValue.serverTimestamp(),
         'updatedBy': auth.actorInfo,
       });
 
-      // Update local state
+      // تحديث الحالة المحلية
       final index = employees.indexWhere((e) => e.id == employeeId);
       if (index != -1) {
-        final updatedEmployee = Employee.fromMap(employeeId, {
-          ...data,
-          'permissionOverrides': currentOverrides,
-        });
+        final employee = employees[index];
+        final updatedEmployee = employee.copyWith(
+          permissionOverrides: currentOverrides,
+          hasCustomPermissions: true,
+        );
         employees[index] = updatedEmployee;
+
+        if (currentEmployee.value?.id == employeeId) {
+          currentEmployee.value = updatedEmployee;
+        }
       }
 
+      // مسح التعديلات المعلقة
+      _pendingPermissionOverrides.clear();
+      _hasPendingChanges.value = false;
       return true;
+
     } catch (e) {
-      print('Error updating permission override: $e');
+      Get.snackbar('خطأ', 'حدث خطأ أثناء حفظ الصلاحيات');
       return false;
     }
   }
 
+// دالة لإلغاء التعديلات
+  void cancelPermissionChanges() {
+    _pendingPermissionOverrides.clear();
+    _hasPendingChanges.value = false;
+
+    // إعادة تحميل الموظف من البيانات الأصلية
+    final currentEmp = currentEmployee.value;
+    if (currentEmp != null && currentEmp.id.isNotEmpty) {
+      // البحث عن الموظف في القائمة وإعادة تعيينه
+      final originalEmployee = employees.firstWhereOrNull((e) => e.id == currentEmp.id);
+      if (originalEmployee != null) {
+        currentEmployee.value = originalEmployee;
+      }
+    }
+
+    print('🗑️ تم إلغاء التعديلات المعلقة');
+  }
+
+// تعديل دالة updateEmployee لتتضمن حفظ الصلاحيات
   // Get all available permissions from all roles
   Set<String> getAllPermissions() {
     final allPermissions = <String>{};
