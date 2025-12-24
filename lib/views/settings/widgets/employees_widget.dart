@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart'; // Added iconsax import
+import '../dialogs/attendence_management_dialog.dart';
 import '../dialogs/employee_management_dialog.dart';
 
 Widget buildEmployeesCard() {
@@ -84,6 +85,8 @@ Widget buildEmployeesCard() {
                       child: _buildManagementButton(
                         title: 'الحضور والشفتات',
                         icon: Iconsax.calendar, // Changed from Icons.calendar_today_rounded
+                        onTap: () => _showAttendanceDialog(), // أضف هذا السطر هنا
+
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -199,4 +202,12 @@ void _showEmployeeDialog() {
     barrierDismissible: true,
   );
 
+}
+
+// Helper function to show attendance dialog
+void _showAttendanceDialog() {
+  Get.dialog(
+    AttendanceManagementDialog(),
+    barrierDismissible: true,
+  );
 }

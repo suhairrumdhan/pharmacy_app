@@ -52,7 +52,7 @@ class MedicinesTableStyle {
   // Text Styles
   static TextStyle get headerText => TextStyle(
     color: Colors.white,
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: FontWeight.w600,
     letterSpacing: 0.3,
   );

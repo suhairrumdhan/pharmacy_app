@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../controllers/auth_controller.dart';
-import '../controllers/inventory_controller.dart';
-import '../controllers/sales_controller.dart';
+
 import '../widgets/sidebar.dart';
 import 'chat/chat_page.dart';
 import 'inventory/inventory_page.dart';
@@ -156,109 +155,112 @@ class PageWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // AppBar مخصص
-        Container(
-          height: 70,
-          color: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF2C3E50),
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Column(
+        children: [
+          // AppBar مخصص
+          Container(
+            height: 70,
+            color: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2C3E50),
+                  ),
                 ),
-              ),
-              Row(
-                children: [
-                  ...?actions,
-                  const SizedBox(width: 8),
-                  const NotificationButton(),
-                ],
-              ),
-            ],
+                Row(
+                  children: [
+                    ...?actions,
+                    const SizedBox(width: 8),
+                    const NotificationButton(),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
+          const Divider(height: 1, color: Colors.grey),
 
-        // محتوى الصفحة
-        Expanded(
-          child: SingleChildScrollView(
+          // محتوى الصفحة - بدون SingleChildScrollView
+          Expanded(
             child: child,
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
+
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final SalesController salesController = Get.find();
-    final InventoryController inventoryController = Get.find();
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        children: [
+          // بطاقات الإحصائيات
+          GridView.count(
+            crossAxisCount: 4,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 20,
+            mainAxisSpacing: 20,
+            children: [
+              _buildStatCard(
+                Icons.medication,
+                "إجمالي الأدوية",
+                "120",
+                const Color(0xFF2E7D32),
+                Icons.trending_up,
+              ),
+              _buildStatCard(
+                Icons.shopping_cart,
+                "المبيعات اليوم",
+                "1,250 ",
+                const Color(0xFF1976D2),
+                Icons.trending_up,
+              ),
+              _buildStatCard(
+                Icons.pending_actions,
+                "طلبات قيد الانتظار",
+                "8",
+                const Color(0xFFF57C00),
+                Icons.schedule,
+              ),
+              _buildStatCard(
+                Icons.warning,
+                "منخفضة المخزون",
+                "5",
+                const Color(0xFFD32F2F),
+                Icons.inventory_2,
+              ),
+            ],
+          ),
 
-    return Column(
-      children: [
-        // بطاقات الإحصائيات
-        GridView.count(
-          crossAxisCount: 4,
-          shrinkWrap: true,
-          crossAxisSpacing: 20,
-          mainAxisSpacing: 20,
-          physics: const NeverScrollableScrollPhysics(),
-          children: [
-            _buildStatCard(
-              Icons.medication,
-              "إجمالي الأدوية",
-              "120",
-              const Color(0xFF2E7D32),
-              Icons.trending_up,
-            ),
-            _buildStatCard(
-              Icons.shopping_cart,
-              "المبيعات اليوم",
-              "1,250 ",
-              const Color(0xFF1976D2),
-              Icons.trending_up,
-            ),
-            _buildStatCard(
-              Icons.pending_actions,
-              "طلبات قيد الانتظار",
-              "8",
-              const Color(0xFFF57C00),
-              Icons.schedule,
-            ),
-            _buildStatCard(
-              Icons.warning,
-              "منخفضة المخزون",
-              "5",
-              const Color(0xFFD32F2F),
-              Icons.inventory_2,
-            ),
-          ],
-        ),
+          const SizedBox(height: 32),
 
-        const SizedBox(height: 32),
-
-        // مخططات سريعة
-        Row(
-          children: [
-            Expanded(
-              child: _buildQuickChart("المبيعات الأسبوعية", Colors.blue),
-            ),
-            const SizedBox(width: 20),
-            Expanded(
-              child: _buildQuickChart("الأدوية الأكثر مبيعاً", Colors.green),
-            ),
-          ],
-        ),
-      ],
+          // مخططات سريعة
+          Row(
+            children: [
+              Expanded(
+                child: _buildQuickChart("المبيعات الأسبوعية", Colors.blue),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: _buildQuickChart("الأدوية الأكثر مبيعاً", Colors.green),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -283,7 +285,6 @@ class DashboardPage extends StatelessWidget {
       ),
     );
   }
-
 
   Widget _buildQuickChart(String title, Color color) {
     return Container(
@@ -315,8 +316,8 @@ class DashboardPage extends StatelessWidget {
       ),
     );
   }
-
-}class NotificationButton extends StatelessWidget {
+}
+class NotificationButton extends StatelessWidget {
   const NotificationButton({super.key});
 
   @override
