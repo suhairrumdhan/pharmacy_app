@@ -31,18 +31,52 @@ class AdditionalInfoSection extends StatelessWidget {
             ),
             const SizedBox(width: 16),
             Expanded(
-              child: TextFormField(
-                controller: controller.supplierController,
-                decoration: InputDecoration(
-                  labelText: 'المورد (اختياري)',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.business),
-                  filled: true,
-                  fillColor: Colors.grey[50],
-                ),
-              ),
-            ),
-          ],
+              child: Obx(() {
+                if (controller.isLoadingSuppliers.value) {
+                  return TextFormField(
+                    controller: controller.supplierController,
+                    decoration: InputDecoration(
+                      labelText: 'المورد (جاري التحميل...)',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      prefixIcon: const Icon(Icons.business),
+                      filled: true,
+                      fillColor: Colors.grey[50],
+                    ),
+                  );
+                }
+
+                return DropdownButtonFormField<String>(
+                  value: controller.selectedSupplierId.value.isEmpty
+                      ? null
+                      : controller.selectedSupplierId.value,
+                  decoration: InputDecoration(
+                    labelText: 'المورد (اختياري)',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    prefixIcon: const Icon(Icons.business),
+                    filled: true,
+                    fillColor: Colors.grey[50],
+                  ),
+                  items: controller.suppliers.map((supplier) {
+                    final supplierId = supplier['id'] ?? '';
+                    final supplierName = supplier['name'] ?? '';
+
+                    return DropdownMenuItem<String>(
+                      value: supplierId,
+                      child: Text(
+                        supplierId.isEmpty ? 'بدون مورد' : supplierName,
+                        style: supplierId.isEmpty
+                            ? TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)
+                            : null,
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (String? newValue) {
+                    controller.updateSelectedSupplier(newValue);
+                  },
+                  isExpanded: true,
+                );
+              }),
+            ),          ],
         ),
         const SizedBox(height: 16),
         TextFormField(

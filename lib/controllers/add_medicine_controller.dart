@@ -40,6 +40,12 @@ class AddMedicineController extends GetxController {
   final medicineImageUrl = Rx<String?>(null);
   final isUploadingImage = false.obs;
   final ImagePicker _imagePicker = ImagePicker();
+  // متغيرات الموردين
+  final RxList<Map<String, dynamic>> suppliers = <Map<String, dynamic>>[].obs;
+  final RxString selectedSupplierId = RxString('');
+  final RxString selectedSupplierName = RxString('');
+  final RxBool isLoadingSuppliers = false.obs;
+
 
   // Get pharmacy ID
   String? get pharmacyId => FirebaseAuth.instance.currentUser?.uid;
@@ -48,6 +54,7 @@ class AddMedicineController extends GetxController {
   void onInit() {
     super.onInit();
     _loadCategories();
+    loadSuppliers(); // ← أضف هذا السطر
 
     // Add listeners for piece price calculation
     unitsPerPackageController.addListener(_calculatePiecePrice);
@@ -73,6 +80,87 @@ class AddMedicineController extends GetxController {
   int? get unitsPerPackage {
     if (unitsPerPackageController.text.isEmpty) return null;
     return int.tryParse(unitsPerPackageController.text);
+  }
+
+  // دالة لتحميل الموردين من Firestore
+  Future<void> loadSuppliers() async {
+    try {
+      if (pharmacyId == null) {
+        print('❌ No pharmacy ID available');
+        return;
+      }
+
+      isLoadingSuppliers.value = true;
+      suppliers.clear();
+
+      print('📡 Loading suppliers for pharmacy: $pharmacyId');
+
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('pharmacies')
+          .doc(pharmacyId)
+          .collection('suppliers')
+          .orderBy('name')
+          .get();
+
+      print('📊 Found ${querySnapshot.docs.length} suppliers');
+
+      for (var doc in querySnapshot.docs) {
+        final data = doc.data();
+        suppliers.add({
+          'id': doc.id,
+          'name': data['name']?.toString() ?? 'بدون اسم',
+          'phone': data['phone']?.toString() ?? '',
+          'address': data['address']?.toString() ?? '',
+          'contactPerson': data['contactPerson']?.toString() ?? '',
+        });
+      }
+
+      // إضافة خيار "بدون مورد"
+      suppliers.insert(0, {
+        'id': '',
+        'name': 'بدون مورد',
+        'phone': '',
+        'address': '',
+        'contactPerson': '',
+      });
+
+      print('✅ Loaded ${suppliers.length} suppliers total');
+
+    } catch (e, stackTrace) {
+      print('❌ Error loading suppliers: $e');
+      print('📝 Stack trace: $stackTrace');
+
+      Get.snackbar(
+        'تحذير',
+        'تعذر تحميل قائمة الموردين. يمكنك إدخال اسم المورد يدوياً.',
+        backgroundColor: Colors.orange,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 3),
+      );
+    } finally {
+      isLoadingSuppliers.value = false;
+    }
+  }
+
+  // دالة لتحديث المورد المختار
+  void updateSelectedSupplier(String? supplierId) {
+    if (supplierId == null || supplierId.isEmpty) {
+      selectedSupplierId.value = '';
+      selectedSupplierName.value = '';
+      supplierController.clear();
+      return;
+    }
+
+    selectedSupplierId.value = supplierId;
+
+    // البحث عن المورد في القائمة
+    final selectedSupplier = suppliers.firstWhere(
+          (supplier) => supplier['id'] == supplierId,
+      orElse: () => {'id': '', 'name': '', 'phone': '', 'address': '', 'contactPerson': ''},
+    );
+
+    selectedSupplierName.value = selectedSupplier['name'] ?? '';
+    supplierController.text = selectedSupplier['name'] ?? '';
   }
 
   // Load categories from Firestore
@@ -634,6 +722,19 @@ class AddMedicineController extends GetxController {
         scientificName = null;
       }
 
+      // تحديد المورد
+      String? supplier;
+      String? supplierIdForUpdate;
+
+      if (selectedSupplierId.value.isNotEmpty) {
+        // استخدام المورد المختار من القائمة
+        supplier = selectedSupplierName.value;
+        supplierIdForUpdate = selectedSupplierId.value;
+      } else if (supplierController.text.trim().isNotEmpty) {
+        // استخدام المورد المدخل يدوياً
+        supplier = supplierController.text.trim();
+      }
+
       // Upload image if exists
       String? imageUrl;
       if (medicineImage.value != null) {
@@ -669,7 +770,7 @@ class AddMedicineController extends GetxController {
         sellByPiece: sellByPiece.value,
         piecePrice: piecePriceCalculated.value,
         minStockLevel: minStockLevel,
-        supplier: supplierController.text.isEmpty ? null : supplierController.text,
+        supplier: supplier,
         expiryDate: expiryDate.value,
         barcode: barcode,
         imageUrl: imageUrl,
@@ -679,10 +780,50 @@ class AddMedicineController extends GetxController {
       // Add to inventory
       await inventoryController.addMedicine(newMedicine);
 
+      // ⬇️⬇️⬇️ **إضافة الدواء إلى قائمة الأدوية للمورد (إذا كان هناك مورد)** ⬇️⬇️⬇️
+      if (supplierIdForUpdate != null && supplierIdForUpdate.isNotEmpty) {
+        try {
+          // تحديث قائمة الأدوية في المورد
+          await FirebaseFirestore.instance
+              .collection('pharmacies')
+              .doc(pharmacyId)
+              .collection('suppliers')
+              .doc(supplierIdForUpdate)
+              .update({
+            'suppliedMedications': FieldValue.arrayUnion([medicineId]),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+
+          print('✅ تم تحديث المورد ${selectedSupplierName.value} بإضافة الدواء $medicineId');
+
+          // يمكنك إضافة رسالة نجاح إضافية
+          Get.snackbar(
+            'تم تحديث المورد',
+            'تم إضافة الدواء إلى قائمة أدوية المورد ${selectedSupplierName.value}',
+            backgroundColor: Colors.blue,
+            colorText: Colors.white,
+            duration: const Duration(seconds: 2),
+            snackPosition: SnackPosition.BOTTOM,
+          );
+
+        } catch (e) {
+          print('⚠️ تحذير: لم يتم تحديث قائمة أدوية المورد: $e');
+          // لا توقف العملية إذا فشل تحديث المورد
+          Get.snackbar(
+            'تنبيه',
+            'تم إضافة الدواء ولكن لم يتم تحديث المورد',
+            backgroundColor: Colors.orange,
+            colorText: Colors.white,
+            duration: const Duration(seconds: 2),
+            snackPosition: SnackPosition.BOTTOM,
+          );
+        }
+      }
+
       // Show success message
       Get.snackbar(
         'تمت الإضافة بنجاح ✓',
-        'تم إضافة الدواء "${nameController.text}" إلى المخزون\nالكمية: $quantity\nسعر البيع: $sellingPrice ر.س',
+        'تم إضافة الدواء "${nameController.text}" إلى المخزون\nالكمية: $quantity\nسعر البيع: $sellingPrice ر.س${supplier != null ? '\nالمورد: $supplier' : ''}',
         backgroundColor: Colors.green,
         colorText: Colors.white,
         duration: const Duration(seconds: 4),
@@ -710,6 +851,7 @@ class AddMedicineController extends GetxController {
       isAddingMedicine.value = false;
     }
   }
+
 
   // Validate form for UI feedback
   Map<String, String?> validateFormForUI() {

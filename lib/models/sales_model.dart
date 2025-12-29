@@ -1,111 +1,241 @@
-class Sale {
-  final String id;
-  final String customerName;
-  final String customerPhone;
-  final List<SaleItem> items;
-  final double totalAmount;
-  final double discount;
-  final double tax;
-  final double finalAmount;
-  final DateTime saleDate;
-  final String paymentMethod;
-  final String status;
-
-  Sale({
-    required this.id,
-    required this.customerName,
-    required this.customerPhone,
-    required this.items,
-    required this.totalAmount,
-    this.discount = 0,
-    this.tax = 0,
-    required this.finalAmount,
-    required this.saleDate,
-    required this.paymentMethod,
-    required this.status,
-  });
-
-  factory Sale.fromMap(Map<String, dynamic> data) {
-    return Sale(
-      id: data['id'] ?? '',
-      customerName: data['customerName'] ?? '',
-      customerPhone: data['customerPhone'] ?? '',
-      items: (data['items'] as List).map((item) => SaleItem.fromMap(item)).toList(),
-      totalAmount: (data['totalAmount'] ?? 0).toDouble(),
-      discount: (data['discount'] ?? 0).toDouble(),
-      tax: (data['tax'] ?? 0).toDouble(),
-      finalAmount: (data['finalAmount'] ?? 0).toDouble(),
-      saleDate: DateTime.parse(data['saleDate']),
-      paymentMethod: data['paymentMethod'] ?? 'cash',
-      status: data['status'] ?? 'completed',
-    );
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'customerName': customerName,
-      'customerPhone': customerPhone,
-      'items': items.map((item) => item.toMap()).toList(),
-      'totalAmount': totalAmount,
-      'discount': discount,
-      'tax': tax,
-      'finalAmount': finalAmount,
-      'saleDate': saleDate.toIso8601String(),
-      'paymentMethod': paymentMethod,
-      'status': status,
-    };
-  }
-}
+// lib/models/sales_model.dart
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:get/get.dart';
 
 class SaleItem {
-  final String medicineId;
-  final String medicineName;
-  final int quantity;
-  final double price;
-  final double total;
+  String medicineId;
+  String name;
+  String? scientificName;
+  String? barcode;
+  double unitPrice;
+  int quantity;
+  double? discountPercentage;
+  double? discountAmount;
+  double total;
 
   SaleItem({
     required this.medicineId,
-    required this.medicineName,
+    required this.name,
+    this.scientificName,
+    this.barcode,
+    required this.unitPrice,
     required this.quantity,
-    required this.price,
+    this.discountPercentage,
+    this.discountAmount,
     required this.total,
   });
-
-  factory SaleItem.fromMap(Map<String, dynamic> data) {
-    return SaleItem(
-      medicineId: data['medicineId'] ?? '',
-      medicineName: data['medicineName'] ?? '',
-      quantity: data['quantity'] ?? 0,
-      price: (data['price'] ?? 0).toDouble(),
-      total: (data['total'] ?? 0).toDouble(),
-    );
-  }
 
   Map<String, dynamic> toMap() {
     return {
       'medicineId': medicineId,
-      'medicineName': medicineName,
+      'name': name,
+      'scientificName': scientificName,
+      'barcode': barcode,
+      'unitPrice': unitPrice,
       'quantity': quantity,
-      'price': price,
+      'discountPercentage': discountPercentage,
+      'discountAmount': discountAmount,
       'total': total,
     };
   }
+
+  factory SaleItem.fromMap(Map<String, dynamic> map) {
+    return SaleItem(
+      medicineId: map['medicineId'] ?? '',
+      name: map['name'] ?? '',
+      scientificName: map['scientificName'],
+      barcode: map['barcode'],
+      unitPrice: (map['unitPrice'] as num).toDouble(),
+      quantity: map['quantity'] ?? 1,
+      discountPercentage: (map['discountPercentage'] as num?)?.toDouble(),
+      discountAmount: (map['discountAmount'] as num?)?.toDouble(),
+      total: (map['total'] as num).toDouble(),
+    );
+  }
 }
 
-class SalesSummary {
-  final double todaySales;
-  final double weeklySales;
-  final double monthlySales;
-  final int totalTransactions;
-  final double averageSale;
+enum PaymentMethod {
+  cash('نقدي'),
+  card('بطاقة'),
+  insurance('تأمين');
 
-  SalesSummary({
-    required this.todaySales,
-    required this.weeklySales,
-    required this.monthlySales,
-    required this.totalTransactions,
-    required this.averageSale,
-  });
+  final String arabicName;
+  const PaymentMethod(this.arabicName);
+
+  static PaymentMethod fromString(String value) {
+    switch (value.toLowerCase()) {
+      case 'cash': return PaymentMethod.cash;
+      case 'card': return PaymentMethod.card;
+      case 'insurance': return PaymentMethod.insurance;
+      default: return PaymentMethod.cash;
+    }
+  }
+}
+
+class Sale {
+  String id;
+  String invoiceNumber;
+  String pharmacyId;
+  String? employeeId;
+  String? employeeName;
+  List<SaleItem> items;
+  double subtotal;
+  double? discount;
+  double? insuranceDiscount;
+  String? insuranceCompanyId;
+  String? insuranceCompanyName;
+  double total;
+  PaymentMethod paymentMethod;
+  String? paymentDetails;
+  String? customerName;
+  String? customerPhone;
+  String? notes;
+  DateTime saleDate;
+  DateTime createdAt;
+  bool isDeleted;
+
+  Sale({
+    this.id = '',
+    required this.invoiceNumber,
+    required this.pharmacyId,
+    this.employeeId,
+    this.employeeName,
+    required this.items,
+    required this.subtotal,
+    this.discount,
+    this.insuranceDiscount,
+    this.insuranceCompanyId,
+    this.insuranceCompanyName,
+    required this.total,
+    required this.paymentMethod,
+    this.paymentDetails,
+    this.customerName,
+    this.customerPhone,
+    this.notes,
+    required this.saleDate,
+    DateTime? createdAt,
+    this.isDeleted = false,
+  }) : createdAt = createdAt ?? DateTime.now();
+
+  // حساب المبلغ الإجمالي
+  void calculateTotal() {
+    subtotal = items.fold(0.0, (sum, item) => sum + item.total);
+
+    // تطبيق الخصم (إذا وجد)
+    double discountAmount = discount ?? 0.0;
+
+    // تطبيق خصم التأمين (إذا وجد)
+    double insuranceAmount = insuranceDiscount ?? 0.0;
+
+    total = subtotal - discountAmount - insuranceAmount;
+    if (total < 0) total = 0;
+  }
+
+  // إضافة صنف جديد
+  void addItem(SaleItem item) {
+    items.add(item);
+    calculateTotal();
+  }
+
+  // تحديث كمية صنف
+  void updateQuantity(int index, int quantity) {
+    if (index >= 0 && index < items.length) {
+      items[index].quantity = quantity;
+      items[index].total = items[index].unitPrice * quantity;
+      if (items[index].discountAmount != null) {
+        items[index].total -= items[index].discountAmount!;
+      } else if (items[index].discountPercentage != null) {
+        final discount = items[index].unitPrice * quantity * items[index].discountPercentage! / 100;
+        items[index].total -= discount;
+      }
+      calculateTotal();
+    }
+  }
+
+  // حذف صنف
+  void removeItem(int index) {
+    if (index >= 0 && index < items.length) {
+      items.removeAt(index);
+      calculateTotal();
+    }
+  }
+
+  Map<String, dynamic> toMap() {
+    calculateTotal(); // التأكد من حساب المجموع قبل الحفظ
+
+    return {
+      'id': id,
+      'invoiceNumber': invoiceNumber,
+      'pharmacyId': pharmacyId,
+      'employeeId': employeeId,
+      'employeeName': employeeName,
+      'items': items.map((item) => item.toMap()).toList(),
+      'subtotal': subtotal,
+      'discount': discount,
+      'insuranceDiscount': insuranceDiscount,
+      'insuranceCompanyId': insuranceCompanyId,
+      'insuranceCompanyName': insuranceCompanyName,
+      'total': total,
+      'paymentMethod': paymentMethod.name,
+      'paymentDetails': paymentDetails,
+      'customerName': customerName,
+      'customerPhone': customerPhone,
+      'notes': notes,
+      'saleDate': Timestamp.fromDate(saleDate),
+      'createdAt': Timestamp.fromDate(createdAt),
+      'isDeleted': isDeleted,
+    };
+  }
+
+  factory Sale.fromMap(Map<String, dynamic> map) {
+    List<SaleItem> itemsList = [];
+    if (map['items'] != null && map['items'] is List) {
+      itemsList = (map['items'] as List)
+          .map((item) => SaleItem.fromMap(item as Map<String, dynamic>))
+          .toList();
+    }
+
+    return Sale(
+      id: map['id'] ?? '',
+      invoiceNumber: map['invoiceNumber'] ?? '',
+      pharmacyId: map['pharmacyId'] ?? '',
+      employeeId: map['employeeId'],
+      employeeName: map['employeeName'],
+      items: itemsList,
+      subtotal: (map['subtotal'] as num?)?.toDouble() ?? 0.0,
+      discount: (map['discount'] as num?)?.toDouble(),
+      insuranceDiscount: (map['insuranceDiscount'] as num?)?.toDouble(),
+      insuranceCompanyId: map['insuranceCompanyId'],
+      insuranceCompanyName: map['insuranceCompanyName'],
+      total: (map['total'] as num?)?.toDouble() ?? 0.0,
+      paymentMethod: PaymentMethod.fromString(map['paymentMethod'] ?? 'cash'),
+      paymentDetails: map['paymentDetails'],
+      customerName: map['customerName'],
+      customerPhone: map['customerPhone'],
+      notes: map['notes'],
+      saleDate: (map['saleDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      isDeleted: map['isDeleted'] ?? false,
+    );
+  }
+
+  // توليد رقم فاتورة تلقائي
+  static String generateInvoiceNumber() {
+    final now = DateTime.now();
+    final year = now.year.toString().substring(2);
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    final random = (now.millisecondsSinceEpoch % 10000).toString().padLeft(4, '0');
+    return 'INV-$year$month$day-$random';
+  }
+
+  // معلومات الفاتورة للتقرير
+  String get invoiceSummary {
+    return 'فاتورة #$invoiceNumber - ${items.length} أصناف - الإجمالي: ${total.toStringAsFixed(2)}';
+  }
+
+  // حالة الدفع
+  String get paymentStatus {
+    return paymentMethod.arabicName;
+  }
 }
