@@ -7,10 +7,11 @@ class SaleItem {
   String name;
   String? scientificName;
   String? barcode;
-  double unitPrice;
+  double unitPrice; // السعر الفعلي للوحدة أو القطعة
   int quantity;
   double? discountPercentage;
   double? discountAmount;
+  bool sellAsPiece; // true لو البيع بالقطعة، false لو بالعلبة
   double total;
 
   SaleItem({
@@ -22,8 +23,19 @@ class SaleItem {
     required this.quantity,
     this.discountPercentage,
     this.discountAmount,
+    required this.sellAsPiece, // لازم تحدد عند الإنشاء
     required this.total,
-  });
+  }){
+    calculateTotal(); // احسب المجموع مباشرة عند الإنشاء
+  }
+
+  void calculateTotal() {
+    total = unitPrice * quantity;
+    if (discountAmount != null) total -= discountAmount!;
+    else if (discountPercentage != null) {
+      total -= unitPrice * quantity * discountPercentage! / 100;
+    }
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -35,6 +47,7 @@ class SaleItem {
       'quantity': quantity,
       'discountPercentage': discountPercentage,
       'discountAmount': discountAmount,
+      'sellAsPiece': sellAsPiece,
       'total': total,
     };
   }
@@ -49,6 +62,7 @@ class SaleItem {
       quantity: map['quantity'] ?? 1,
       discountPercentage: (map['discountPercentage'] as num?)?.toDouble(),
       discountAmount: (map['discountAmount'] as num?)?.toDouble(),
+      sellAsPiece: map['sellAsPiece'] ?? false,
       total: (map['total'] as num).toDouble(),
     );
   }
@@ -140,13 +154,15 @@ class Sale {
   // تحديث كمية صنف
   void updateQuantity(int index, int quantity) {
     if (index >= 0 && index < items.length) {
-      items[index].quantity = quantity;
-      items[index].total = items[index].unitPrice * quantity;
-      if (items[index].discountAmount != null) {
-        items[index].total -= items[index].discountAmount!;
-      } else if (items[index].discountPercentage != null) {
-        final discount = items[index].unitPrice * quantity * items[index].discountPercentage! / 100;
-        items[index].total -= discount;
+      final item = items[index];
+      item.quantity = quantity;
+      final effectivePrice = item.sellAsPiece ? item.unitPrice / item.quantity : item.unitPrice; // لو عندك piecePrice, استعمليها
+      item.total = effectivePrice * quantity;
+
+      if (item.discountAmount != null) {
+        item.total -= item.discountAmount!;
+      } else if (item.discountPercentage != null) {
+        item.total -= effectivePrice * quantity * item.discountPercentage! / 100;
       }
       calculateTotal();
     }

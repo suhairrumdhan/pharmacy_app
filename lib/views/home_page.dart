@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../controllers/auth_controller.dart';
-
 import '../widgets/sidebar.dart';
 import 'chat/chat_page.dart';
 import 'inventory/inventory_page.dart';
@@ -26,6 +25,21 @@ class _HomePageState extends State<HomePage> {
   final AuthController authController = Get.find();
   late List<Widget> pages;
   late List<SidebarItem> sidebarItems;
+  @override
+  void initState() {
+    super.initState();
+    // تحديث اسم المستخدم والدور عند فتح الصفحة
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _updateUserInfo();
+    });
+  }
+
+  void _updateUserInfo() {
+    final employee = authController.currentEmployee.value;
+    if (employee != null) {
+      authController.currentUserName.value = employee['username'] ?? '';
+    }
+  }
 
   // قائمة العناوين
   final List<String> pageTitles = [
@@ -196,7 +210,6 @@ class PageWrapper extends StatelessWidget {
     );
   }
 }
-
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 

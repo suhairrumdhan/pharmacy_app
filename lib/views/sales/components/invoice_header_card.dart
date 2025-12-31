@@ -97,7 +97,7 @@ class InvoiceHeaderCard extends StatelessWidget {
                     Obx(() {
                       final total = salesController.currentSale.value.total;
                       return Text(
-                        '${total.toStringAsFixed(2)} ر.س',
+                        '${total.toStringAsFixed(2)}د.ل ',
                         style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,

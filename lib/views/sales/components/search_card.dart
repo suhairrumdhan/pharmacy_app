@@ -1,33 +1,170 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
 import '../../../controllers/sales_controller.dart';
+import '../../../models/inventory_model.dart';
 import '../dialogs/barcode_scanner_dialog.dart';
 
-class SearchCard extends StatelessWidget {
+class SearchCard extends StatefulWidget {
   final SalesController salesController;
+  final Function(Medicine)? onMedicineAdded;
 
   const SearchCard({
     super.key,
     required this.salesController,
+    this.onMedicineAdded,
   });
+
+  @override
+  State<SearchCard> createState() => _SearchCardState();
+}
+
+class _SearchCardState extends State<SearchCard> {
+  late TextEditingController _textController;
+  Timer? _debounceTimer;
+  String _lastSearchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _textController = TextEditingController();
+    // التركيز التلقائي عند البناء
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.salesController.searchFocusNode.requestFocus();
+      _initializeControllerListener();
+    });
+
+
+
+    // ⬇️⬇️⬇️ أضف هذا الكود هنا ⬇️⬇️⬇️
+    // الاستماع لتغيرات الفاتورة (عند إضافة منتج جديد)
+    ever(widget.salesController.currentSale, (sale) {
+      // إذا تم إضافة منتجات جديدة، نظف البحث
+      if (sale.items.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _clearSearch();
+        });
+      }
+    });
+  }
+
+  void _initializeControllerListener() {
+    widget.salesController.searchQuery.value = '';
+    _textController.clear();
+    // الاستماع لتغيرات searchQuery من الـ Controller
+    ever(widget.salesController.searchQuery, (query) {
+      if (_textController.text != query) {
+        _textController.text = query;
+        if (query.isEmpty) {
+          _textController.clear();
+        }
+      }
+    });
+
+  }
+
+  void _performSearch(String query) {
+    // إذا كان البحث نفسه السابق، لا تكرر
+    if (query == _lastSearchQuery) return;
+    _lastSearchQuery = query;
+
+    // إلغاء البحث السابق
+    if (_debounceTimer?.isActive ?? false) _debounceTimer?.cancel();
+
+    // بحث فوري لكن مع debounce بسيط
+    _debounceTimer = Timer(const Duration(milliseconds: 150), () async {
+      if (query.isEmpty) {
+        widget.salesController.searchResults.clear();
+        widget.salesController.searchQuery.value = '';
+        return;
+      }
+
+      // البحث فوراً
+      await _executeSearch(query);
+    });
+  }
+
+  Future<void> _executeSearch(String query) async {
+    // إذا كان باركود (8 أرقام أو أكثر)
+    if (RegExp(r'^[0-9]{8,}$').hasMatch(query)) {
+      await widget.salesController.handleSmartSearch(query);
+    } else {
+      // بحث عادي فوري
+      await widget.salesController.searchMedicines(query);
+    }
+  }
+
+  void _clearSearch() {
+    // طباعة للتحقق
+    print('🧹 SearchCard: تنظيف البحث يدوياً');
+
+    // تنظيف من الـ Controller أولاً
+    widget.salesController.searchQuery.value = '';
+    widget.salesController.searchResults.clear();
+
+    // ثم تنظيف الحقل المحلي
+    _textController.clear();
+
+    _lastSearchQuery = '';
+
+    // إعادة التركيز على الحقل
+    widget.salesController.searchFocusNode.requestFocus();
+  }
+  Future<void> _handleBarcodeScan() async {
+    try {
+      // مسح البحث القديم أولاً
+      _clearSearch();
+
+      // فتح الماسح الضوئي
+      final barcode = await showDialog<String?>(
+        context: context,
+        builder: (_) => BarcodeScannerDialog(salesController: widget.salesController),
+        barrierDismissible: false,
+      );
+
+      if (barcode != null && barcode.isNotEmpty) {
+        // البحث تلقائياً عن الباركود
+        _textController.text = barcode;
+        widget.salesController.searchQuery.value = barcode;
+        await _executeSearch(barcode);
+      }
+    } finally {
+      // العودة للتركيز على حقل البحث
+      widget.salesController.searchFocusNode.requestFocus();
+    }
+  }
+
+  void _handleSearchSubmitted(String value) {
+    if (value.isNotEmpty) {
+      // عند Enter، تأكيد البحث
+      widget.salesController.searchFocusNode.unfocus();
+
+      // إذا كان هناك منتج واحد فقط، أضفه
+      final results = widget.salesController.searchResults;
+      if (results.length == 1 && !widget.salesController.isBarcodeInput(value)) {
+        widget.salesController.addMedicineToSale(results.first);
+        _clearSearch();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _textController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.blue.shade50,
-              Colors.white,
-            ],
+            colors: [Colors.blue.shade50, Colors.white],
           ),
           borderRadius: BorderRadius.circular(12),
         ),
@@ -36,7 +173,16 @@ class SearchCard extends StatelessWidget {
           child: Column(
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 14, right: 8), // تعديل المسافة حسب الحاجة
+                    child: Icon(
+                      Iconsax.search_normal,  // أو أي أيقونة أخرى من Iconsax
+                      color: Colors.blue.shade700,
+                      size: 20,
+                    ),
+                  ),
                   Expanded(
                     child: Container(
                       decoration: BoxDecoration(
@@ -50,14 +196,14 @@ class SearchCard extends StatelessWidget {
                           ),
                         ],
                       ),
+
                       child: TextField(
-                        controller: TextEditingController(text: salesController.searchQuery.value),
-                        onChanged: (value) {
-                          salesController.searchQuery.value = value;
-                          salesController.searchMedicines(value);
-                        },
+                        focusNode: widget.salesController.searchFocusNode,
+                        controller: _textController,
+                        autofocus: true,
+                        textInputAction: TextInputAction.search,
                         decoration: InputDecoration(
-                          hintText: '🔍 ابحث بالاسم، الباركود أو العلمي...',
+                          hintText: 'ابحث بالاسم، الباركود أو الاسم العلمي...',
                           hintStyle: TextStyle(
                             color: Colors.grey[600],
                             fontSize: 14,
@@ -67,118 +213,39 @@ class SearchCard extends StatelessWidget {
                             horizontal: 16,
                             vertical: 14,
                           ),
-                          suffixIcon: IconButton(
+                          suffixIcon: _textController.text.isEmpty
+                              ? IconButton(
                             icon: Icon(
-                              Iconsax.scan_barcode,
-                              color: Colors.blue[700],
-                              size: 22,
+                              Iconsax.close_circle,
+                              color: Colors.grey[500],
+                              size: 20,
                             ),
-                            onPressed: salesController.toggleBarcodeScanner,
-                            tooltip: 'مسح باركود',
-                          ),
+                            onPressed: _clearSearch,
+                            tooltip: 'مسح البحث',
+                          )
+                              : null,
                         ),
                         style: const TextStyle(fontSize: 14),
+                        onChanged: (value) {
+                          widget.salesController.searchQuery.value = value;
+                          _performSearch(value); // ⬅️ البحث فوري عند الكتابة
+                        },
+                        onSubmitted: _handleSearchSubmitted,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Obx(() => salesController.isScanning.value
-                      ? Container(
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.red.shade200),
-                    ),
-                    child: IconButton(
-                      onPressed: () {
-                        salesController.toggleBarcodeScanner();
-                      },
-                      icon: Icon(
-                        Iconsax.close_circle,
-                        color: Colors.red[700],
-                        size: 22,
-                      ),
-                      tooltip: 'إلغاء المسح',
-                    ),
-                  )
-                      : Container(
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.blue.shade200),
-                    ),
-                    child: IconButton(
-                      onPressed: () {
-                        showDialog(
-                          context: context,
-                          builder: (_) => BarcodeScannerDialog(salesController: salesController),
-                        );
-                      },
-                      icon: Icon(
-                        Iconsax.scan,
-                        color: Colors.blue[700],
-                        size: 22,
-                      ),
-                      tooltip: 'مسح باركود',
-                    ),
-                  ),
                   ),
                 ],
               ),
-
-              const SizedBox(height: 12),
-
-              // فلاتر سريعة
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _buildFilterChip('🏥 كل المنتجات', true),
-                    const SizedBox(width: 8),
-                    _buildFilterChip('⚠️ منخفض المخزون', false, () {
-                      salesController.searchQuery.value = '';
-                      // TODO: Implement low stock filter
-                    }),
-                    const SizedBox(width: 8),
-                    _buildFilterChip('🔥 الأكثر مبيعاً', false),
-                    const SizedBox(width: 8),
-                    _buildFilterChip('🆕 جديد', false),
-                  ],
-                ),
-              ),
+              const SizedBox(height: 8),
+              // مؤشر حالة البحث
+              Obx(() => widget.salesController.isLoading.value
+                  ? LinearProgressIndicator(
+                backgroundColor: Colors.blue.shade100,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.shade700),
+                minHeight: 2,
+              )
+                  : const SizedBox()),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFilterChip(String label, bool selected, [VoidCallback? onTap]) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? Colors.blue[700] : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected ? Colors.blue[700]! : Colors.grey[300]!,
-            width: 1,
-          ),
-          boxShadow: selected ? [
-            BoxShadow(
-              color: Colors.blue.withOpacity(0.2),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
-            ),
-          ] : null,
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Colors.white : Colors.grey[700],
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
           ),
         ),
       ),

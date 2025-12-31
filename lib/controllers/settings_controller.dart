@@ -302,7 +302,7 @@ class SettingsController extends GetxController {
       errorMessage.value = '';
 
       final updateData = <String, dynamic>{
-        'name': nameController.text.trim(),
+        'pharmacyName': nameController.text.trim(),
         'ownerName': ownerNameController.text.trim(),
         'ownerIdNumber': ownerIdNumberController.text.trim(),
         'email': emailController.text.trim(),

@@ -18,15 +18,6 @@ class ChatController extends GetxController {
     super.onInit();
     print('🔍 Current User UID: ${_auth.currentUser?.uid}');
     print('🔍 Pharmacy ID from getter: $pharmacyId');
-    print('🔍 Expected Pharmacy ID in Firestore: 2ZE0QgVFl1Wtk2b84bUKqqYl8UM2');
-
-    // تحقق إذا كان هناك تطابق
-    if (pharmacyId == '2ZE0QgVFl1Wtk2b84bUKqqYl8UM2') {
-      print('✅ Pharmacy ID matches!');
-    } else {
-      print('❌ Pharmacy ID does not match!');
-    }
-
     listenToConversations();
   }
 

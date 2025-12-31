@@ -11,7 +11,7 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final AuthController controller = Get.put(AuthController());
+  final AuthController controller = Get.find<AuthController>();
 
   final emailFocus = FocusNode();
   final passwordFocus = FocusNode();
@@ -102,18 +102,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     onChanged: (value) => controller.password.value = value,
-                    onSubmitted: (_) async {
-                      if (controller.email.value.isEmpty ||
-                          controller.password.value.isEmpty) {
-                        Get.snackbar(
-                          "تنبيه",
-                          "يرجى ملء جميع الحقول",
-                          backgroundColor: Colors.lightBlueAccent,
-                        );
-                        return;
-                      }
-                      await controller.login();
-                    },
+                    onSubmitted: (_) => controller.login(),
                   ),
 
                   const SizedBox(height: 25),
@@ -130,19 +119,7 @@ class _LoginPageState extends State<LoginPage> {
                           backgroundColor: Colors.lightBlueAccent[700],
                           foregroundColor: Colors.white,
                         ),
-                        onPressed: () async {
-                          if (controller.email.value.isEmpty ||
-                              controller.password.value.isEmpty) {
-                            Get.snackbar(
-                              "تنبيه",
-                              "يرجى ملء جميع الحقول",
-                              backgroundColor: Colors.lightBlueAccent,
-                            );
-                            return;
-                          }
-
-                          await controller.login();
-                        },
+                        onPressed: controller.isLoading.value ? null : controller.login,
                         child: const Text("تسجيل الدخول"),
                       ),
                     );

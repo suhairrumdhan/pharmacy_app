@@ -8,7 +8,6 @@ import 'package:pharmacy_desktop/services/local_storage_service.dart';
 import '../internal_login_page.dart';
 import '../views/home_page.dart';
 import '../views/login_page.dart';
-import '../views/sign_up/signup_page.dart';
 import '../views/waiting_approval_page.dart';
 
 class AuthController extends GetxController {
@@ -17,42 +16,50 @@ class AuthController extends GetxController {
   final LocalStorageService _localStorage = LocalStorageService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-
-
   // Rx variables
   var email = ''.obs;
   var password = ''.obs;
   var isLoading = false.obs;
   var currentUser = Rxn<User>();
 
+  // للمستخدم الداخلي (موظف الصيدلية)
   RxString internalUsername = ''.obs;
   RxString internalPassword = ''.obs;
+
+  // بيانات المستخدم الحالي
+  RxString currentUserName = ''.obs;
+  RxString currentUserRole = ''.obs;
+
   // بيانات الصيدلية
   final RxMap<String, dynamic> pharmacyData = <String, dynamic>{}.obs;
   Rx<Map<String, dynamic>?> currentEmployee = Rx<Map<String, dynamic>?>(null);
-
   final isPharmacyLoaded = false.obs;
   final isPermissionsLoaded = false.obs;
-
-// من Firestore
   RxMap<String, bool> rolePermissions = <String, bool>{}.obs;
   RxMap<String, bool> employeeOverrides = <String, bool>{}.obs;
-
-  // تسجيل الدخول الداخلي (الموظف)
 
   // تسجيل الخروج الداخلي
   void logoutInternal() {
     currentEmployee.value = null;
     internalUsername.value = '';
     internalPassword.value = '';
+    currentUserName.value = '';
+    currentUserRole.value = '';
   }
+
   @override
-  Future<void> onInit() async {
+  void onInit() {
     super.onInit();
+    _init();
+  }
+
+  Future<void> _init() async {
     await _localStorage.init();
+
     _auth.authStateChanges().listen((user) {
       currentUser.value = user;
-      if (user != null) {
+
+      if (user != null && !isPharmacyLoaded.value) {
         loadPharmacyData(user.uid);
       }
     });
@@ -60,34 +67,80 @@ class AuthController extends GetxController {
 
   // تسجيل الدخول
   Future<void> login() async {
+    if (!_validateLogin()) return;
     try {
-      if (!_validateLogin()) return;
       isLoading.value = true;
-
       final userCredential = await _auth.signInWithEmailAndPassword(
         email: email.value.trim(),
         password: password.value,
       );
-
       final user = userCredential.user;
       if (user != null) {
         await _checkUserStatus(user.uid);
       }
+      email.value = '';
+      password.value = '';
+
 
     } on FirebaseAuthException catch (e) {
-      isLoading.value = false;
-      _handleAuthError(e);
-    } catch (e) {
-      isLoading.value = false;
+      _handleFirebaseLoginError(e);
+
+    } catch (_) {
       Get.snackbar(
-        "خطأ",
-        "فشل في تسجيل الدخول: ${e.toString()}",
+        "خطأ غير متوقع",
+        "حدث خطأ غير معروف، حاول مرة أخرى",
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
+
     } finally {
       isLoading.value = false;
     }
+  }
+
+  void _handleFirebaseLoginError(FirebaseAuthException e) {
+    String title = "خطأ";
+    String message = "حدث خطأ أثناء تسجيل الدخول";
+
+    switch (e.code) {
+      case 'network-request-failed':
+        title = "لا يوجد اتصال بالإنترنت";
+        message = "تأكد من اتصالك بالإنترنت وحاول مرة أخرى";
+        break;
+
+      case 'user-not-found':
+        title = "الحساب غير موجود";
+        message = "لا يوجد حساب مرتبط بهذا البريد الإلكتروني";
+        break;
+
+      case 'wrong-password':
+        title = "كلمة مرور خاطئة";
+        message = "كلمة المرور غير صحيحة";
+        break;
+
+      case 'invalid-email':
+        title = "بريد إلكتروني غير صالح";
+        message = "تحقق من صيغة البريد الإلكتروني";
+        break;
+
+      case 'user-disabled':
+        title = "الحساب موقوف";
+        message = "تم إيقاف هذا الحساب، يرجى التواصل مع الإدارة";
+        break;
+
+      case 'too-many-requests':
+        title = "محاولات كثيرة";
+        message = "تم حظر المحاولة مؤقتًا، حاول لاحقًا";
+        break;
+    }
+
+    Get.snackbar(
+      title,
+      message,
+      backgroundColor: Colors.red,
+      colorText: Colors.white,
+      duration: const Duration(seconds: 4),
+    );
   }
 
   Future<bool> loginInternal({required String pharmacyId}) async {
@@ -110,6 +163,10 @@ class AuthController extends GetxController {
       // حفظ الموظف الحالي
       currentEmployee.value = employee;
 
+      // تحديث اسم المستخدم والدور
+      currentUserName.value = employee['username'] ?? '';
+      currentUserRole.value = await _getRoleName(pharmacyId, employee['roleId']);
+
       // تحميل الصلاحيات وبيانات الصيدلية
       await loadPermissions(pharmacyId);
       await loadPharmacyData(pharmacyId);
@@ -124,6 +181,26 @@ class AuthController extends GetxController {
     }
   }
 
+  Future<String> _getRoleName(String pharmacyId, String roleId) async {
+    try {
+      if (roleId == 'admin') return 'مدير النظام';
+
+      final roleDoc = await _firestore
+          .collection('pharmacies')
+          .doc(pharmacyId)
+          .collection('roles')
+          .doc(roleId)
+          .get();
+
+      if (roleDoc.exists) {
+        return roleDoc.data()?['name'] ?? roleId;
+      }
+      return roleId;
+    } catch (e) {
+      print('❌ خطأ في جلب اسم الدور: $e');
+      return roleId;
+    }
+  }
 
   Future<void> loadPermissions(String pharmacyId) async {
     final employee = currentEmployee.value;
@@ -173,8 +250,6 @@ class AuthController extends GetxController {
 
     final employee = currentEmployee.value;
     if (employee == null) return false; // حماية null
-    print('ROLE ID = ${employee['roleId']} (${employee['roleId'].runtimeType})');
-
     // Admin shortcut
     if (employee['roleId'] == 'admin') {
       return true;
@@ -197,28 +272,22 @@ class AuthController extends GetxController {
   Future<void> _checkUserStatus(String uid) async {
     try {
       final result = await _firestoreService.checkApprovalStatus(uid);
-
       if (result?['exists'] != true) {
         Get.offAll(() => const WaitingApprovalPage());
         return;
       }
-
       final status = result!['status'];
       final data = result['data'];
-
       switch (status) {
         case 'approved':
           final pharmacyExists =
           await _firestoreService.pharmacyExists(uid);
-
           if (!pharmacyExists) {
             await _firestoreService.createPharmacyFromRequest(uid, data);
           }
-
           await loadPharmacyData(uid);
           Get.offAll(() => const InternalLoginPage());
           break;
-
         case 'pending':
           Get.offAll(() => const WaitingApprovalPage());
           break;
@@ -303,7 +372,6 @@ class AuthController extends GetxController {
     }
   }
 
-  // التحقق من بيانات تسجيل الدخول
   bool _validateLogin() {
     if (email.value.isEmpty || password.value.isEmpty) {
       Get.snackbar("خطأ", "البريد الإلكتروني وكلمة المرور مطلوبان",
@@ -320,39 +388,6 @@ class AuthController extends GetxController {
     return true;
   }
 
-  // معالجة أخطاء المصادقة
-  void _handleAuthError(FirebaseAuthException e) {
-    String message;
-    switch (e.code) {
-      case 'user-not-found':
-        message = "لا يوجد مستخدم بهذا البريد الإلكتروني";
-        break;
-      case 'wrong-password':
-        message = "كلمة المرور غير صحيحة";
-        break;
-      case 'invalid-email':
-        message = "بريد إلكتروني غير صحيح";
-        break;
-      case 'user-disabled':
-        message = "هذا الحساب معطل";
-        break;
-      case 'email-already-in-use':
-        message = "هذا البريد الإلكتروني مستخدم بالفعل";
-        break;
-      case 'weak-password':
-        message = "كلمة المرور ضعيفة جداً";
-        break;
-      case 'network-request-failed':
-        message = "خطأ في الشبكة";
-        break;
-      default:
-        message = "فشل في المصادقة: ${e.message}";
-    }
-
-    Get.snackbar("خطأ في المصادقة", message, backgroundColor: Colors.red);
-  }
-
-  // تسجيل الخروج
   Future<void> logout() async {
     try {
       await _auth.signOut();
@@ -364,20 +399,40 @@ class AuthController extends GetxController {
     }
   }
 
-  // مسح البيانات المحلية
   void _clearLocalData() {
     email.value = '';
     password.value = '';
     pharmacyData.clear();
+    currentEmployee.value = null;
+    currentUserName.value = '';
+    currentUserRole.value = '';
   }
 
-  // التحقق من الاتصال
-  Future<bool> checkConnection() async {
+  // دالة تبديل المستخدم
+  Future<void> switchUser() async {
     try {
-      await _auth.currentUser?.getIdToken();
-      return true;
+      // حفظ بيانات الصيدلية الحالية
+      final currentPharmacyId = pharmacyId;
+      final currentPharmacyName = pharmacyData['pharmacyName'] ?? '';
+
+      // مسح بيانات الموظف الحالي
+      currentEmployee.value = null;
+      currentUserName.value = '';
+      currentUserRole.value = '';
+      internalUsername.value = '';
+      internalPassword.value = '';
+
+      // العودة إلى صفحة تسجيل الدخول الداخلي
+      Get.offAll(() => const InternalLoginPage());
+
     } catch (e) {
-      return false;
+      print('❌ خطأ في تبديل المستخدم: $e');
+      Get.snackbar(
+        'خطأ',
+        'فشل في تبديل المستخدم',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
     }
   }
 
@@ -388,6 +443,10 @@ class AuthController extends GetxController {
 
   // Getter لاسم المستخدم
   String get userName {
+    if (currentUserName.value.isNotEmpty) {
+      return currentUserName.value;
+    }
+
     final user = _auth.currentUser;
     if (user?.displayName != null && user!.displayName!.isNotEmpty) {
       return user.displayName!;
@@ -397,11 +456,15 @@ class AuthController extends GetxController {
 
   // Getter لدور المستخدم
   String get userRole {
-    final data = pharmacyData;
-    if (data.isNotEmpty && data['role'] != null) {
-      return data['role'];
+    if (currentUserRole.value.isNotEmpty) {
+      return currentUserRole.value;
     }
-    return 'صاحب الصيدلية'; // الدور الافتراضي
+
+    if (currentEmployee.value != null) {
+      return 'موظف';
+    }
+
+    return 'صاحب الصيدلية';
   }
 
   /// هل المستخدم الحالي صاحب صيدلية (FirebaseAuth)
@@ -413,18 +476,120 @@ class AuthController extends GetxController {
   /// من قام بالفعل (Owner أو Employee)
   Map<String, dynamic> get actorInfo {
     if (currentEmployee.value != null) {
+      // طباعة البيانات للتحقق
+      print('🔍 currentEmployee.value: ${currentEmployee.value}');
+
       return {
         'type': 'employee',
-        'id': currentEmployee.value!['id'],
-        'name': currentEmployee.value!['name'],
-        'roleId': currentEmployee.value!['roleId'],
+        'id': currentEmployee.value!['id']?.toString() ??
+            currentEmployee.value!['userId']?.toString() ??
+            FirebaseAuth.instance.currentUser?.uid ??
+            'unknown_employee',
+        'name': currentEmployee.value!['name']?.toString() ??
+            currentEmployee.value!['fullName']?.toString() ??
+            currentEmployee.value!['username']?.toString() ??
+            currentUserName.value,
+        'username': currentUserName.value,
+        'role': currentUserRole.value,
+        'roleId': currentEmployee.value!['roleId']?.toString() ?? 'employee',
       };
     }
 
+    // صاحب الصيدلية
+    final user = FirebaseAuth.instance.currentUser;
     return {
       'type': 'owner',
-      'id': userId,
-      'email': userEmail,
+      'id': user?.uid ?? 'unknown_owner',
+      'email': user?.email ?? '',
+      'name': userName,
+      'role': 'صاحب الصيدلية',
     };
   }
+
+  // في AuthController
+  Future<Map<String, dynamic>> getSaleActorInfo() async {
+    try {
+      print('🔍 جلب معلومات منفذ البيع...');
+
+      if (currentEmployee.value != null) {
+        print('👤 موظف داخلي: ${currentEmployee.value}');
+
+        // محاولة جلب البيانات الكاملة من Firestore
+        final employeeId = currentEmployee.value!['id']?.toString() ??
+            currentEmployee.value!['userId']?.toString();
+
+        if (employeeId != null) {
+          try {
+            final doc = await FirebaseFirestore.instance
+                .collection('pharmacies')
+                .doc(pharmacyId)
+                .collection('employees')
+                .doc(employeeId)
+                .get();
+
+            if (doc.exists) {
+              final data = doc.data();
+              return {
+                'type': 'employee',
+                'id': employeeId,
+                'name': data?['name'] ??
+                    data?['fullName'] ??
+                    currentEmployee.value!['username'] ??
+                    'موظف',
+                'username': currentUserName.value,
+                'role': currentUserRole.value,
+                'roleId': currentEmployee.value!['roleId'] ?? 'employee',
+                'pharmacyId': pharmacyId,
+              };
+            }
+          } catch (e) {
+            print('⚠️ فشل جلب بيانات الموظف من Firestore: $e');
+          }
+        }
+
+        // استخدام البيانات المحلية
+        return {
+          'type': 'employee',
+          'id': employeeId ?? FirebaseAuth.instance.currentUser?.uid ?? 'unknown',
+          'name': currentEmployee.value!['name']?.toString() ??
+              currentEmployee.value!['fullName']?.toString() ??
+              currentEmployee.value!['username']?.toString() ??
+              currentUserName.value,
+          'username': currentUserName.value,
+          'role': currentUserRole.value,
+          'roleId': currentEmployee.value!['roleId']?.toString() ?? 'employee',
+          'pharmacyId': pharmacyId,
+        };
+      }
+
+      // صاحب الصيدلية
+      final user = FirebaseAuth.instance.currentUser;
+      print('👑 صاحب الصيدلية: ${user?.email}');
+
+      return {
+        'type': 'owner',
+        'id': user?.uid ?? 'unknown_owner',
+        'email': user?.email ?? '',
+        'name': userName,
+        'role': 'صاحب الصيدلية',
+        'pharmacyId': pharmacyId,
+      };
+
+    } catch (e, stackTrace) {
+      print('❌ خطأ في getSaleActorInfo: $e');
+      print('📜 Stack trace: $stackTrace');
+
+      // بيانات افتراضية
+      return {
+        'type': 'unknown',
+        'id': 'error_${DateTime.now().millisecondsSinceEpoch}',
+        'name': 'موظف',
+        'role': 'موظف',
+        'pharmacyId': pharmacyId,
+      };
+    }
+  }
+
+
+
 }

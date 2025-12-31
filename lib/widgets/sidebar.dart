@@ -73,7 +73,7 @@ class SidebarWidget extends StatelessWidget {
             ),
           ),
 
-          // تذييل السلايد بار مع زر تسجيل الخروج
+          // تذييل السلايد بار مع زر تبديل المستخدم وزر تسجيل الخروج
           _buildFooter(authController),
         ],
       ),
@@ -81,6 +81,10 @@ class SidebarWidget extends StatelessWidget {
   }
 
   Widget _buildHeader() {
+    final AuthController authController = Get.find();
+    final String username = authController.userName;
+    final String role = authController.userRole;
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -92,7 +96,6 @@ class SidebarWidget extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // شعار الصيدلية
           Row(
             children: [
               Container(
@@ -132,19 +135,35 @@ class SidebarWidget extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (pharmacyAddress.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          pharmacyAddress,
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.8),
-                            fontSize: 14,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                    // معلومات المستخدم الحالي
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (username.isNotEmpty)
+                            Text(
+                              "المستخدم: $username",
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.8),
+                                fontSize: 14,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          if (role.isNotEmpty)
+                            Text(
+                              "الدور: $role",
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.8),
+                                fontSize: 14,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                        ],
                       ),
+                    ),
                   ],
                 ),
               ),
@@ -155,7 +174,6 @@ class SidebarWidget extends StatelessWidget {
       ),
     );
   }
-
   Widget _buildSidebarItem(int index) {
     final item = sidebarItems[index];
     final isSelected = selectedIndex == index;
@@ -230,6 +248,52 @@ class SidebarWidget extends StatelessWidget {
       ),
       child: Column(
         children: [
+          // زر تبديل المستخدم (أخضر) - يظهر فقط إذا كان هناك موظف مسجل
+          if (authController.currentEmployee.value != null)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: Colors.green.withOpacity(0.1),
+                border: Border.all(color: Colors.green.withOpacity(0.3)),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  onTap: () {
+                    // استدعاء دالة تبديل المستخدم من AuthController
+                    authController.switchUser();
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Iconsax.profile_2user,
+                          color: Colors.green.shade400,
+                          size: 24,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            "تبديل المستخدم",
+                            style: TextStyle(
+                              color: Colors.green.shade400,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // زر تسجيل الخروج (أحمر)
           Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),

@@ -13,6 +13,7 @@ import 'insurance_company_controller.dart';
 class SalesController extends GetxController {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  FocusNode searchFocusNode = FocusNode();
 
   // حالة الفاتورة الحالية
   final Rx<Sale> currentSale = Sale(
@@ -42,6 +43,16 @@ class SalesController extends GetxController {
   final TextEditingController customerPhoneController = TextEditingController();
   final TextEditingController notesController = TextEditingController();
 
+
+  ///////////
+  //late FocusNode searchFocusNode;
+
+
+  // متغيرات التحكم في التهيئة
+  bool _initialized = false;
+  bool _employeeDataInitialized = false;
+  bool _insuranceCompaniesLoaded = false;
+
   // مراجع Firebase
   String get pharmacyId {
     try {
@@ -65,75 +76,96 @@ class SalesController extends GetxController {
   }
 
   @override
-  void onInit() {
+  Future<void> onInit() async {
     super.onInit();
-    print('🚀 SalesController onInit');
-
-    // انتظر قليلاً ثم قم بالتهيئة
-    Future.delayed(Duration.zero, () {
-      _initializeEmployeeData();
-      loadInsuranceCompanies();
-    });
+    if (_initialized) {
+      return;
+    }
+    try {
+      await Get.putAsync(() async {
+        final controller = Get.find<AuthController>();
+        // الانتظار حتى تكون بيانات الصيدلية جاهزة
+        while (!controller.isPharmacyLoaded.value) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+        return controller;
+      });
+      await Get.putAsync(() async => Get.find<InventoryController>());
+      await initializeEmployeeData();
+      await loadInsuranceCompanies();
+      _initialized = true;
+    } catch (e, stackTrace) {
+      print('📜 Stack trace: $stackTrace');
+    }
   }
 
   @override
   void onReady() {
     super.onReady();
-    print('✅ SalesController onReady');
-
-    // بديل: تهيئة هنا بعد أن يكون كل شيء جاهز
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeEmployeeData();
-      loadInsuranceCompanies();
-    });
   }
 
   @override
   void onClose() {
     _barcodeSubscription?.cancel();
+    searchFocusNode.dispose();
+    _initialized = false;
+    _employeeDataInitialized = false;
+    _insuranceCompaniesLoaded = false;
     super.onClose();
   }
+  Future<void> initializeEmployeeData() async {
+    // حماية من التهيئة المزدوجة
+    if (_employeeDataInitialized) {
+      print('⚠️ بيانات الموظف تم تهيئتها مسبقاً');
+      return;
+    }
 
-  // تهيئة بيانات الموظف - محسنة
-  void _initializeEmployeeData() {
     try {
-      print('🔍 بدء تهيئة بيانات الموظف...');
+      _employeeDataInitialized = true;
+      print('🔍 === بدء تهيئة بيانات الموظف للفاتورة ===');
 
+      // 1. الحصول على AuthController
       final authController = Get.find<AuthController>();
-      final currentUser = authController.currentEmployee.value;
 
-      print('📊 بيانات الموظف: $currentUser');
+      // 2. جلب معلومات منفذ البيع
+      final actorInfo = await authController.getSaleActorInfo();
 
-      if (currentUser != null && currentUser is Map<String, dynamic>) {
-        currentSale.update((sale) {
-          sale?.employeeId = currentUser['id']?.toString() ?? '';
-          sale?.employeeName = currentUser['name']?.toString() ?? 'موظف';
-          sale?.pharmacyId = pharmacyId;
-        });
-        print('✅ تم تعيين بيانات الموظف: ${currentUser['name']}');
-      } else {
-        currentSale.update((sale) {
-          sale?.employeeId = _auth.currentUser?.uid ?? '';
-          sale?.employeeName = 'المالك';
-          sale?.pharmacyId = pharmacyId;
-        });
-        print('✅ تم تعيين بيانات المالك');
-      }
-    } catch (e, stackTrace) {
-      print('❌ خطأ في تهيئة بيانات الموظف: $e');
-      print('📜 Stack trace: $stackTrace');
-
-      // القيم الافتراضية في حالة الخطأ
+      // 3. تعيين البيانات في الفاتورة
       currentSale.update((sale) {
-        sale?.employeeId = _auth.currentUser?.uid ?? '';
-        sale?.employeeName = 'المالك';
-        sale?.pharmacyId = pharmacyId;
+        sale?.employeeId = actorInfo['id']?.toString() ?? '';
+        sale?.employeeName = actorInfo['name']?.toString() ?? 'موظف';
+        sale?.pharmacyId = actorInfo['pharmacyId']?.toString() ?? pharmacyId;
       });
+
+    } catch (e, stackTrace) {
+      _employeeDataInitialized = false; // إعادة تعيين في حالة الخطأ
+
+      // البيانات الاحتياطية
+      _setFallbackData();
     }
   }
 
-  // تحميل شركات التأمين - محسن
+  void _setFallbackData() {
+    final user = FirebaseAuth.instance.currentUser;
+    final userId = user?.uid ?? 'fallback_${DateTime.now().millisecondsSinceEpoch}';
+    final userEmail = user?.email ?? '';
+    final nameFromEmail = userEmail.split('@').first;
+
+    currentSale.update((sale) {
+      sale?.employeeId = userId;
+      sale?.employeeName = nameFromEmail.isNotEmpty ? nameFromEmail : 'موظف';
+      sale?.pharmacyId = pharmacyId;
+    });
+
+  }
+
   Future<void> loadInsuranceCompanies() async {
+    // حماية من التحميل المزدوج
+    if (_insuranceCompaniesLoaded) {
+      print('⚠️ شركات التأمين تم تحميلها مسبقاً');
+      return;
+    }
+
     try {
       print('🔍 بدء تحميل شركات التأمين...');
       isLoading.value = true;
@@ -162,6 +194,8 @@ class SalesController extends GetxController {
             print('   - ${company.name} (${company.discountPercentage}%)');
           }
         }
+
+        _insuranceCompaniesLoaded = true;
       } else {
         print('⚠️ لا توجد شركات تأمين متاحة');
         insuranceCompanies.clear();
@@ -175,7 +209,6 @@ class SalesController extends GetxController {
     }
   }
 
-  // تسجيل النشاط - محسن
   Future<void> _logSaleActivity() async {
     try {
       final authController = Get.find<AuthController>();
@@ -210,8 +243,72 @@ class SalesController extends GetxController {
     }
   }
 
+  Future<List<Medicine>> searchMedicinesWithSuggestions(String query) async {
+    if (query.isEmpty) {
+      searchResults.clear();
+      return [];
+    }
 
+    isLoading.value = true;
+    try {
+      final inventoryController = Get.find<InventoryController>();
+      final allMedicines = inventoryController.medicines;
 
+      // البحث في عدة حقول
+      final results = allMedicines.where((medicine) {
+        final nameMatch = medicine.name.toLowerCase().contains(query.toLowerCase());
+        final sciMatch = medicine.scientificName.toLowerCase().contains(query.toLowerCase());
+        final barcodeMatch = medicine.barcode != null &&
+            medicine.barcode!.toLowerCase().contains(query.toLowerCase());
+
+        // بحث جزئي في بداية النص (لتحسين الاقتراحات)
+        final nameStartsWith = medicine.name.toLowerCase().startsWith(query.toLowerCase());
+        final sciStartsWith = medicine.scientificName.toLowerCase().startsWith(query.toLowerCase());
+
+        return nameMatch || sciMatch || barcodeMatch || nameStartsWith || sciStartsWith;
+      }).toList();
+
+      // ترتيب النتائج: التي تبدأ بالكلمة أولاً
+      results.sort((a, b) {
+        final aStartsWithName = a.name.toLowerCase().startsWith(query.toLowerCase());
+        final bStartsWithName = b.name.toLowerCase().startsWith(query.toLowerCase());
+        final aStartsWithSci = a.scientificName.toLowerCase().startsWith(query.toLowerCase());
+        final bStartsWithSci = b.scientificName.toLowerCase().startsWith(query.toLowerCase());
+
+        if (aStartsWithName || aStartsWithSci) return -1;
+        if (bStartsWithName || bStartsWithSci) return 1;
+        return a.name.compareTo(b.name);
+      });
+
+      searchResults.assignAll(results);
+      return results;
+    } catch (e) {
+      Get.snackbar('خطأ', 'فشل في البحث: $e');
+      return [];
+    } finally {
+      isLoading.value = false;
+    }
+  }
+  // دالة للتعرف إذا كان النص باركود
+  bool isBarcodeInput(String text) {
+    return RegExp(r'^[0-9]{8,}$').hasMatch(text);
+  }
+  // دالة للتعامل مع البحث الذكي
+  Future<void> handleSmartSearch(String query) async {
+    if (query.isEmpty) {
+      searchResults.clear();
+      return;
+    }
+
+    final results = await searchMedicinesWithSuggestions(query);
+
+    // إذا كان باركود وكانت هناك نتيجة واحدة، أضفها تلقائياً
+    if (isBarcodeInput(query) && results.length == 1) {
+      addMedicineToSale(results.first);
+      searchQuery.value = '';
+      searchResults.clear();
+    }
+  }
   // البحث عن الأدوية
   Future<void> searchMedicines(String query) async {
     if (query.isEmpty) {
@@ -265,8 +362,8 @@ class SalesController extends GetxController {
     }
   }
 
-  // إضافة منتج للفاتورة
-  void addMedicineToSale(Medicine medicine, {int quantity = 1}) {
+  void addMedicineToSale(Medicine medicine, {int quantity = 1, bool sellAsPiece = false}) {
+    // ===== تحقق من المخزون =====
     if (medicine.quantity < quantity) {
       _safeSnackbar(
         'مخزون غير كافي',
@@ -277,17 +374,18 @@ class SalesController extends GetxController {
 
     final items = currentSale.value.items;
 
-    final existingIndex =
-    items.indexWhere((item) => item.medicineId == medicine.id);
+    // ===== تحقق إذا الصنف موجود مسبقًا =====
+    final existingIndex = items.indexWhere(
+            (item) => item.medicineId == medicine.id && item.sellAsPiece == sellAsPiece
+    );
 
     if (existingIndex >= 0) {
-      updateQuantity(
-        existingIndex,
-        items[existingIndex].quantity + quantity,
-      );
+      // تحديث الكمية + إعادة حساب total للصنف
+      items[existingIndex].quantity += quantity;
+      items[existingIndex].calculateTotal();
     } else {
-      final unitPrice =
-      medicine.sellByPiece && medicine.piecePrice != null
+      // ===== حساب السعر حسب الاختيار =====
+      final unitPrice = sellAsPiece && medicine.piecePrice != null
           ? medicine.piecePrice!
           : medicine.sellingPrice ?? 0.0;
 
@@ -298,23 +396,25 @@ class SalesController extends GetxController {
         barcode: medicine.barcode,
         unitPrice: unitPrice,
         quantity: quantity,
+        sellAsPiece: sellAsPiece,
         total: unitPrice * quantity,
       );
 
-      currentSale.update((sale) {
-        sale?.items.add(saleItem);
-        sale?.calculateTotal();
-      });
-
-      _safeSnackbar(
-        'تمت الإضافة',
-        'تم إضافة ${medicine.name} للفاتورة',
-      );
+      items.add(saleItem);
     }
+
+    // ===== تحديث المجموع في الفاتورة =====
+    currentSale.update((sale) {
+      sale?.calculateTotal();
+    });
+
+    // ⬇️⬇️⬇️ أضف هذا السطر هنا ⬇️⬇️⬇️
+    _clearSearchAfterAdd(); // تنظيف البحث بعد الإضافة
 
     searchResults.clear();
     searchQuery.value = '';
   }
+
   void _safeSnackbar(String title, String message) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Get.rawSnackbar(
@@ -326,6 +426,16 @@ class SalesController extends GetxController {
     });
   }
 
+  void _clearSearchAfterAdd() {
+    // تفريغ حقل البحث ونتائج البحث
+    searchQuery.value = '';
+    searchResults.clear();
+
+    // إضافة تأخير بسيط لضمان تحديث الواجهة
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // يمكن إضافة أي عمليات إضافية هنا إذا لزم الأمر
+    });
+  }
   // تحديث كمية صنف
   void updateQuantity(int index, int newQuantity) {
     if (newQuantity <= 0) {
@@ -347,13 +457,11 @@ class SalesController extends GetxController {
       sale?.updateQuantity(index, newQuantity);
     });
   }
-
   // حذف صنف
   void removeItem(int index) {
     currentSale.update((sale) {
       sale?.removeItem(index);
     });
-    Get.snackbar('تم الحذف', 'تم حذف الصنف من الفاتورة');
   }
 
   // تطبيق خصم على الفاتورة
@@ -363,8 +471,6 @@ class SalesController extends GetxController {
       sale?.calculateTotal();
     });
   }
-
-  // اختيار شركة تأمين - مـصـحـح
   void selectInsuranceCompany(InsuranceCompany? company) {
     if (company == null) {
       selectedInsuranceCompany.value = null;
@@ -397,7 +503,6 @@ class SalesController extends GetxController {
 
     print('✅ تم اختيار شركة التأمين: ${company.name}');
   }
-
   // تغيير طريقة الدفع
   void changePaymentMethod(PaymentMethod method) {
     currentSale.update((sale) {
@@ -414,7 +519,6 @@ class SalesController extends GetxController {
       sale?.calculateTotal();
     });
   }
-
   // إدخال المبلغ المستلم (للدفع النقدي)
   void setCashReceived(double amount) {
     cashReceived.value = amount;
@@ -422,16 +526,24 @@ class SalesController extends GetxController {
     if (changeAmount.value < 0) changeAmount.value = 0;
   }
 
-  // حفظ الفاتورة
   Future<bool> saveSale() async {
     if (currentSale.value.items.isEmpty) {
-      Get.snackbar('فاتورة فارغة', 'أضف منتجات للفاتورة أولاً');
+      // ✅ استخدام الطريقة الآمنة
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Get.rawSnackbar(
+          title: 'فاتورة فارغة',
+          message: 'أضف منتجات للفاتورة أولاً',
+          snackPosition: SnackPosition.BOTTOM,
+        );
+      });
       return false;
     }
 
-    isLoading.value = true;
+    bool success = false;
 
     try {
+      isLoading.value = true;
+
       // 1. تحديث المخزون
       await _updateInventoryStock();
 
@@ -446,36 +558,20 @@ class SalesController extends GetxController {
       // 3. حفظ في Firebase
       final saleDoc = salesCollection.doc();
       currentSale.value.id = saleDoc.id;
-
       await saleDoc.set(currentSale.value.toMap());
 
       // 4. تسجيل في سجل النشاطات
       await _logSaleActivity();
-
-      // 5. إعادة تعيين الفاتورة
       resetSale();
-
-      Get.snackbar(
-        'تمت العملية بنجاح',
-        'تم حفظ الفاتورة #${currentSale.value.invoiceNumber}',
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-      );
-
-      return true;
+      success = true;
     } catch (e) {
-      Get.snackbar(
-        'خطأ',
-        'فشل في حفظ الفاتورة: $e',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
-      return false;
+      success = false;
     } finally {
       isLoading.value = false;
     }
-  }
 
+    return success;
+  }
   // تحديث المخزون بعد البيع
   Future<void> _updateInventoryStock() async {
     try {
@@ -492,21 +588,21 @@ class SalesController extends GetxController {
       throw Exception('فشل في تحديث المخزون: $e');
     }
   }
-
+// في sales_controller.dart
   void resetSale() {
-    currentSale.value = Sale(
-      invoiceNumber: Sale.generateInvoiceNumber(),
-      pharmacyId: pharmacyId,
-      items: [],
-      subtotal: 0.0,
-      total: 0.0,
-      paymentMethod: PaymentMethod.cash,
-      saleDate: DateTime.now(),
-    );
-
-    // إعادة تعيين بيانات الموظف
-    _initializeEmployeeData();
-
+    // توليد رقم فاتورة جديد فقط
+    currentSale.update((sale) {
+      sale?.invoiceNumber = Sale.generateInvoiceNumber();
+      sale?.items.clear();
+      sale?.subtotal = 0.0;
+      sale?.total = 0.0;
+      sale?.discount = null;
+      sale?.insuranceCompanyId = null;
+      sale?.insuranceCompanyName = null;
+      sale?.insuranceDiscount = null;
+      sale?.paymentMethod = PaymentMethod.cash;
+      sale?.saleDate = DateTime.now();
+    });
     // إعادة تعيين حقول الزبون
     customerNameController.clear();
     customerPhoneController.clear();
@@ -516,6 +612,17 @@ class SalesController extends GetxController {
     selectedInsuranceCompany.value = null;
     searchResults.clear();
     searchQuery.value = '';
+    _focusSearchField();
+  }
+
+  void _focusSearchField() {
+    // استخدام addPostFrameCallback لضمان أن الواجهة جاهزة
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (searchFocusNode.hasFocus) {
+      } else {
+        searchFocusNode.requestFocus();
+      }
+    });
   }
 
   // الحصول على تقارير المبيعات

@@ -312,7 +312,8 @@ class _AddEditSupplierDialogState extends State<AddEditSupplierDialog> {
                                   ],
                                 ),
                                 child: TextButton(
-                                  onPressed: () => Get.back(),
+                                  onPressed: () =>
+                                      Get.back(closeOverlays: true),
                                   style: TextButton.styleFrom(
                                     backgroundColor: Colors.white.withOpacity(0.5),
                                     shape: RoundedRectangleBorder(
@@ -751,7 +752,7 @@ class _AddEditSupplierDialogState extends State<AddEditSupplierDialog> {
           );
         }
 
-        Get.back();
+        Get.back(closeOverlays: true);
       } catch (e) {
         Get.snackbar(
           'خطأ',

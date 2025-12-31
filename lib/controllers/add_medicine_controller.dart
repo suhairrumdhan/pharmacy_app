@@ -552,10 +552,6 @@ class AddMedicineController extends GetxController {
         return null; // Barcode is optional
       }
 
-      // Check if barcode is exactly 10 digits
-      if (!RegExp(r'^[0-9]{10}$').hasMatch(barcode)) {
-        throw Exception('الباركود يجب أن يتكون من 10 أرقام فقط');
-      }
 
       // Check if pharmacy ID exists
       if (pharmacyId == null) {

@@ -78,9 +78,7 @@ class _InternalLoginPageState extends State<InternalLoginPage> {
                       FocusScope.of(context).requestFocus(passwordFocus);
                     },
                   ),
-
                   const SizedBox(height: 15),
-
                   // حقل Password
                   TextField(
                     focusNode: passwordFocus,

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
+import 'package:get/get.dart';
 import '../../../controllers/sales_controller.dart';
+import '../utils/dialog_utils.dart';
 import 'receipt_options_dialog.dart';
 
-class CheckoutConfirmationDialog extends StatelessWidget {
+class CheckoutConfirmationDialog extends StatefulWidget {
   final SalesController salesController;
 
   const CheckoutConfirmationDialog({
@@ -12,8 +14,60 @@ class CheckoutConfirmationDialog extends StatelessWidget {
   });
 
   @override
+  State<CheckoutConfirmationDialog> createState() => _CheckoutConfirmationDialogState();
+}
+
+class _CheckoutConfirmationDialogState extends State<CheckoutConfirmationDialog> {
+  bool _isProcessing = false;
+
+// في CheckoutConfirmationDialog، عدل دالة _confirmSale:
+  Future<void> _confirmSale(BuildContext context) async {
+    setState(() => _isProcessing = true);
+
+    try {
+      final success = await widget.salesController.saveSale();
+
+      if (!mounted) return;
+
+      if (success) {
+        // إغلاق dialog التأكيد
+        Navigator.of(context).pop(true);
+
+        // عرض dialog خيارات الإيصال
+        await Future.delayed(const Duration(milliseconds: 300));
+
+        if (context.mounted) {
+          await DialogUtils.showSafeDialog(
+            context: context,
+            builder: (_) => ReceiptOptionsDialog(
+              salesController: widget.salesController,
+              invoiceNumber: widget.salesController.currentSale.value.invoiceNumber,
+            ),
+            barrierDismissible: false,
+          );
+        }
+      } else {
+        DialogUtils.showSafeSnackbar(
+          title: 'خطأ',
+          message: 'فشل في حفظ الفاتورة',
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      DialogUtils.showSafeSnackbar(
+        title: 'خطأ',
+        message: 'حدث خطأ غير متوقع: $e',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final sale = salesController.currentSale.value;
+    final sale = widget.salesController.currentSale.value;
 
     return AlertDialog(
       shape: RoundedRectangleBorder(
@@ -88,34 +142,53 @@ class CheckoutConfirmationDialog extends StatelessWidget {
               ],
             ),
           ),
+
+          // مؤشر التحميل
+          if (_isProcessing) ...[
+            const SizedBox(height: 16),
+            const Center(
+              child: CircularProgressIndicator(),
+            ),
+            const SizedBox(height: 8),
+            const Center(
+              child: Text(
+                'جاري حفظ الفاتورة...',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+          ],
         ],
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: _isProcessing
+              ? null
+              : () => Navigator.of(context).pop(false),
           child: Text(
             'إلغاء',
             style: TextStyle(color: Colors.grey[600]),
           ),
         ),
         ElevatedButton(
-          onPressed: () async {
-            Navigator.pop(context);
-            final success = await salesController.saveSale();
-            if (success) {
-              showDialog(
-                context: context,
-                builder: (_) => ReceiptOptionsDialog(salesController: salesController),
-              );
-            }
-          },
+          onPressed: _isProcessing
+              ? null
+              : () => _confirmSale(context),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.green[700],
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
           ),
-          child: const Text('تأكيد وطباعة'),
+          child: _isProcessing
+              ? const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          )
+              : const Text('تأكيد وطباعة'),
         ),
       ],
     );
