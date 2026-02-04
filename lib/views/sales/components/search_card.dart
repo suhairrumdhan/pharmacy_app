@@ -22,47 +22,46 @@ class SearchCard extends StatefulWidget {
 
 class _SearchCardState extends State<SearchCard> {
   late TextEditingController _textController;
+  late Worker _searchQueryWorker;
+
   Timer? _debounceTimer;
   String _lastSearchQuery = '';
+
 
   @override
   void initState() {
     super.initState();
     _textController = TextEditingController();
-    // التركيز التلقائي عند البناء
+
+    // التركيز التلقائي بعد أول بناء
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.salesController.searchFocusNode.requestFocus();
-      _initializeControllerListener();
     });
 
-
-
-    // ⬇️⬇️⬇️ أضف هذا الكود هنا ⬇️⬇️⬇️
-    // الاستماع لتغيرات الفاتورة (عند إضافة منتج جديد)
-    ever(widget.salesController.currentSale, (sale) {
-      // إذا تم إضافة منتجات جديدة، نظف البحث
-      if (sale.items.isNotEmpty) {
+    // 🔒 ضمان بقاء التركيز دائمًا على حقل البحث
+    widget.salesController.searchFocusNode.addListener(() {
+      if (!widget.salesController.searchFocusNode.hasFocus && mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _clearSearch();
+          if (mounted) {
+            widget.salesController.searchFocusNode.requestFocus();
+          }
         });
       }
     });
-  }
 
-  void _initializeControllerListener() {
-    widget.salesController.searchQuery.value = '';
-    _textController.clear();
-    // الاستماع لتغيرات searchQuery من الـ Controller
-    ever(widget.salesController.searchQuery, (query) {
-      if (_textController.text != query) {
-        _textController.text = query;
-        if (query.isEmpty) {
-          _textController.clear();
+    // مزامنة النص مع searchQuery (بأمان)
+    _searchQueryWorker = ever<String>(
+      widget.salesController.searchQuery,
+          (query) {
+        if (!mounted) return;
+        if (_textController.text != query) {
+          _textController.text = query;
         }
-      }
-    });
-
+      },
+    );
   }
+
+
 
   void _performSearch(String query) {
     // إذا كان البحث نفسه السابق، لا تكرر
@@ -73,15 +72,8 @@ class _SearchCardState extends State<SearchCard> {
     if (_debounceTimer?.isActive ?? false) _debounceTimer?.cancel();
 
     // بحث فوري لكن مع debounce بسيط
-    _debounceTimer = Timer(const Duration(milliseconds: 150), () async {
-      if (query.isEmpty) {
-        widget.salesController.searchResults.clear();
-        widget.salesController.searchQuery.value = '';
-        return;
-      }
-
-      // البحث فوراً
-      await _executeSearch(query);
+    _debounceTimer = Timer(const Duration(milliseconds: 200), () {
+      widget.salesController.search(query);
     });
   }
 
@@ -137,24 +129,30 @@ class _SearchCardState extends State<SearchCard> {
 
   void _handleSearchSubmitted(String value) {
     if (value.isNotEmpty) {
-      // عند Enter، تأكيد البحث
-      widget.salesController.searchFocusNode.unfocus();
-
-      // إذا كان هناك منتج واحد فقط، أضفه
       final results = widget.salesController.searchResults;
+
       if (results.length == 1 && !widget.salesController.isBarcodeInput(value)) {
         widget.salesController.addMedicineToSale(results.first);
         _clearSearch();
       }
     }
+
+    // ضمان إعادة التركيز
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        widget.salesController.searchFocusNode.requestFocus();
+      }
+    });
   }
 
   @override
   void dispose() {
     _debounceTimer?.cancel();
+    _searchQueryWorker.dispose();
     _textController.dispose();
     super.dispose();
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -227,9 +225,9 @@ class _SearchCardState extends State<SearchCard> {
                         ),
                         style: const TextStyle(fontSize: 14),
                         onChanged: (value) {
-                          widget.salesController.searchQuery.value = value;
-                          _performSearch(value); // ⬅️ البحث فوري عند الكتابة
+                          _performSearch(value);
                         },
+
                         onSubmitted: _handleSearchSubmitted,
                       ),
                     ),

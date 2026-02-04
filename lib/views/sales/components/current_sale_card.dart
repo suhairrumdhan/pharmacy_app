@@ -27,7 +27,11 @@ class CurrentSaleCard extends StatelessWidget {
         ),
         child: Column(
           children: [
-            // عنوان الفاتورة
+// في current_sale_card.dart
+
+// ... الكود السابق ...
+
+// عنوان الفاتورة مع السهمين
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -39,6 +43,9 @@ class CurrentSaleCard extends StatelessWidget {
               ),
               child: Row(
                 children: [
+
+
+                  // أيقونة ومعلومات الفاتورة
                   Container(
                     width: 36,
                     height: 36,
@@ -53,41 +60,118 @@ class CurrentSaleCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Obx(() => Text(
-                        'فاتورة #${salesController.currentSale.value.invoiceNumber}',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF2C3E50),
-                        ),
-                      )),
-                      Obx(() => Text(
-                        '${salesController.currentSale.value.items.length} أصناف',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      )),
-                    ],
+
+                  // معلومات الفاتورة
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Obx(() {
+                          final invoiceNumber = salesController.currentSale.value.invoiceNumber;
+                          final currentIndex = salesController.currentInvoiceIndex.value;
+                          final totalInvoices = salesController.activeInvoices.length;
+
+                          return Row(
+                            children: [
+                              Text(
+                                'فاتورة #$invoiceNumber',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF2C3E50),
+                                ),
+                              ),
+                              if (totalInvoices > 1) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue[100],
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    '${currentIndex + 1}/$totalInvoices',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.blue[700],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          );
+                        }),
+                        Obx(() => Text(
+                          '${salesController.currentSale.value.items.length} أصناف',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        )),
+                      ],
+                    ),
                   ),
-                  const Spacer(),
+                  // السهم الأيسر (الفاتورة السابقة)
+                  Obx(() {
+                    final hasPrevious = salesController.activeInvoices.length > 1;
+                    return IconButton(
+                      icon: Icon(
+                        Iconsax.arrow_left_3,
+                        color: hasPrevious ? Colors.blue[700] : Colors.grey[400],
+                        size: 20,
+                      ),
+                      onPressed: hasPrevious
+                          ? salesController.switchToPreviousInvoice
+                          : null,
+                      tooltip: 'الفاتورة السابقة',
+                    );
+                  }),
+                  // السهم الأيمن (الفاتورة التالية)
+                  Obx(() {
+                    final hasNext = salesController.activeInvoices.length > 1;
+                    return IconButton(
+                      icon: Icon(
+                        Iconsax.arrow_right_2,
+                        color: hasNext ? Colors.blue[700] : Colors.grey[400],
+                        size: 20,
+                      ),
+                      onPressed: hasNext
+                          ? salesController.switchToNextInvoice
+                          : null,
+                      tooltip: 'الفاتورة التالية',
+                    );
+                  }),
+
+                  // زر فاتورة جديدة
                   IconButton(
                     icon: Icon(
                       Iconsax.refresh,
                       color: Colors.blue[700],
                       size: 20,
                     ),
-                    onPressed: salesController.resetSale,
+                    onPressed: salesController.createNewInvoice,
                     tooltip: 'فاتورة جديدة',
                   ),
+
+                  // زر حذف الفاتورة الحالية
+                  Obx(() {
+                    final canDelete = salesController.activeInvoices.length > 1;
+                    return IconButton(
+                      icon: Icon(
+                        Iconsax.trash,
+                        color: canDelete ? Colors.red[400] : Colors.grey[400],
+                        size: 20,
+                      ),
+                      onPressed: canDelete
+                          ? salesController.deleteCurrentInvoice
+                          : null,
+                      tooltip: 'حذف الفاتورة الحالية',
+                    );
+                  }),
                 ],
               ),
-            ),
-
-            // قائمة الأصناف
+            ),            // قائمة الأصناف
             Expanded(
               child: Obx(() {
                 final items = salesController.currentSale.value.items;
@@ -129,7 +213,7 @@ class CurrentSaleCard extends StatelessWidget {
 
                     // ... كود سابق ...
 
-// عند استخدام الـ Widget:
+                    // عند استخدام الـ Widget:
                     return SaleItemWidget(
                       item: items[index],
                       index: index,
@@ -145,7 +229,7 @@ class CurrentSaleCard extends StatelessWidget {
                       onDelete: () => salesController.removeItem(index),
                     );
 
-// ... كود لاحق ...
+                    // ... كود لاحق ...
                   },
                 );
               }),

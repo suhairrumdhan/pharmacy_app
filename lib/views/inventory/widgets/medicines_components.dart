@@ -79,7 +79,10 @@ class EmptyState extends StatelessWidget {
 }
 
 // Table Header Component
+// Table Header Component
 class MedicinesTableHeader extends StatelessWidget {
+  const MedicinesTableHeader({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -90,6 +93,7 @@ class MedicinesTableHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
+          // الأعمدة المرنة
           _buildHeaderCell('الصنف', Icons.medication, 2),
           _buildHeaderCell('التصنيف', Icons.category, 1),
           _buildHeaderCell('السعر', Icons.monetization_on, 1),
@@ -97,18 +101,35 @@ class MedicinesTableHeader extends StatelessWidget {
           _buildHeaderCell('المورد', Icons.business, 1),
           _buildHeaderCell('الصلاحية', Icons.calendar_today, 1),
           _buildHeaderCell('الحالة', Icons.info, 1),
+
+          // العمود الأخير بعرض ثابت
           SizedBox(
             width: 160,
-            child: _buildHeaderCell('الإجراءات', Icons.more_vert, null),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.more_vert,
+                  size: MedicinesTableStyle.headerIconSize,
+                  color: Colors.white.withOpacity(0.9),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'الإجراءات',
+                  style: MedicinesTableStyle.headerText,
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildHeaderCell(String title, IconData icon, int? flex) {
+  // الأعمدة المرنة فقط
+  Widget _buildHeaderCell(String title, IconData icon, int flex) {
     return Expanded(
-      flex: flex ?? 1,
+      flex: flex,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -117,7 +138,7 @@ class MedicinesTableHeader extends StatelessWidget {
             size: MedicinesTableStyle.headerIconSize,
             color: Colors.white.withOpacity(0.9),
           ),
-          SizedBox(width: 10),
+          const SizedBox(width: 10),
           Text(
             title,
             style: MedicinesTableStyle.headerText,

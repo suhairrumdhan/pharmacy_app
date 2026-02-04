@@ -113,6 +113,113 @@ class SalesController extends GetxController {
     _insuranceCompaniesLoaded = false;
     super.onClose();
   }
+
+
+  /////*************************////////////////
+
+  final RxList<Sale> activeInvoices = <Sale>[].obs; // قائمة الفواتير النشطة
+  final RxInt currentInvoiceIndex = 0.obs; // الفهرس الحالي (0 للفاتورة الأساسية)
+
+  // ===== دالة للتبديل بين الفواتير =====
+  void switchToNextInvoice() {
+    if (activeInvoices.isEmpty) {
+      // إذا لا توجد فواتير، ننشئ واحدة جديدة
+      createNewInvoice();
+      return;
+    }
+
+    // حفظ الفاتورة الحالية
+    _saveCurrentInvoice();
+
+    // التبديل للفاتورة التالية (دائري)
+    currentInvoiceIndex.value =
+        (currentInvoiceIndex.value + 1) % activeInvoices.length;
+
+    // تحميل الفاتورة الجديدة
+    _loadInvoice(currentInvoiceIndex.value);
+  }
+
+  void switchToPreviousInvoice() {
+    if (activeInvoices.isEmpty) return;
+
+    // حفظ الفاتورة الحالية
+    _saveCurrentInvoice();
+
+    // التبديل للفاتورة السابقة (دائري)
+    currentInvoiceIndex.value =
+        (currentInvoiceIndex.value - 1 + activeInvoices.length) % activeInvoices.length;
+
+    // تحميل الفاتورة الجديدة
+    _loadInvoice(currentInvoiceIndex.value);
+  }
+
+  void _saveCurrentInvoice() {
+    if (currentSale.value.items.isEmpty) return;
+
+    // إذا كانت فاتورة جديدة، نضيفها للقائمة
+    if (currentInvoiceIndex.value >= activeInvoices.length) {
+      activeInvoices.add(currentSale.value);
+    } else {
+      // إذا كانت موجودة، نحدثها
+      activeInvoices[currentInvoiceIndex.value] = currentSale.value;
+    }
+  }
+
+  void _loadInvoice(int index) {
+    if (index < activeInvoices.length) {
+      currentSale.value = Sale.fromMap(activeInvoices[index].toMap());
+      currentSale.refresh();
+    }
+  }
+
+  // ===== تعديل دالة createNewInvoice =====
+  void createNewInvoice() {
+    // حفظ الفاتورة الحالية
+    _saveCurrentInvoice();
+
+    // إنشاء فاتورة جديدة
+    resetSale();
+
+    // إضافتها للقائمة
+    activeInvoices.add(currentSale.value);
+    currentInvoiceIndex.value = activeInvoices.length - 1;
+
+    Get.snackbar(
+      'فاتورة جديدة',
+      'تم إنشاء فاتورة #${currentSale.value.invoiceNumber}',
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  // ===== دالة لحذف الفاتورة الحالية =====
+  void deleteCurrentInvoice() {
+    if (activeInvoices.isEmpty) return;
+
+    Get.defaultDialog(
+      title: 'حذف الفاتورة',
+      middleText: 'هل تريد حذف هذه الفاتورة؟',
+      textConfirm: 'نعم',
+      textCancel: 'لا',
+      onConfirm: () {
+        activeInvoices.removeAt(currentInvoiceIndex.value);
+
+        if (activeInvoices.isEmpty) {
+          // إذا لا توجد فواتير، ننشئ واحدة جديدة
+          resetSale();
+          activeInvoices.add(currentSale.value);
+        } else {
+          // التحميل للفاتورة السابقة
+          currentInvoiceIndex.value =
+              (currentInvoiceIndex.value - 1 + activeInvoices.length) % activeInvoices.length;
+          _loadInvoice(currentInvoiceIndex.value);
+        }
+
+        Get.back();
+      },
+    );
+  }
+  /////////*********************/////////////////
+
   Future<void> initializeEmployeeData() async {
     // حماية من التهيئة المزدوجة
     if (_employeeDataInitialized) {
@@ -359,6 +466,22 @@ class SalesController extends GetxController {
       Get.snackbar('خطأ', 'فشل في البحث بالباركود: $e');
     } finally {
       isLoading.value = false;
+    }
+  }
+
+
+  Future<void> search(String query) async {
+    searchQuery.value = query;
+
+    if (query.isEmpty) {
+      searchResults.clear();
+      return;
+    }
+
+    if (isBarcodeInput(query)) {
+      await handleSmartSearch(query);
+    } else {
+      await searchMedicines(query);
     }
   }
 
