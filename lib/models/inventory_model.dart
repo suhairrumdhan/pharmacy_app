@@ -32,6 +32,8 @@ class Medicine {
   String? imageUrl;
 
   DateTime? lastUpdated;
+  final int pieceQuantity;
+
   Medicine({
     required this.id,
     required this.name,
@@ -51,10 +53,10 @@ class Medicine {
     this.barcode,
     this.imageUrl,
     this.lastUpdated,
+    this.pieceQuantity =0,
   }) : scientificName = (scientificName != null && scientificName.isNotEmpty) ? scientificName : name {
-    // إذا البيع بالقطعة true، اجعل السعر محسوب تلقائيًا
-    if (sellByPiece && unitsPerPackage != null && sellingPrice != null) {
-      this.piecePrice ??= sellingPrice! / unitsPerPackage!;
+    if (sellByPiece && unitsPerPackage != null && unitsPerPackage! > 0 && sellingPrice != null) {
+      piecePrice ??= sellingPrice! / unitsPerPackage!;
     }
   }
 
@@ -67,6 +69,7 @@ class Medicine {
   factory Medicine.fromMap(Map<String, dynamic> data) {
     int safeInt(dynamic value) => int.tryParse(value?.toString() ?? '') ?? 0;
     double safeDouble(dynamic value) => double.tryParse(value?.toString() ?? '') ?? 0;
+    final pieceQty = safeInt(data['pieceQuantity']);
 
     UnitType? safeUnit(String? value) {
       if (value == null) return null;
@@ -103,6 +106,7 @@ class Medicine {
       unitsPerPackage: units,
       sellByPiece: sellByPiece,
       piecePrice: piecePrice,
+      pieceQuantity: pieceQty,
       minStockLevel: safeInt(data['minStockLevel']),
       supplier: data['supplier']?.toString(),
       expiryDate: parseDate(data['expiryDate']),
@@ -118,6 +122,7 @@ class Medicine {
     String? name,
     String? scientificName,
     int? quantity,
+    int? pieceQuantity,
     String? description,
     String? category,
     double? purchasePrice,
@@ -133,20 +138,22 @@ class Medicine {
     String? imageUrl,
     DateTime? lastUpdated,
   }) {
-    int? finalUnits = unitsPerPackage ?? this.unitsPerPackage;
-    double? finalSelling = sellingPrice ?? this.sellingPrice;
-    bool finalSellByPiece = sellByPiece ?? this.sellByPiece;
+    final int? finalUnits = unitsPerPackage ?? this.unitsPerPackage;
+    final double? finalSelling = sellingPrice ?? this.sellingPrice;
+    final bool finalSellByPiece = sellByPiece ?? this.sellByPiece;
     double? finalPiecePrice = piecePrice ?? this.piecePrice;
-
-    if (finalSellByPiece && finalUnits != null && finalSelling != null) {
+    // لو البيع بالقطعة مفعّل والسعر مش موجود، نحسبه
+    if (finalSellByPiece && finalUnits != null && finalUnits > 0 && finalSelling != null) {
       finalPiecePrice ??= finalSelling / finalUnits;
     }
-
     return Medicine(
       id: id ?? this.id,
       name: name ?? this.name,
-      scientificName: scientificName?.isNotEmpty == true ? scientificName : (name ?? this.name),
+      scientificName: (scientificName != null && scientificName.isNotEmpty)
+          ? scientificName
+          : (name ?? this.name),
       quantity: quantity ?? this.quantity,
+      pieceQuantity: pieceQuantity ?? this.pieceQuantity ?? 0,
       description: description ?? this.description,
       category: category ?? this.category,
       purchasePrice: purchasePrice ?? this.purchasePrice,
@@ -164,6 +171,7 @@ class Medicine {
     );
   }
 
+
   // ===== To Map =====
   Map<String, dynamic> toMap({bool forFirestore = false}) {
     final map = {
@@ -172,6 +180,8 @@ class Medicine {
       'scientificName': scientificName,
       'quantity': quantity,
       'description': description,
+      'pieceQuantity': pieceQuantity,
+
       'category': category,
       'purchasePrice': purchasePrice,
       'sellingPrice': sellingPrice,

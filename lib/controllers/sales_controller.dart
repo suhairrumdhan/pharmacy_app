@@ -1,332 +1,814 @@
 // lib/controllers/sales_controller.dart
 import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/inventory_model.dart';
 import '../models/sales_model.dart';
 import '../models/insurance_company_model.dart';
+
 import 'auth_controller.dart';
 import 'inventory_controller.dart';
 import 'insurance_company_controller.dart';
+
 class SalesController extends GetxController {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  FocusNode searchFocusNode = FocusNode();
 
-  // حالة الفاتورة الحالية
+  final FocusNode searchFocusNode = FocusNode();
+
+  // المفتاح لحفظ الفواتير المؤقتة محلياً
+  static const String _pendingInvoicesKey = 'pending_invoices_';
+
+  // قائمة الفواتير حسب الموظف (pending + completed)
+  final RxMap<String, List<Sale>> _userInvoices = <String, List<Sale>>{}.obs;
+
+  // مؤشر تنقل الفاتورة
+  final RxInt currentInvoiceIndex = 0.obs;
+
+  // الفاتورة الحالية
   final Rx<Sale> currentSale = Sale(
     invoiceNumber: Sale.generateInvoiceNumber(),
     pharmacyId: '',
-    items: [],
+    employeeId: null,
+    employeeName: null,
+    items: const [],
     subtotal: 0.0,
     total: 0.0,
     paymentMethod: PaymentMethod.cash,
     saleDate: DateTime.now(),
   ).obs;
 
-  // بيانات إضافية
+  // باقي المتغيرات
   final RxList<Medicine> searchResults = <Medicine>[].obs;
   final RxList<InsuranceCompany> insuranceCompanies = <InsuranceCompany>[].obs;
   final Rx<InsuranceCompany?> selectedInsuranceCompany = Rx<InsuranceCompany?>(null);
+
   final RxString searchQuery = ''.obs;
   final RxBool isLoading = false.obs;
+
+  // optional
   final RxBool isScanning = false.obs;
   final RxString barcodeInput = ''.obs;
   StreamSubscription? _barcodeSubscription;
 
-  // متغيرات الدفع
   final RxDouble cashReceived = 0.0.obs;
   final RxDouble changeAmount = 0.0.obs;
+
   final TextEditingController customerNameController = TextEditingController();
   final TextEditingController customerPhoneController = TextEditingController();
   final TextEditingController notesController = TextEditingController();
 
-
-  ///////////
-  //late FocusNode searchFocusNode;
-
-
-  // متغيرات التحكم في التهيئة
   bool _initialized = false;
   bool _employeeDataInitialized = false;
   bool _insuranceCompaniesLoaded = false;
 
-  // مراجع Firebase
+  // =============================
+  // Firebase refs
+  // =============================
   String get pharmacyId {
     try {
       final authController = Get.find<AuthController>();
       return authController.pharmacyId;
     } catch (e) {
-      print('❌ خطأ في الحصول على pharmacyId: $e');
+      debugPrint('❌ خطأ في الحصول على pharmacyId: $e');
       return '';
     }
   }
 
   CollectionReference get salesCollection {
     final id = pharmacyId;
-    if (id.isEmpty) {
-      throw Exception('لم يتم تحديد الصيدلية');
-    }
-    return _firestore
-        .collection('pharmacies')
-        .doc(id)
-        .collection('sales');
+    if (id.isEmpty) throw Exception('لم يتم تحديد الصيدلية');
+    return _firestore.collection('pharmacies').doc(id).collection('sales');
   }
 
+  String get _currentEmployeeId => currentSale.value.employeeId ?? '';
+
+  // =============================
+  // Getters: invoices
+  // =============================
+  List<Sale> get allUserInvoices {
+    final uid = _currentEmployeeId;
+    return _userInvoices[uid] ?? [];
+  }
+
+  List<Sale> get activeInvoices {
+    final uid = _currentEmployeeId;
+    return (_userInvoices[uid] ?? []).where((i) => i.status == InvoiceStatus.pending).toList();
+  }
+
+  List<Sale> get completedInvoices {
+    final uid = _currentEmployeeId;
+    return (_userInvoices[uid] ?? []).where((i) => i.status == InvoiceStatus.completed).toList();
+  }
+
+  List<Sale> get allInvoices => allUserInvoices;
+
+  List<Sale> get userCompletedInvoices {
+    final uid = _currentEmployeeId;
+    return (_userInvoices[uid] ?? [])
+        .where((inv) => inv.status == InvoiceStatus.completed && inv.employeeId == uid)
+        .toList();
+  }
+
+  // =============================
+  // Lifecycle
+  // =============================
   @override
   Future<void> onInit() async {
     super.onInit();
-    if (_initialized) {
-      return;
-    }
+    if (_initialized) return;
+
     try {
-      await Get.putAsync(() async {
-        final controller = Get.find<AuthController>();
-        // الانتظار حتى تكون بيانات الصيدلية جاهزة
-        while (!controller.isPharmacyLoaded.value) {
-          await Future.delayed(const Duration(milliseconds: 100));
-        }
-        return controller;
-      });
-      await Get.putAsync(() async => Get.find<InventoryController>());
+      // انتظر auth جاهز
+      final authController = Get.find<AuthController>();
+      while (!authController.isPharmacyLoaded.value) {
+        await Future.delayed(const Duration(milliseconds: 80));
+      }
+
+      // تأكد InventoryController موجود
+      Get.find<InventoryController>();
+
+      // حمل بيانات الموظف + التأمين + الفواتير
       await initializeEmployeeData();
       await loadInsuranceCompanies();
-      _initialized = true;
-    } catch (e, stackTrace) {
-      print('📜 Stack trace: $stackTrace');
-    }
-  }
+      await _loadUserInvoices();
 
-  @override
-  void onReady() {
-    super.onReady();
+      if (activeInvoices.isEmpty) {
+        _createNewEmptyInvoice();
+      } else {
+        _loadInvoice(0);
+      }
+
+      _initialized = true;
+    } catch (e, st) {
+      debugPrint('❌ خطأ في تهيئة SalesController: $e');
+      debugPrint('$st');
+    }
   }
 
   @override
   void onClose() {
     _barcodeSubscription?.cancel();
     searchFocusNode.dispose();
+    customerNameController.dispose();
+    customerPhoneController.dispose();
+    notesController.dispose();
+
     _initialized = false;
     _employeeDataInitialized = false;
     _insuranceCompaniesLoaded = false;
     super.onClose();
   }
 
-
-  /////*************************////////////////
-
-  final RxList<Sale> activeInvoices = <Sale>[].obs; // قائمة الفواتير النشطة
-  final RxInt currentInvoiceIndex = 0.obs; // الفهرس الحالي (0 للفاتورة الأساسية)
-
-  // ===== دالة للتبديل بين الفواتير =====
-  void switchToNextInvoice() {
-    if (activeInvoices.isEmpty) {
-      // إذا لا توجد فواتير، ننشئ واحدة جديدة
-      createNewInvoice();
-      return;
-    }
-
-    // حفظ الفاتورة الحالية
-    _saveCurrentInvoice();
-
-    // التبديل للفاتورة التالية (دائري)
-    currentInvoiceIndex.value =
-        (currentInvoiceIndex.value + 1) % activeInvoices.length;
-
-    // تحميل الفاتورة الجديدة
-    _loadInvoice(currentInvoiceIndex.value);
-  }
-
-  void switchToPreviousInvoice() {
-    if (activeInvoices.isEmpty) return;
-
-    // حفظ الفاتورة الحالية
-    _saveCurrentInvoice();
-
-    // التبديل للفاتورة السابقة (دائري)
-    currentInvoiceIndex.value =
-        (currentInvoiceIndex.value - 1 + activeInvoices.length) % activeInvoices.length;
-
-    // تحميل الفاتورة الجديدة
-    _loadInvoice(currentInvoiceIndex.value);
-  }
-
-  void _saveCurrentInvoice() {
-    if (currentSale.value.items.isEmpty) return;
-
-    // إذا كانت فاتورة جديدة، نضيفها للقائمة
-    if (currentInvoiceIndex.value >= activeInvoices.length) {
-      activeInvoices.add(currentSale.value);
-    } else {
-      // إذا كانت موجودة، نحدثها
-      activeInvoices[currentInvoiceIndex.value] = currentSale.value;
-    }
-  }
-
-  void _loadInvoice(int index) {
-    if (index < activeInvoices.length) {
-      currentSale.value = Sale.fromMap(activeInvoices[index].toMap());
-      currentSale.refresh();
-    }
-  }
-
-  // ===== تعديل دالة createNewInvoice =====
-  void createNewInvoice() {
-    // حفظ الفاتورة الحالية
-    _saveCurrentInvoice();
-
-    // إنشاء فاتورة جديدة
-    resetSale();
-
-    // إضافتها للقائمة
-    activeInvoices.add(currentSale.value);
-    currentInvoiceIndex.value = activeInvoices.length - 1;
-
-    Get.snackbar(
-      'فاتورة جديدة',
-      'تم إنشاء فاتورة #${currentSale.value.invoiceNumber}',
-      duration: const Duration(seconds: 2),
-    );
-  }
-
-  // ===== دالة لحذف الفاتورة الحالية =====
-  void deleteCurrentInvoice() {
-    if (activeInvoices.isEmpty) return;
-
-    Get.defaultDialog(
-      title: 'حذف الفاتورة',
-      middleText: 'هل تريد حذف هذه الفاتورة؟',
-      textConfirm: 'نعم',
-      textCancel: 'لا',
-      onConfirm: () {
-        activeInvoices.removeAt(currentInvoiceIndex.value);
-
-        if (activeInvoices.isEmpty) {
-          // إذا لا توجد فواتير، ننشئ واحدة جديدة
-          resetSale();
-          activeInvoices.add(currentSale.value);
-        } else {
-          // التحميل للفاتورة السابقة
-          currentInvoiceIndex.value =
-              (currentInvoiceIndex.value - 1 + activeInvoices.length) % activeInvoices.length;
-          _loadInvoice(currentInvoiceIndex.value);
-        }
-
-        Get.back();
-      },
-    );
-  }
-  /////////*********************/////////////////
-
+  // =============================
+  // Employee data
+  // =============================
   Future<void> initializeEmployeeData() async {
-    // حماية من التهيئة المزدوجة
-    if (_employeeDataInitialized) {
-      print('⚠️ بيانات الموظف تم تهيئتها مسبقاً');
-      return;
-    }
+    if (_employeeDataInitialized) return;
 
     try {
       _employeeDataInitialized = true;
-      print('🔍 === بدء تهيئة بيانات الموظف للفاتورة ===');
 
-      // 1. الحصول على AuthController
       final authController = Get.find<AuthController>();
-
-      // 2. جلب معلومات منفذ البيع
       final actorInfo = await authController.getSaleActorInfo();
 
-      // 3. تعيين البيانات في الفاتورة
-      currentSale.update((sale) {
-        sale?.employeeId = actorInfo['id']?.toString() ?? '';
-        sale?.employeeName = actorInfo['name']?.toString() ?? 'موظف';
-        sale?.pharmacyId = actorInfo['pharmacyId']?.toString() ?? pharmacyId;
-      });
+      final updated = currentSale.value.copyWith(
+        employeeId: actorInfo['id']?.toString(),
+        employeeName: actorInfo['name']?.toString(),
+        pharmacyId: actorInfo['pharmacyId']?.toString() ?? pharmacyId,
+      ).recalculate();
 
-    } catch (e, stackTrace) {
-      _employeeDataInitialized = false; // إعادة تعيين في حالة الخطأ
-
-      // البيانات الاحتياطية
+      currentSale.value = updated;
+    } catch (e) {
+      _employeeDataInitialized = false;
       _setFallbackData();
     }
   }
 
   void _setFallbackData() {
-    final user = FirebaseAuth.instance.currentUser;
-    final userId = user?.uid ?? 'fallback_${DateTime.now().millisecondsSinceEpoch}';
-    final userEmail = user?.email ?? '';
-    final nameFromEmail = userEmail.split('@').first;
+    final user = _auth.currentUser;
+    final uid = user?.uid ?? 'fallback_${DateTime.now().millisecondsSinceEpoch}';
+    final email = user?.email ?? '';
+    final nameFromEmail = email.contains('@') ? email.split('@').first : 'موظف';
 
-    currentSale.update((sale) {
-      sale?.employeeId = userId;
-      sale?.employeeName = nameFromEmail.isNotEmpty ? nameFromEmail : 'موظف';
-      sale?.pharmacyId = pharmacyId;
-    });
-
+    currentSale.value = currentSale.value.copyWith(
+      employeeId: uid,
+      employeeName: nameFromEmail.isNotEmpty ? nameFromEmail : 'موظف',
+      pharmacyId: pharmacyId,
+    ).recalculate();
   }
 
+  // =============================
+  // Insurance
+  // =============================
   Future<void> loadInsuranceCompanies() async {
-    // حماية من التحميل المزدوج
-    if (_insuranceCompaniesLoaded) {
-      print('⚠️ شركات التأمين تم تحميلها مسبقاً');
-      return;
-    }
+    if (_insuranceCompaniesLoaded) return;
 
     try {
-      print('🔍 بدء تحميل شركات التأمين...');
       isLoading.value = true;
 
-      final pharmacyId = this.pharmacyId;
-      if (pharmacyId.isEmpty) {
-        print('⚠️ pharmacyId فارغ، انتظر...');
-        await Future.delayed(const Duration(seconds: 1));
-      }
-
       final insuranceController = Get.find<InsuranceCompanyController>();
-
-      // انتظر حتى يتم تحميل البيانات
       await insuranceController.fetchInsuranceCompanies();
 
-      // التحقق من صحة البيانات
-      if (insuranceController.companies.isNotEmpty) {
-        print('✅ تم تحميل ${insuranceController.companies.length} شركة تأمين');
+      insuranceCompanies.assignAll(
+        insuranceController.companies.whereType<InsuranceCompany>().toList(),
+      );
 
-        // نسخ البيانات بشكل آمن
-        insuranceCompanies.clear();
-
-        for (var company in insuranceController.companies) {
-          if (company is InsuranceCompany) {
-            insuranceCompanies.add(company);
-            print('   - ${company.name} (${company.discountPercentage}%)');
-          }
-        }
-
-        _insuranceCompaniesLoaded = true;
-      } else {
-        print('⚠️ لا توجد شركات تأمين متاحة');
-        insuranceCompanies.clear();
-      }
-    } catch (e, stackTrace) {
-      print('❌ خطأ في loadInsuranceCompanies: $e');
-      print('📜 Stack trace: $stackTrace');
+      _insuranceCompaniesLoaded = true;
+    } catch (e, st) {
+      debugPrint('❌ loadInsuranceCompanies error: $e');
+      debugPrint('$st');
       insuranceCompanies.clear();
     } finally {
       isLoading.value = false;
     }
   }
 
-  Future<void> _logSaleActivity() async {
+  // =============================
+  // Load invoices (Firebase completed + Local pending)
+  // =============================
+  Future<void> _loadUserInvoices() async {
+    final uid = _currentEmployeeId;
+    if (uid.isEmpty) return;
+
+    try {
+      isLoading.value = true;
+
+      _userInvoices.putIfAbsent(uid, () => []);
+      _userInvoices[uid]!.clear();
+
+      // 1) completed from Firebase
+      final querySnapshot = await salesCollection
+          .where('employeeId', isEqualTo: uid)
+          .where('isDeleted', isEqualTo: false)
+          .orderBy('createdAt', descending: true)
+          .limit(200)
+          .get();
+
+      for (final doc in querySnapshot.docs) {
+        try {
+          final data = doc.data() as Map<String, dynamic>;
+          final sale = Sale.fromMap({'id': doc.id, ...data})
+              .copyWith(id: doc.id, status: InvoiceStatus.completed, isSaved: true)
+              .recalculate();
+
+          _userInvoices[uid]!.add(sale);
+        } catch (e) {
+          debugPrint('❌ خطأ في تحويل فاتورة من Firebase: $e');
+        }
+      }
+
+      // 2) pending from Local
+      await _loadPendingInvoicesFromLocal(uid);
+
+      // 3) sort: pending أولاً ثم completed بالأحدث
+      _userInvoices[uid]!.sort((a, b) {
+        if (a.status == InvoiceStatus.pending && b.status != InvoiceStatus.pending) return -1;
+        if (a.status != InvoiceStatus.pending && b.status == InvoiceStatus.pending) return 1;
+        return b.saleDate.compareTo(a.saleDate);
+      });
+
+      update();
+    } catch (e, st) {
+      debugPrint('❌ خطأ في تحميل فواتير المستخدم: $e');
+      debugPrint('$st');
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  Future<void> loadSavedInvoices({bool forceRefresh = false}) async {
+    await _loadUserInvoices();
+  }
+
+  Future<void> _loadPendingInvoicesFromLocal(String uid) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_pendingInvoicesKey$uid';
+      final jsonString = prefs.getString(key);
+
+      if (jsonString == null || jsonString.isEmpty) return;
+
+      final List<dynamic> jsonList = json.decode(jsonString);
+
+      for (final raw in jsonList) {
+        if (raw is! Map) continue;
+
+        try {
+          final sale = Sale.fromLocalMap(Map<String, dynamic>.from(raw));
+          if (sale.status != InvoiceStatus.pending) continue;
+
+          final exists = _userInvoices[uid]!.any((inv) => inv.invoiceNumber == sale.invoiceNumber);
+          if (!exists) _userInvoices[uid]!.add(sale.recalculate());
+        } catch (e) {
+          debugPrint('❌ خطأ في تحويل فاتورة محلية: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ خطأ في تحميل الفواتير المؤقتة المحلية: $e');
+    }
+  }
+
+  Future<void> _savePendingInvoicesToLocal() async {
+    final uid = _currentEmployeeId;
+    if (uid.isEmpty) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_pendingInvoicesKey$uid';
+
+      final pending = activeInvoices;
+      if (pending.isEmpty) {
+        await prefs.remove(key);
+        return;
+      }
+
+      final list = pending.map((s) => s.toLocalMap()).toList();
+      await prefs.setString(key, json.encode(list));
+    } catch (e, st) {
+      debugPrint('❌ خطأ في حفظ الفواتير المؤقتة محلياً: $e');
+      debugPrint('$st');
+    }
+  }
+
+  // =============================
+  // Invoice list helpers
+  // =============================
+  void _addOrReplaceInvoice(Sale invoice) {
+    final uid = invoice.employeeId ?? _currentEmployeeId;
+    if (uid.isEmpty) return;
+
+    _userInvoices.putIfAbsent(uid, () => []);
+
+    final idx = _userInvoices[uid]!.indexWhere((i) => i.invoiceNumber == invoice.invoiceNumber);
+    if (idx >= 0) {
+      _userInvoices[uid]![idx] = invoice.recalculate();
+    } else {
+      _userInvoices[uid]!.add(invoice.recalculate());
+    }
+
+    if (invoice.status == InvoiceStatus.pending) {
+      _savePendingInvoicesToLocal();
+    }
+  }
+
+  void _removeInvoiceFromUserList(String invoiceNumber) {
+    final uid = _currentEmployeeId;
+    if (!_userInvoices.containsKey(uid)) return;
+
+    _userInvoices[uid]!.removeWhere((inv) => inv.invoiceNumber == invoiceNumber);
+    _savePendingInvoicesToLocal();
+  }
+
+  void _setCurrentSale(Sale sale) {
+    currentSale.value = sale.recalculate();
+
+    // reset cash
+    cashReceived.value = 0.0;
+    changeAmount.value = 0.0;
+
+    // insurance selection
+    if (currentSale.value.insuranceCompanyId != null) {
+      selectedInsuranceCompany.value = insuranceCompanies.firstWhereOrNull(
+            (c) => c.id == currentSale.value.insuranceCompanyId,
+      );
+    } else {
+      selectedInsuranceCompany.value = null;
+    }
+
+    // customer fields
+    customerNameController.text = currentSale.value.customerName ?? '';
+    customerPhoneController.text = currentSale.value.customerPhone ?? '';
+    notesController.text = currentSale.value.notes ?? '';
+  }
+
+  // =============================
+  // Invoice CRUD / Switching
+  // =============================
+  void _createNewEmptyInvoice() {
+    final inv = Sale.empty(
+      pharmacyId: pharmacyId,
+      employeeId: _currentEmployeeId,
+      employeeName: currentSale.value.employeeName,
+    );
+
+    _addOrReplaceInvoice(inv);
+    currentInvoiceIndex.value = activeInvoices.length - 1;
+    _setCurrentSale(inv);
+  }
+
+  void _loadInvoice(int index) {
+    final invoices = activeInvoices;
+    if (index < 0 || index >= invoices.length) return;
+
+    currentInvoiceIndex.value = index;
+    _setCurrentSale(invoices[index]);
+  }
+
+  void _saveCurrentInvoice() {
+    final sale = currentSale.value;
+    if (sale.items.isEmpty) return;
+    if (sale.status != InvoiceStatus.pending) return;
+
+    _addOrReplaceInvoice(sale.recalculate());
+  }
+
+  void createNewInvoice() {
+    _saveCurrentInvoice();
+
+    final newInvoice = Sale.empty(
+      pharmacyId: pharmacyId,
+      employeeId: _currentEmployeeId,
+      employeeName: currentSale.value.employeeName,
+    );
+
+    _addOrReplaceInvoice(newInvoice);
+    _setCurrentSale(newInvoice);
+
+    Get.snackbar('فاتورة جديدة', 'تم إنشاء فاتورة #${newInvoice.invoiceNumber}',
+        duration: const Duration(seconds: 2));
+  }
+
+  void deleteCurrentInvoice() {
+    final sale = currentSale.value;
+
+    if (sale.isSaved || sale.status == InvoiceStatus.completed) {
+      _safeSnackbar('غير مسموح', 'لا يمكن حذف فاتورة تم حفظها');
+      return;
+    }
+
+    if (activeInvoices.length <= 1) {
+      _safeSnackbar('غير مسموح', 'يجب أن تبقى فاتورة واحدة نشطة على الأقل');
+      return;
+    }
+
+    Get.defaultDialog(
+      title: 'حذف الفاتورة',
+      middleText: 'هل تريد حذف فاتورة #${sale.invoiceNumber}؟',
+      textConfirm: 'نعم',
+      textCancel: 'لا',
+      onConfirm: () {
+        _removeInvoiceFromUserList(sale.invoiceNumber);
+        Get.back();
+
+        if (activeInvoices.isEmpty) {
+          _createNewEmptyInvoice();
+        } else {
+          _loadInvoice(0);
+        }
+
+        update();
+        _safeSnackbar('تم الحذف', 'تم حذف الفاتورة بنجاح');
+      },
+    );
+  }
+
+  void switchToNextInvoice() {
+    final invoices = activeInvoices;
+    if (invoices.isEmpty) {
+      createNewInvoice();
+      return;
+    }
+
+    _saveCurrentInvoice();
+
+    final currentIndex = invoices.indexWhere((inv) => inv.invoiceNumber == currentSale.value.invoiceNumber);
+    final nextIndex = (currentIndex + 1) % invoices.length;
+    _loadInvoice(nextIndex);
+  }
+
+  void switchToPreviousInvoice() {
+    final invoices = activeInvoices;
+    if (invoices.isEmpty) return;
+
+    _saveCurrentInvoice();
+
+    final currentIndex = invoices.indexWhere((inv) => inv.invoiceNumber == currentSale.value.invoiceNumber);
+    final prevIndex = (currentIndex - 1 + invoices.length) % invoices.length;
+    _loadInvoice(prevIndex);
+  }
+
+  void loadInvoiceForEditing(Sale invoice) {
+    // completed: عرض فقط
+    _setCurrentSale(invoice);
+
+    if (invoice.status == InvoiceStatus.completed) {
+      Get.snackbar('فاتورة مكتملة', 'هذه فاتورة مكتملة - للعرض فقط',
+          duration: const Duration(seconds: 2));
+    }
+  }
+
+  void switchToInvoice(Sale invoice) {
+    // لو invoice pending: نحاول نجيبه من activeInvoices
+    final idx = activeInvoices.indexWhere((i) => i.invoiceNumber == invoice.invoiceNumber);
+    if (idx >= 0) {
+      _loadInvoice(idx);
+      return;
+    }
+    // غير ذلك: عرض
+    loadInvoiceForEditing(invoice);
+  }
+
+  // =============================
+  // Add / Update / Remove items (COMPATIBLE with model)
+  // =============================
+  void addMedicineToSale(
+      Medicine medicine, {
+        int quantity = 1,
+        bool sellAsPiece = false,
+      }) {
+    final sale = currentSale.value;
+
+    if (sale.isSaved || sale.status == InvoiceStatus.completed) {
+      _safeSnackbar('غير مسموح', 'لا يمكن إضافة منتجات إلى فاتورة محفوظة');
+      return;
+    }
+
+    // تحقق مخزون (علب فقط - حالياً)
+    if (!sellAsPiece && medicine.quantity < quantity) {
+      _safeSnackbar('مخزون غير كافي', 'المخزون المتوفر: ${medicine.quantity} فقط');
+      return;
+    }
+
+    final existingIndex = sale.items.indexWhere(
+          (item) => item.medicineId == medicine.id && item.sellAsPiece == sellAsPiece,
+    );
+
+    final unitPrice = sellAsPiece && medicine.piecePrice != null
+        ? medicine.piecePrice!
+        : (medicine.sellingPrice ?? 0.0);
+
+    Sale updatedSale;
+
+    if (existingIndex >= 0) {
+      final currentItem = sale.items[existingIndex];
+      final newItem = currentItem.copyWith(quantity: currentItem.quantity + quantity);
+      updatedSale = sale.updateItem(existingIndex, newItem);
+    } else {
+      final item = SaleItem(
+        medicineId: medicine.id,
+        name: medicine.name,
+        scientificName: medicine.scientificName,
+        barcode: medicine.barcode,
+        unitPrice: unitPrice,
+        quantity: quantity,
+        sellAsPiece: sellAsPiece,
+      );
+      updatedSale = sale.addItem(item);
+    }
+
+    currentSale.value = updatedSale.recalculate();
+    _saveCurrentInvoice();
+
+    _clearSearchAfterAdd();
+  }
+
+  void updateQuantity(int index, int newQuantity) {
+    final sale = currentSale.value;
+
+    if (sale.isSaved || sale.status == InvoiceStatus.completed) {
+      _safeSnackbar('غير مسموح', 'لا يمكن تعديل فاتورة محفوظة');
+      return;
+    }
+
+    if (index < 0 || index >= sale.items.length) return;
+
+    if (newQuantity <= 0) {
+      removeItem(index);
+      return;
+    }
+
+    final item = sale.items[index];
+
+    // تحقق مخزون (علب فقط)
+    if (!item.sellAsPiece) {
+      final inventory = Get.find<InventoryController>();
+      final med = inventory.getMedicineById(item.medicineId);
+      if (med != null && med.quantity < newQuantity) {
+        _safeSnackbar('مخزون غير كافي', 'المخزون المتوفر: ${med.quantity} فقط');
+        return;
+      }
+    }
+
+    final updatedItem = item.copyWith(quantity: newQuantity);
+    currentSale.value = sale.updateItem(index, updatedItem).recalculate();
+    _saveCurrentInvoice();
+  }
+
+  void removeItem(int index) {
+    final sale = currentSale.value;
+
+    if (sale.isSaved || sale.status == InvoiceStatus.completed) {
+      _safeSnackbar('غير مسموح', 'لا يمكن حذف منتج من فاتورة محفوظة');
+      return;
+    }
+
+    currentSale.value = sale.removeItemAt(index).recalculate();
+    _saveCurrentInvoice();
+  }
+
+  // =============================
+  // Discount / Insurance / Payment
+  // =============================
+  void applyDiscount(double discountAmount) {
+    final sale = currentSale.value;
+    if (sale.isSaved || sale.status == InvoiceStatus.completed) return;
+
+    currentSale.value = sale.copyWith(discount: discountAmount).recalculate();
+    _saveCurrentInvoice();
+  }
+
+  void selectInsuranceCompany(InsuranceCompany? company) {
+    final sale = currentSale.value;
+    if (sale.isSaved || sale.status == InvoiceStatus.completed) return;
+
+    if (company == null) {
+      selectedInsuranceCompany.value = null;
+      currentSale.value = sale.copyWith(
+        insuranceCompanyId: null,
+        insuranceCompanyName: null,
+        insuranceDiscount: null,
+        paymentMethod: PaymentMethod.cash,
+      ).recalculate();
+      _saveCurrentInvoice();
+      return;
+    }
+
+    selectedInsuranceCompany.value = company;
+
+    // خصم التأمين نسبة من subtotal الحالي (بعد خصومات الأصناف إن وجدت)
+    final sub = sale.recalculate().subtotal;
+    final insuranceValue = (sub * company.discountPercentage / 100);
+
+    currentSale.value = sale.copyWith(
+      insuranceCompanyId: company.id,
+      insuranceCompanyName: company.name,
+      insuranceDiscount: insuranceValue,
+      paymentMethod: PaymentMethod.insurance,
+    ).recalculate();
+
+    _saveCurrentInvoice();
+  }
+
+  void changePaymentMethod(PaymentMethod method) {
+    final sale = currentSale.value;
+    if (sale.isSaved || sale.status == InvoiceStatus.completed) return;
+
+    if (method != PaymentMethod.insurance) {
+      selectedInsuranceCompany.value = null;
+      currentSale.value = sale.copyWith(
+        paymentMethod: method,
+        insuranceCompanyId: null,
+        insuranceCompanyName: null,
+        insuranceDiscount: null,
+      ).recalculate();
+    } else {
+      currentSale.value = sale.copyWith(paymentMethod: method).recalculate();
+    }
+
+    _saveCurrentInvoice();
+  }
+
+  void setCashReceived(double amount) {
+    cashReceived.value = amount;
+    final diff = amount - currentSale.value.total;
+    changeAmount.value = diff < 0 ? 0.0 : diff;
+  }
+
+  // =============================
+  // Save sale to Firebase
+  // =============================
+  Future<bool> saveSale() async {
+    final sale = currentSale.value;
+
+    if (sale.items.isEmpty) {
+      _safeSnackbar('فاتورة فارغة', 'أضف منتجات للفاتورة أولاً');
+      return false;
+    }
+
+    try {
+      isLoading.value = true;
+
+      await _updateInventoryStockForSale(sale);
+
+      final now = DateTime.now();
+
+      // تنظيف حقول العملاء (خليها null لو فاضية)
+      final customerName = customerNameController.text.trim();
+      final customerPhone = customerPhoneController.text.trim();
+      final notes = notesController.text.trim();
+
+      final completedSale = sale.copyWith(
+        customerName: customerName.isEmpty ? null : customerName,
+        customerPhone: customerPhone.isEmpty ? null : customerPhone,
+        notes: notes.isEmpty ? null : notes,
+        saleDate: now,
+        status: InvoiceStatus.completed,
+        completedAt: now,
+        isSaved: true,
+        isDeleted: false,
+      ).recalculate();
+
+      final doc = salesCollection.doc();
+      final saved = completedSale.copyWith(id: doc.id);
+
+      await doc.set(saved.toMap());
+
+      // تحديث القائمة
+      _addOrReplaceInvoice(saved);
+
+      await _logSaleActivity(saved);
+
+      // تحديث التخزين المحلي (pending فقط)
+      await _savePendingInvoicesToLocal();
+
+      // فاتورة جديدة
+      createNewInvoice();
+
+      _safeSnackbar('تم الحفظ', 'تم حفظ الفاتورة بنجاح');
+      return true;
+    } catch (e, st) {
+      debugPrint('❌ saveSale error: $e');
+      debugPrint('$st');
+      _safeSnackbar('خطأ', 'فشل في حفظ الفاتورة: $e');
+      return false;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+
+  Future<void> _updateInventoryStockForSale(Sale sale) async {
+    final inventoryController = Get.find<InventoryController>();
+
+    for (final item in sale.items) {
+      final medicine = inventoryController.getMedicineById(item.medicineId);
+      if (medicine == null) continue;
+
+      final int currentPackageQty = medicine.quantity;
+      final int currentPieceQty = medicine.pieceQuantity ?? 0;
+      final int unitsPerPackage = medicine.unitsPerPackage ?? 0;
+
+      int newPackageQty = currentPackageQty;
+      int newPieceQty = currentPieceQty;
+
+      // 🔹 بيع بالقطعة
+      if (item.sellAsPiece) {
+
+        if (unitsPerPackage <= 0) {
+          throw Exception(
+              'لا يمكن البيع بالقطعة لأن unitsPerPackage غير محدد للدواء ${medicine.name}'
+          );
+        }
+
+        final int totalPieces =
+            currentPieceQty + (currentPackageQty * unitsPerPackage);
+
+        final int newTotalPieces = totalPieces - item.quantity;
+
+        if (newTotalPieces < 0) {
+          throw Exception('مخزون غير كافي للدواء ${medicine.name}');
+        }
+
+        newPackageQty = newTotalPieces ~/ unitsPerPackage;
+        newPieceQty = newTotalPieces % unitsPerPackage;
+
+      }
+      // 🔹 بيع باكو
+      else {
+        newPackageQty = currentPackageQty - item.quantity;
+
+        if (newPackageQty < 0) {
+          throw Exception('مخزون غير كافي للدواء ${medicine.name}');
+        }
+      }
+
+      await inventoryController.updateStock(
+        id: medicine.id,
+        newPackageQty: newPackageQty,
+        newPieceQty: newPieceQty,
+      );
+    }
+  }
+
+
+  Future<void> _logSaleActivity(Sale savedSale) async {
     try {
       final authController = Get.find<AuthController>();
       final actor = authController.currentEmployee.value;
 
-      String employeeName = 'المالك';
-      String employeeId = _auth.currentUser?.uid ?? '';
+      String employeeName = savedSale.employeeName ?? 'موظف';
+      String employeeId = savedSale.employeeId ?? (_auth.currentUser?.uid ?? '');
 
       if (actor != null && actor is Map<String, dynamic>) {
-        employeeName = actor['name']?.toString() ?? 'موظف';
-        employeeId = actor['id']?.toString() ?? '';
+        employeeName = actor['name']?.toString() ?? employeeName;
+        employeeId = actor['id']?.toString() ?? employeeId;
       }
 
       await _firestore
@@ -335,18 +817,153 @@ class SalesController extends GetxController {
           .collection('audit_logs')
           .add({
         'action': 'create_sale',
-        'targetId': currentSale.value.id,
-        'invoiceNumber': currentSale.value.invoiceNumber,
-        'totalAmount': currentSale.value.total,
-        'itemsCount': currentSale.value.items.length,
+        'targetId': savedSale.id,
+        'invoiceNumber': savedSale.invoiceNumber,
+        'totalAmount': savedSale.total,
+        'itemsCount': savedSale.items.length,
         'performedBy': employeeName,
         'userId': employeeId,
         'timestamp': FieldValue.serverTimestamp(),
       });
-
-      print('📝 تم تسجيل النشاط للفاتورة #${currentSale.value.invoiceNumber}');
     } catch (e) {
-      print('❌ فشل في تسجيل النشاط: $e');
+      debugPrint('❌ audit log error: $e');
+    }
+  }
+
+  // =============================
+  // Stats / Reports
+  // =============================
+  Map<String, dynamic> getInvoiceStats() {
+    final pendingCount = activeInvoices.length;
+    final completedCount = completedInvoices.length;
+    final totalCount = allInvoices.length;
+
+    final pendingItems = activeInvoices.fold<int>(0, (sum, inv) => sum + inv.items.length);
+    final completedAmount = completedInvoices.fold<double>(0.0, (sum, inv) => sum + inv.total);
+
+    return {
+      'totalInvoices': totalCount,
+      'pendingInvoices': pendingCount,
+      'completedInvoices': completedCount,
+      'pendingItems': pendingItems,
+      'completedAmount': completedAmount,
+    };
+  }
+
+  Future<List<Sale>> getSalesReport(DateTime startDate, DateTime endDate) async {
+    try {
+      final querySnapshot = await salesCollection
+          .where('saleDate', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+          .where('saleDate', isLessThanOrEqualTo: Timestamp.fromDate(endDate.add(const Duration(days: 1))))
+          .orderBy('saleDate', descending: true)
+          .get();
+
+      return querySnapshot.docs
+          .map((doc) => Sale.fromMap({'id': doc.id, ...doc.data() as Map<String, dynamic>}).copyWith(id: doc.id))
+          .toList();
+    } catch (e) {
+      Get.snackbar('خطأ', 'فشل في جلب التقرير: $e');
+      return [];
+    }
+  }
+
+  Future<Sale?> getSaleByInvoiceNumber(String invoiceNumber) async {
+    try {
+      final querySnapshot = await salesCollection
+          .where('invoiceNumber', isEqualTo: invoiceNumber)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        final doc = querySnapshot.docs.first;
+        return Sale.fromMap({'id': doc.id, ...doc.data() as Map<String, dynamic>}).copyWith(id: doc.id);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> deleteSale(String saleId) async {
+    try {
+      await salesCollection.doc(saleId).update({'isDeleted': true});
+      return true;
+    } catch (e) {
+      Get.snackbar('خطأ', 'فشل في حذف الفاتورة');
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>> getTodaySalesStats() async {
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
+
+    try {
+      final sales = await getSalesReport(startOfDay, endOfDay);
+
+      final totalSales = sales.length;
+      final totalAmount = sales.fold(0.0, (sum, sale) => sum + sale.total);
+
+      final cashSales = sales.where((s) => s.paymentMethod == PaymentMethod.cash).length;
+      final cardSales = sales.where((s) => s.paymentMethod == PaymentMethod.card).length;
+      final insuranceSales = sales.where((s) => s.paymentMethod == PaymentMethod.insurance).length;
+
+      return {
+        'totalSales': totalSales,
+        'totalAmount': totalAmount,
+        'cashSales': cashSales,
+        'cardSales': cardSales,
+        'insuranceSales': insuranceSales,
+        'averageSale': totalSales > 0 ? totalAmount / totalSales : 0.0,
+      };
+    } catch (_) {
+      return {
+        'totalSales': 0,
+        'totalAmount': 0.0,
+        'cashSales': 0,
+        'cardSales': 0,
+        'insuranceSales': 0,
+        'averageSale': 0.0,
+      };
+    }
+  }
+
+  // =============================
+  // Search
+  // =============================
+  bool isBarcodeInput(String text) => RegExp(r'^[0-9]{8,}$').hasMatch(text);
+
+  Future<void> handleSmartSearch(String query) async {
+    final results = await searchMedicinesWithSuggestions(query);
+    if (isBarcodeInput(query) && results.length == 1) {
+      addMedicineToSale(results.first);
+      _clearSearchAfterAdd();
+    }
+  }
+
+  Future<void> searchMedicines(String query) async {
+    if (query.isEmpty) {
+      searchResults.clear();
+      return;
+    }
+
+    isLoading.value = true;
+    try {
+      final inventoryController = Get.find<InventoryController>();
+      final allMedicines = inventoryController.medicines;
+
+      final q = query.toLowerCase();
+      final results = allMedicines.where((medicine) {
+        final nameMatch = medicine.name.toLowerCase().contains(q);
+        final sciMatch = medicine.scientificName.toLowerCase().contains(q);
+        final barcodeMatch = (medicine.barcode ?? '').toLowerCase().contains(q);
+        return nameMatch || sciMatch || barcodeMatch;
+      }).toList();
+
+      searchResults.assignAll(results);
+    } finally {
+      isLoading.value = false;
     }
   }
 
@@ -361,91 +978,37 @@ class SalesController extends GetxController {
       final inventoryController = Get.find<InventoryController>();
       final allMedicines = inventoryController.medicines;
 
-      // البحث في عدة حقول
+      final q = query.toLowerCase();
+
       final results = allMedicines.where((medicine) {
-        final nameMatch = medicine.name.toLowerCase().contains(query.toLowerCase());
-        final sciMatch = medicine.scientificName.toLowerCase().contains(query.toLowerCase());
-        final barcodeMatch = medicine.barcode != null &&
-            medicine.barcode!.toLowerCase().contains(query.toLowerCase());
+        final name = medicine.name.toLowerCase();
+        final sci = medicine.scientificName.toLowerCase();
+        final barcode = (medicine.barcode ?? '').toLowerCase();
 
-        // بحث جزئي في بداية النص (لتحسين الاقتراحات)
-        final nameStartsWith = medicine.name.toLowerCase().startsWith(query.toLowerCase());
-        final sciStartsWith = medicine.scientificName.toLowerCase().startsWith(query.toLowerCase());
+        final nameMatch = name.contains(q);
+        final sciMatch = sci.contains(q);
+        final barcodeMatch = barcode.contains(q);
+        final nameStarts = name.startsWith(q);
+        final sciStarts = sci.startsWith(q);
 
-        return nameMatch || sciMatch || barcodeMatch || nameStartsWith || sciStartsWith;
+        return nameMatch || sciMatch || barcodeMatch || nameStarts || sciStarts;
       }).toList();
 
-      // ترتيب النتائج: التي تبدأ بالكلمة أولاً
       results.sort((a, b) {
-        final aStartsWithName = a.name.toLowerCase().startsWith(query.toLowerCase());
-        final bStartsWithName = b.name.toLowerCase().startsWith(query.toLowerCase());
-        final aStartsWithSci = a.scientificName.toLowerCase().startsWith(query.toLowerCase());
-        final bStartsWithSci = b.scientificName.toLowerCase().startsWith(query.toLowerCase());
-
-        if (aStartsWithName || aStartsWithSci) return -1;
-        if (bStartsWithName || bStartsWithSci) return 1;
+        final aStarts = a.name.toLowerCase().startsWith(q) || a.scientificName.toLowerCase().startsWith(q);
+        final bStarts = b.name.toLowerCase().startsWith(q) || b.scientificName.toLowerCase().startsWith(q);
+        if (aStarts && !bStarts) return -1;
+        if (!aStarts && bStarts) return 1;
         return a.name.compareTo(b.name);
       });
 
       searchResults.assignAll(results);
       return results;
-    } catch (e) {
-      Get.snackbar('خطأ', 'فشل في البحث: $e');
-      return [];
-    } finally {
-      isLoading.value = false;
-    }
-  }
-  // دالة للتعرف إذا كان النص باركود
-  bool isBarcodeInput(String text) {
-    return RegExp(r'^[0-9]{8,}$').hasMatch(text);
-  }
-  // دالة للتعامل مع البحث الذكي
-  Future<void> handleSmartSearch(String query) async {
-    if (query.isEmpty) {
-      searchResults.clear();
-      return;
-    }
-
-    final results = await searchMedicinesWithSuggestions(query);
-
-    // إذا كان باركود وكانت هناك نتيجة واحدة، أضفها تلقائياً
-    if (isBarcodeInput(query) && results.length == 1) {
-      addMedicineToSale(results.first);
-      searchQuery.value = '';
-      searchResults.clear();
-    }
-  }
-  // البحث عن الأدوية
-  Future<void> searchMedicines(String query) async {
-    if (query.isEmpty) {
-      searchResults.clear();
-      return;
-    }
-
-    isLoading.value = true;
-    try {
-      final inventoryController = Get.find<InventoryController>();
-      final allMedicines = inventoryController.medicines;
-
-      // البحث بالاسم أو الباركود أو الاسم العلمي
-      final results = allMedicines.where((medicine) {
-        final nameMatch = medicine.name.toLowerCase().contains(query.toLowerCase());
-        final sciMatch = medicine.scientificName.toLowerCase().contains(query.toLowerCase());
-        final barcodeMatch = medicine.barcode != null &&
-            medicine.barcode!.toLowerCase().contains(query.toLowerCase());
-        return nameMatch || sciMatch || barcodeMatch;
-      }).toList();
-
-      searchResults.assignAll(results);
-    } catch (e) {
-      Get.snackbar('خطأ', 'فشل في البحث: $e');
     } finally {
       isLoading.value = false;
     }
   }
 
-  // البحث بالباركود
   Future<void> searchByBarcode(String barcode) async {
     if (barcode.isEmpty) return;
 
@@ -456,19 +1019,15 @@ class SalesController extends GetxController {
 
       if (medicine != null) {
         searchResults.assignAll([medicine]);
-        // إضافة تلقائية للمنتج
         addMedicineToSale(medicine);
       } else {
         Get.snackbar('غير موجود', 'لم يتم العثور على منتج بهذا الباركود');
         searchResults.clear();
       }
-    } catch (e) {
-      Get.snackbar('خطأ', 'فشل في البحث بالباركود: $e');
     } finally {
       isLoading.value = false;
     }
   }
-
 
   Future<void> search(String query) async {
     searchQuery.value = query;
@@ -485,59 +1044,49 @@ class SalesController extends GetxController {
     }
   }
 
-  void addMedicineToSale(Medicine medicine, {int quantity = 1, bool sellAsPiece = false}) {
-    // ===== تحقق من المخزون =====
-    if (medicine.quantity < quantity) {
-      _safeSnackbar(
-        'مخزون غير كافي',
-        'المخزون المتوفر: ${medicine.quantity} فقط',
-      );
-      return;
-    }
+  // =============================
+  // Reset sale
+  // =============================
+  void resetSale() {
+    final sale = currentSale.value;
 
-    final items = currentSale.value.items;
-
-    // ===== تحقق إذا الصنف موجود مسبقًا =====
-    final existingIndex = items.indexWhere(
-            (item) => item.medicineId == medicine.id && item.sellAsPiece == sellAsPiece
+    final reset = Sale.empty(
+      pharmacyId: pharmacyId,
+      employeeId: sale.employeeId,
+      employeeName: sale.employeeName,
     );
 
-    if (existingIndex >= 0) {
-      // تحديث الكمية + إعادة حساب total للصنف
-      items[existingIndex].quantity += quantity;
-      items[existingIndex].calculateTotal();
-    } else {
-      // ===== حساب السعر حسب الاختيار =====
-      final unitPrice = sellAsPiece && medicine.piecePrice != null
-          ? medicine.piecePrice!
-          : medicine.sellingPrice ?? 0.0;
+    currentSale.value = reset.recalculate();
 
-      final saleItem = SaleItem(
-        medicineId: medicine.id,
-        name: medicine.name,
-        scientificName: medicine.scientificName,
-        barcode: medicine.barcode,
-        unitPrice: unitPrice,
-        quantity: quantity,
-        sellAsPiece: sellAsPiece,
-        total: unitPrice * quantity,
-      );
+    customerNameController.clear();
+    customerPhoneController.clear();
+    notesController.clear();
 
-      items.add(saleItem);
-    }
+    cashReceived.value = 0.0;
+    changeAmount.value = 0.0;
 
-    // ===== تحديث المجموع في الفاتورة =====
-    currentSale.update((sale) {
-      sale?.calculateTotal();
-    });
-
-    // ⬇️⬇️⬇️ أضف هذا السطر هنا ⬇️⬇️⬇️
-    _clearSearchAfterAdd(); // تنظيف البحث بعد الإضافة
-
+    selectedInsuranceCompany.value = null;
     searchResults.clear();
     searchQuery.value = '';
+
+    _focusSearchField();
   }
 
+  void _focusSearchField() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!searchFocusNode.hasFocus) {
+        searchFocusNode.requestFocus();
+      }
+    });
+  }
+
+  void toggleBarcodeScanner() {
+    isScanning.value = !isScanning.value;
+  }
+
+  // =============================
+  // UI helper
+  // =============================
   void _safeSnackbar(String title, String message) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Get.rawSnackbar(
@@ -550,294 +1099,14 @@ class SalesController extends GetxController {
   }
 
   void _clearSearchAfterAdd() {
-    // تفريغ حقل البحث ونتائج البحث
     searchQuery.value = '';
     searchResults.clear();
-
-    // إضافة تأخير بسيط لضمان تحديث الواجهة
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // يمكن إضافة أي عمليات إضافية هنا إذا لزم الأمر
-    });
-  }
-  // تحديث كمية صنف
-  void updateQuantity(int index, int newQuantity) {
-    if (newQuantity <= 0) {
-      removeItem(index);
-      return;
-    }
-
-    // التحقق من المخزون
-    final medicineId = currentSale.value.items[index].medicineId;
-    final inventoryController = Get.find<InventoryController>();
-    final medicine = inventoryController.getMedicineById(medicineId);
-
-    if (medicine != null && medicine.quantity < newQuantity) {
-      Get.snackbar('مخزون غير كافي', 'المخزون المتوفر: ${medicine.quantity} فقط');
-      return;
-    }
-
-    currentSale.update((sale) {
-      sale?.updateQuantity(index, newQuantity);
-    });
-  }
-  // حذف صنف
-  void removeItem(int index) {
-    currentSale.update((sale) {
-      sale?.removeItem(index);
-    });
-  }
-
-  // تطبيق خصم على الفاتورة
-  void applyDiscount(double discountAmount) {
-    currentSale.update((sale) {
-      sale?.discount = discountAmount;
-      sale?.calculateTotal();
-    });
-  }
-  void selectInsuranceCompany(InsuranceCompany? company) {
-    if (company == null) {
-      selectedInsuranceCompany.value = null;
-      currentSale.update((sale) {
-        sale?.insuranceCompanyId = null;
-        sale?.insuranceCompanyName = null;
-        sale?.insuranceDiscount = null;
-        sale?.paymentMethod = PaymentMethod.cash;
-        sale?.calculateTotal();
-      });
-      return;
-    }
-
-    // التحقق من صحة الكائن
-    if (company is! InsuranceCompany) {
-      print('❌ نوع غير صالح لشركة التأمين: ${company.runtimeType}');
-      Get.snackbar('خطأ', 'بيانات شركة التأمين غير صالحة');
-      return;
-    }
-
-    selectedInsuranceCompany.value = company;
-
-    currentSale.update((sale) {
-      sale?.insuranceCompanyId = company.id;
-      sale?.insuranceCompanyName = company.name;
-      sale?.insuranceDiscount = (sale.subtotal * company.discountPercentage / 100);
-      sale?.paymentMethod = PaymentMethod.insurance;
-      sale?.calculateTotal();
-    });
-
-    print('✅ تم اختيار شركة التأمين: ${company.name}');
-  }
-  // تغيير طريقة الدفع
-  void changePaymentMethod(PaymentMethod method) {
-    currentSale.update((sale) {
-      sale?.paymentMethod = method;
-
-      // إعادة تعيين بيانات التأمين إذا كانت الطريقة غير تأمين
-      if (method != PaymentMethod.insurance) {
-        sale?.insuranceCompanyId = null;
-        sale?.insuranceCompanyName = null;
-        sale?.insuranceDiscount = null;
-        selectedInsuranceCompany.value = null;
-      }
-
-      sale?.calculateTotal();
-    });
-  }
-  // إدخال المبلغ المستلم (للدفع النقدي)
-  void setCashReceived(double amount) {
-    cashReceived.value = amount;
-    changeAmount.value = amount - currentSale.value.total;
-    if (changeAmount.value < 0) changeAmount.value = 0;
-  }
-
-  Future<bool> saveSale() async {
-    if (currentSale.value.items.isEmpty) {
-      // ✅ استخدام الطريقة الآمنة
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Get.rawSnackbar(
-          title: 'فاتورة فارغة',
-          message: 'أضف منتجات للفاتورة أولاً',
-          snackPosition: SnackPosition.BOTTOM,
-        );
-      });
-      return false;
-    }
-
-    bool success = false;
-
-    try {
-      isLoading.value = true;
-
-      // 1. تحديث المخزون
-      await _updateInventoryStock();
-
-      // 2. حفظ بيانات الزبون
-      currentSale.update((sale) {
-        sale?.customerName = customerNameController.text.trim();
-        sale?.customerPhone = customerPhoneController.text.trim();
-        sale?.notes = notesController.text.trim();
-        sale?.saleDate = DateTime.now();
-      });
-
-      // 3. حفظ في Firebase
-      final saleDoc = salesCollection.doc();
-      currentSale.value.id = saleDoc.id;
-      await saleDoc.set(currentSale.value.toMap());
-
-      // 4. تسجيل في سجل النشاطات
-      await _logSaleActivity();
-      resetSale();
-      success = true;
-    } catch (e) {
-      success = false;
-    } finally {
-      isLoading.value = false;
-    }
-
-    return success;
-  }
-  // تحديث المخزون بعد البيع
-  Future<void> _updateInventoryStock() async {
-    try {
-      final inventoryController = Get.find<InventoryController>();
-
-      for (final item in currentSale.value.items) {
-        final medicine = inventoryController.getMedicineById(item.medicineId);
-        if (medicine != null) {
-          final newQuantity = medicine.quantity - item.quantity;
-          await inventoryController.updateStock(medicine.id, newQuantity);
-        }
-      }
-    } catch (e) {
-      throw Exception('فشل في تحديث المخزون: $e');
-    }
-  }
-// في sales_controller.dart
-  void resetSale() {
-    // توليد رقم فاتورة جديد فقط
-    currentSale.update((sale) {
-      sale?.invoiceNumber = Sale.generateInvoiceNumber();
-      sale?.items.clear();
-      sale?.subtotal = 0.0;
-      sale?.total = 0.0;
-      sale?.discount = null;
-      sale?.insuranceCompanyId = null;
-      sale?.insuranceCompanyName = null;
-      sale?.insuranceDiscount = null;
-      sale?.paymentMethod = PaymentMethod.cash;
-      sale?.saleDate = DateTime.now();
-    });
-    // إعادة تعيين حقول الزبون
-    customerNameController.clear();
-    customerPhoneController.clear();
-    notesController.clear();
-    cashReceived.value = 0.0;
-    changeAmount.value = 0.0;
-    selectedInsuranceCompany.value = null;
-    searchResults.clear();
-    searchQuery.value = '';
     _focusSearchField();
   }
 
-  void _focusSearchField() {
-    // استخدام addPostFrameCallback لضمان أن الواجهة جاهزة
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (searchFocusNode.hasFocus) {
-      } else {
-        searchFocusNode.requestFocus();
-      }
-    });
-  }
-
-  // الحصول على تقارير المبيعات
-  Future<List<Sale>> getSalesReport(DateTime startDate, DateTime endDate) async {
-    try {
-      final querySnapshot = await salesCollection
-          .where('saleDate', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-          .where('saleDate', isLessThanOrEqualTo: Timestamp.fromDate(endDate.add(Duration(days: 1))))
-          .orderBy('saleDate', descending: true)
-          .get();
-
-      return querySnapshot.docs
-          .map((doc) => Sale.fromMap({'id': doc.id, ...doc.data() as Map<String, dynamic>}))
-          .toList();
-    } catch (e) {
-      Get.snackbar('خطأ', 'فشل في جلب التقرير: $e');
-      return [];
-    }
-  }
-
-  // الحصول على فاتورة بواسطة الرقم
-  Future<Sale?> getSaleByInvoiceNumber(String invoiceNumber) async {
-    try {
-      final querySnapshot = await salesCollection
-          .where('invoiceNumber', isEqualTo: invoiceNumber)
-          .limit(1)
-          .get();
-
-      if (querySnapshot.docs.isNotEmpty) {
-        return Sale.fromMap({
-          'id': querySnapshot.docs.first.id,
-          ...querySnapshot.docs.first.data() as Map<String, dynamic>
-        });
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  // حذف فاتورة
-  Future<bool> deleteSale(String saleId) async {
-    try {
-      await salesCollection.doc(saleId).update({'isDeleted': true});
-      return true;
-    } catch (e) {
-      Get.snackbar('خطأ', 'فشل في حذف الفاتورة');
-      return false;
-    }
-  }
-
-  // إحصائيات سريعة
-  Future<Map<String, dynamic>> getTodaySalesStats() async {
-    final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
-    final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
-
-    try {
-      final sales = await getSalesReport(startOfDay, endOfDay);
-
-      final totalSales = sales.length;
-      final totalAmount = sales.fold(0.0, (sum, sale) => sum + sale.total);
-      final cashSales = sales.where((s) => s.paymentMethod == PaymentMethod.cash).length;
-      final cardSales = sales.where((s) => s.paymentMethod == PaymentMethod.card).length;
-      final insuranceSales = sales.where((s) => s.paymentMethod == PaymentMethod.insurance).length;
-
-      return {
-        'totalSales': totalSales,
-        'totalAmount': totalAmount,
-        'cashSales': cashSales,
-        'cardSales': cardSales,
-        'insuranceSales': insuranceSales,
-        'averageSale': totalSales > 0 ? totalAmount / totalSales : 0,
-      };
-    } catch (e) {
-      return {
-        'totalSales': 0,
-        'totalAmount': 0.0,
-        'cashSales': 0,
-        'cardSales': 0,
-        'insuranceSales': 0,
-        'averageSale': 0.0,
-      };
-    }
-  }
-
-  // تفعيل الماسح الضوئي
-  void toggleBarcodeScanner() {
-    isScanning.value = !isScanning.value;
-  }
-
-  // دالة مساعدة لعرض شركات التأمين
+  // =============================
+  // Optional UI widget (keep if you want)
+  // =============================
   Widget buildInsuranceDropdown() {
     return Obx(() {
       if (insuranceCompanies.isEmpty) {
@@ -845,7 +1114,7 @@ class SalesController extends GetxController {
           padding: const EdgeInsets.all(8.0),
           child: Text(
             isLoading.value ? 'جاري التحميل...' : 'لا توجد شركات تأمين',
-            style: TextStyle(color: Colors.grey),
+            style: const TextStyle(color: Colors.grey),
           ),
         );
       }
@@ -855,17 +1124,13 @@ class SalesController extends GetxController {
         items: insuranceCompanies.map((company) {
           return DropdownMenuItem<InsuranceCompany>(
             value: company,
-            child: Text(
-              '${company.name} (خصم ${company.discountPercentage}%)',
-            ),
+            child: Text('${company.name} (خصم ${company.discountPercentage}%)'),
           );
         }).toList(),
         onChanged: (company) => selectInsuranceCompany(company),
         decoration: InputDecoration(
           labelText: 'شركة التأمين',
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
     });

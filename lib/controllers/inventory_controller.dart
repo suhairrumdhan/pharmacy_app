@@ -199,16 +199,31 @@ class InventoryController extends GetxController {
   }
 
   // Update stock quantity (now in nested collection)
-  Future<void> updateStock(String id, int newQuantity) async {
+  Future<void> updateStock({
+    required String id,
+    required int newPackageQty,
+    required int newPieceQty,
+  }) async {
     try {
       await _medicinesCollection.doc(id).update({
-        'quantity': newQuantity,
+        'quantity': newPackageQty,
+        'pieceQuantity': newPieceQty,
         'lastUpdated': FieldValue.serverTimestamp(),
       });
-      await loadMedicines();
-      Get.snackbar('نجاح', 'تم تحديث المخزون بنجاح', backgroundColor: Colors.green);
+
+      // بدل loadMedicines() كل مرة، نحدّث محلياً:
+      final idx = medicines.indexWhere((m) => m.id == id);
+      if (idx != -1) {
+        medicines[idx] = medicines[idx].copyWith(
+          quantity: newPackageQty,
+          pieceQuantity: newPieceQty,
+          lastUpdated: DateTime.now(),
+        );
+        _applyFilters();
+      }
     } catch (e) {
       Get.snackbar('خطأ', 'فشل في تحديث المخزون: $e', backgroundColor: Colors.red);
+      rethrow;
     }
   }
 
