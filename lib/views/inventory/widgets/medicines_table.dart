@@ -1,13 +1,12 @@
-// lib/views/inventory/widgets/medicines_table.dart
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../models/inventory_model.dart';
+import '../add_medicine_dialog.dart';
 import 'medicine_row.dart';
 import 'medicines_presenter.dart';
 import 'medicines_style.dart';
 import 'medicines_components.dart';
-import '../medicine_details_sheet.dart'; // ✅ استيراد الويدجت الجديد
+import '../medicine_details_sheet.dart';
 
 class MedicinesTable extends StatelessWidget {
   const MedicinesTable({super.key});
@@ -17,74 +16,106 @@ class MedicinesTable extends StatelessWidget {
     final presenter = MedicinesPresenter();
 
     return Obx(() {
-      if (presenter.filteredMedicines.isEmpty) {
-        return EmptyState();
+      if (presenter.isLoading) {
+        return const LoadingState();
       }
 
-      return _buildTable(presenter);
+      if (presenter.filteredMedicines.isEmpty) {
+        return const EmptyState();
+      }
+
+      return _buildResponsiveTable(context, presenter);
     });
   }
 
-  Widget _buildTable(MedicinesPresenter presenter) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: MedicinesTableStyle.tableBorderRadius,
-        gradient: MedicinesTableStyle.tableGradient,
-        boxShadow: MedicinesTableStyle.tableShadow,
-      ),
-      child: Column(
-        children: [
-          MedicinesTableHeader(),
-          Expanded(
-            child: _buildMedicinesList(presenter),
-          ),
-          MedicinesTableFooter(presenter: presenter),
-        ],
-      ),
-    );
-  }
+  Widget _buildResponsiveTable(BuildContext context, MedicinesPresenter presenter) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final w = c.maxWidth;
 
-  Widget _buildMedicinesList(MedicinesPresenter presenter) {
-    return ListView.separated(
-      itemCount: presenter.filteredMedicines.length,
-      separatorBuilder: (context, index) => Divider(
-        height: 1,
-        color: MedicinesTableStyle.borderColor,
-        thickness: 0.5,
-      ),
-      itemBuilder: (context, index) {
-        final medicine = presenter.filteredMedicines[index];
-        return MedicineRow(
-          medicine: medicine,
-          index: index,
-          presenter: presenter,
-          onViewDetails: () {
-            _showMedicineDetails(medicine);
-          },
-          onEdit: () {
-            _showEditDialog(medicine);
-          },
-          onUpdateStock: () {
-            _showStockUpdateDialog(medicine);
-          },
-          onDelete: () {
-            _showDeleteDialog(medicine, presenter);
-          },
+        // ✅ إذا العرض ضيق نخلي Scroll أفقي للـTable
+        final bool needHScroll = w < 1050;
+        final double minTableWidth = 1050;
+
+        final table = Container(
+          decoration: BoxDecoration(
+            borderRadius: MedicinesTableStyle.tableBorderRadius,
+            gradient: MedicinesTableStyle.tableGradient,
+            boxShadow: MedicinesTableStyle.tableShadow,
+          ),
+          child: Column(
+            children: [
+              const MedicinesTableHeader(),
+              Expanded(child: _buildMedicinesList(presenter)),
+              MedicinesTableFooter(presenter: presenter),
+            ],
+          ),
+        );
+
+        if (!needHScroll) return table;
+
+        // ✅ Horizontal scroll + scrollbar للديسكتوب
+        return ClipRRect(
+          borderRadius: MedicinesTableStyle.tableBorderRadius,
+          child: Scrollbar(
+            thumbVisibility: true,
+            trackVisibility: true,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: minTableWidth),
+                child: SizedBox(width: minTableWidth, child: table),
+              ),
+            ),
+          ),
         );
       },
     );
   }
 
-  // ✅ الآن الدالة أصبحت بسيطة جداً
+  Widget _buildMedicinesList(MedicinesPresenter presenter) {
+    return Scrollbar(
+      thumbVisibility: true,
+      child: ListView.separated(
+        itemCount: presenter.filteredMedicines.length,
+        separatorBuilder: (context, index) => Divider(
+          height: 1,
+          color: MedicinesTableStyle.borderColor,
+          thickness: 0.5,
+        ),
+        itemBuilder: (context, index) {
+          final medicine = presenter.filteredMedicines[index];
+          return MedicineRow(
+            medicine: medicine,
+            index: index,
+            presenter: presenter,
+            onViewDetails: () => _showMedicineDetails(medicine),
+            onEdit: () => _showEditDialog(medicine),
+            onDelete: () => _showDeleteDialog(medicine, presenter),
+          );
+        },
+      ),
+    );
+  }
+
+  // ✅ Responsive details dialog (بدل 1400×900 ثابت)
   void _showMedicineDetails(Medicine medicine) {
+    final ctx = Get.context!;
+    final w = MediaQuery.of(ctx).size.width;
+    final h = MediaQuery.of(ctx).size.height;
+
+    final bool isWide = w >= 1200;
+    final double dialogW = isWide ? 1200 : w * 0.94;
+    final double dialogH = isWide ? 850 : h * 0.88;
+
     Get.dialog(
       Dialog(
-        insetPadding: EdgeInsets.all(20), // مسافة من الأطراف
+        insetPadding: EdgeInsets.symmetric(
+          horizontal: w < 900 ? 12 : 24,
+          vertical: h < 800 ? 12 : 24,
+        ),
         child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: 1400, // ✅ حجم أكبر
-            maxHeight: 900, // ✅ حجم أكبر
-          ),
+          constraints: BoxConstraints(maxWidth: dialogW, maxHeight: dialogH),
           child: MedicineDetailsSheet(
             medicine: medicine,
             onEditPressed: () {
@@ -97,10 +128,10 @@ class MedicinesTable extends StatelessWidget {
       barrierDismissible: true,
     );
   }
+
   String _getUnitName(UnitType? unit) {
     if (unit == null) return 'وحدة';
-
-    final unitNames = {
+    const unitNames = {
       UnitType.Tablet: 'قرص',
       UnitType.Capsule: 'كبسولة',
       UnitType.Syrup: 'شراب',
@@ -123,86 +154,13 @@ class MedicinesTable extends StatelessWidget {
       UnitType.Strip: 'شريط',
       UnitType.Tube: 'أنبوب',
     };
-
     return unitNames[unit] ?? unit.name;
   }
 
   void _showEditDialog(Medicine medicine) {
-    Get.defaultDialog(
-      title: 'تعديل ${medicine.name}',
-      titleStyle: TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.w700,
-        color: MedicinesTableStyle.darkText,
-      ),
-      content: Padding(
-        padding: EdgeInsets.symmetric(vertical: 10),
-        child: Text(
-          'سيتم فتح نافذة التعديل الكاملة للدواء',
-          style: TextStyle(
-            color: MedicinesTableStyle.mediumText,
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: Get.back,
-          child: Text(
-            'إلغاء',
-            style: TextStyle(color: MedicinesTableStyle.mediumText),
-          ),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            Get.back();
-            // TODO: Implement edit functionality
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: MedicinesTableStyle.primaryColor,
-          ),
-          child: Text('متابعة'),
-        ),
-      ],
-    );
-  }
-
-  void _showStockUpdateDialog(Medicine medicine) {
-    Get.defaultDialog(
-      title: 'تحديث مخزون ${medicine.name}',
-      titleStyle: TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.w700,
-        color: MedicinesTableStyle.secondaryColor,
-      ),
-      content: Padding(
-        padding: EdgeInsets.symmetric(vertical: 10),
-        child: Text(
-          'الكمية الحالية: ${medicine.quantity} ${_getUnitName(medicine.unit)}',
-          style: TextStyle(
-            color: MedicinesTableStyle.mediumText,
-            fontSize: 14,
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: Get.back,
-          child: Text(
-            'إلغاء',
-            style: TextStyle(color: MedicinesTableStyle.mediumText),
-          ),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            Get.back();
-            // TODO: Implement stock update functionality
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: MedicinesTableStyle.secondaryColor,
-          ),
-          child: Text('تحديث'),
-        ),
-      ],
+    Get.dialog(
+      AddMedicineDialog(medicine: medicine),
+      barrierDismissible: true,
     );
   }
 
@@ -220,13 +178,9 @@ class MedicinesTable extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'هل أنت متأكد من حذف هذا الدواء؟',
-              style: TextStyle(
-                color: MedicinesTableStyle.mediumText,
-              ),
-            ),
-            SizedBox(height: 8),
+            Text('هل أنت متأكد من حذف هذا الدواء؟',
+                style: TextStyle(color: MedicinesTableStyle.mediumText)),
+            const SizedBox(height: 8),
             Text(
               'الكمية الحالية: ${medicine.quantity} ${_getUnitName(medicine.unit)}',
               style: TextStyle(
@@ -239,10 +193,7 @@ class MedicinesTable extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: Get.back,
-            child: Text(
-              'إلغاء',
-              style: TextStyle(color: MedicinesTableStyle.mediumText),
-            ),
+            child: Text('إلغاء', style: TextStyle(color: MedicinesTableStyle.mediumText)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -252,7 +203,7 @@ class MedicinesTable extends StatelessWidget {
             style: ElevatedButton.styleFrom(
               backgroundColor: MedicinesTableStyle.dangerColor,
             ),
-            child: Text('حذف'),
+            child: const Text('حذف'),
           ),
         ],
       ),

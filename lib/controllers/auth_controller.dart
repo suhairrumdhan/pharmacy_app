@@ -9,6 +9,7 @@ import '../internal_login_page.dart';
 import '../views/home_page.dart';
 import '../views/login_page.dart';
 import '../views/waiting_approval_page.dart';
+import 'package:iconsax_flutter/iconsax_flutter.dart'; // Added iconsax import
 
 class AuthController extends GetxController {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -19,7 +20,9 @@ class AuthController extends GetxController {
   // Rx variables
   var email = ''.obs;
   var password = ''.obs;
-  var isLoading = false.obs;
+  final isAuthLoading = false.obs;      // للّوجين/لوجاوت
+  final isPharmacyLoading = false.obs;  // لتحميل بيانات الصيدلية
+  final isInternalLoading = false.obs;  // لدخول الموظف
   var currentUser = Rxn<User>();
 
   // للمستخدم الداخلي (موظف الصيدلية)
@@ -38,13 +41,21 @@ class AuthController extends GetxController {
   RxMap<String, bool> rolePermissions = <String, bool>{}.obs;
   RxMap<String, bool> employeeOverrides = <String, bool>{}.obs;
 
-  // تسجيل الخروج الداخلي
+
+
   void logoutInternal() {
     currentEmployee.value = null;
+
     internalUsername.value = '';
     internalPassword.value = '';
+
     currentUserName.value = '';
     currentUserRole.value = '';
+
+    // ✅ مهم: امسح صلاحيات الموظف وارجع flags
+    rolePermissions.clear();
+    employeeOverrides.clear();
+    isPermissionsLoaded.value = false;
   }
 
   @override
@@ -66,36 +77,89 @@ class AuthController extends GetxController {
   }
 
   // تسجيل الدخول
-  Future<void> login() async {
+  Future<void> loginOwner() async {
     if (!_validateLogin()) return;
+
     try {
-      isLoading.value = true;
+      isAuthLoading.value = true;
+
       final userCredential = await _auth.signInWithEmailAndPassword(
         email: email.value.trim(),
         password: password.value,
       );
+
       final user = userCredential.user;
-      if (user != null) {
-        await _checkUserStatus(user.uid);
-      }
+      if (user == null) return;
+
+      // ✅ تحقق الموافقة + إنشاء الصيدلية لو تحتاج
+      await _checkUserStatusAndGoHome(user.uid);
+
       email.value = '';
       password.value = '';
-
-
     } on FirebaseAuthException catch (e) {
       _handleFirebaseLoginError(e);
-
-    } catch (_) {
+    } catch (e) {
       Get.snackbar(
         "خطأ غير متوقع",
         "حدث خطأ غير معروف، حاول مرة أخرى",
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
-
     } finally {
-      isLoading.value = false;
+      isAuthLoading.value = false;
     }
+  }
+  Future<void> _checkUserStatusAndGoHome(String uid) async {
+    final result = await _firestoreService.checkApprovalStatus(uid);
+
+    if (result?['exists'] != true) {
+      Get.offAll(() => const WaitingApprovalPage());
+      return;
+    }
+
+    final status = result!['status'];
+    final data = result['data'];
+
+    switch (status) {
+      case 'approved':
+        final pharmacyExists = await _firestoreService.pharmacyExists(uid);
+        if (!pharmacyExists) {
+          await _firestoreService.createPharmacyFromRequest(uid, data);
+        }
+
+        // ✅ تحميل بيانات الصيدلية (المالك)
+        await loadPharmacyData(uid);
+
+        // ✅ المالك يدخل Home مباشرة
+        logoutInternal(); // تأكد ما فيش موظف عالق
+        isPermissionsLoaded.value = true; // المالك صلاحيات كاملة حسب can()
+        Get.offAll(() => const HomePage());
+        break;
+
+      case 'pending':
+        Get.offAll(() => const WaitingApprovalPage());
+        break;
+
+      case 'rejected':
+        await logout();
+        Get.snackbar(
+          'تم رفض الطلب',
+          'يرجى التواصل مع الإدارة',
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
+        break;
+
+      default:
+        Get.offAll(() => const WaitingApprovalPage());
+    }
+  }
+  void openInternalLogin() {
+    if (!isLoggedIn) {
+      Get.snackbar('تنبيه', 'لازم المالك يسجل دخول أولاً');
+      return;
+    }
+    Get.offAll(() => const InternalLoginPage());
   }
 
   void _handleFirebaseLoginError(FirebaseAuthException e) {
@@ -144,7 +208,7 @@ class AuthController extends GetxController {
   }
 
   Future<bool> loginInternal({required String pharmacyId}) async {
-    isLoading.value = true; // تفعيل حالة التحميل
+    isInternalLoading.value = true; // تفعيل حالة التحميل
     try {
       print('username: ${internalUsername.value}, password: ${internalPassword.value}, pharmacyId: $pharmacyId');
 
@@ -177,7 +241,7 @@ class AuthController extends GetxController {
       print(st); // طباعة stack trace لتسهيل تتبع الأخطاء
       return false;
     } finally {
-      isLoading.value = false; // إيقاف حالة التحميل دائماً
+      isInternalLoading.value = false; // إيقاف حالة التحميل دائماً
     }
   }
 
@@ -245,78 +309,254 @@ class AuthController extends GetxController {
   }
 
   bool can(String permission) {
-    // Safety
     if (permission.isEmpty) return false;
 
-    final employee = currentEmployee.value;
-    if (employee == null) return false; // حماية null
-    // Admin shortcut
-    if (employee['roleId'] == 'admin') {
-      return true;
-    }
+    // ✅ المالك (FirebaseAuth) بدون موظف داخلي = صلاحيات كاملة
+    if (currentEmployee.value == null) return true;
 
-    // 1️⃣ Employee override (أعلى أولوية)
+    final employee = currentEmployee.value!;
+    if (employee['roleId'] == 'admin') return true; // لو عندك دور admin لموظف لاحقاً
+
     if (employeeOverrides.containsKey(permission)) {
       return employeeOverrides[permission] == true;
     }
-
-    // 2️⃣ Role permission
     if (rolePermissions.containsKey(permission)) {
       return rolePermissions[permission] == true;
     }
-
-    // 3️⃣ Default deny
     return false;
   }
 
-  Future<void> _checkUserStatus(String uid) async {
-    try {
-      final result = await _firestoreService.checkApprovalStatus(uid);
-      if (result?['exists'] != true) {
-        Get.offAll(() => const WaitingApprovalPage());
-        return;
-      }
-      final status = result!['status'];
-      final data = result['data'];
-      switch (status) {
-        case 'approved':
-          final pharmacyExists =
-          await _firestoreService.pharmacyExists(uid);
-          if (!pharmacyExists) {
-            await _firestoreService.createPharmacyFromRequest(uid, data);
-          }
-          await loadPharmacyData(uid);
-          Get.offAll(() => const InternalLoginPage());
-          break;
-        case 'pending':
-          Get.offAll(() => const WaitingApprovalPage());
-          break;
 
-        case 'rejected':
-          await logout();
-          Get.snackbar(
-            'تم رفض الطلب',
-            'يرجى التواصل مع الإدارة',
-            backgroundColor: Colors.red,
-            colorText: Colors.white,
-          );
-          break;
 
-        default:
-          throw Exception('Unknown status: $status');
-      }
-    } catch (e) {
+  Future<void> logoutOwnerSecure() async {
+    // ✅ لو فيه موظف داخلي شغال: نطلع الموظف فقط
+    if (currentEmployee.value != null) {
+      logoutInternal();
+      Get.offAll(() => const InternalLoginPage());
+      return;
+    }
+
+    final passCtrl = TextEditingController();
+    bool isPasswordHidden = true;
+
+    final confirmed = await Get.dialog<bool>(
+      Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 25),
+        child: StatefulBuilder(
+          builder: (context, setState) {
+            return Container(
+              width: 320, // فقط أضفت هذا السطر
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.blue.shade50,
+                    Colors.white,
+                    Colors.blue.shade50,
+                  ],
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x33000000),
+                    blurRadius: 18,
+                    offset: Offset(0, 10),
+                  ),
+                ],
+                border: Border.all(color: Colors.white.withOpacity(.6)),
+              ),
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // ✅ Header
+                  Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(.8),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.logout_rounded,
+                          color: Colors.redAccent,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'تأكيد تسجيل الخروج',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Get.back(result: false),
+                        icon: const Icon(Icons.close_rounded),
+                        splashRadius: 20,
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 10),
+                  const Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      'أدخل كلمة مرور حساب المالك للتأكيد',
+                      style: TextStyle(fontSize: 13.5),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // ✅ Password field
+                  TextField(
+                    controller: passCtrl,
+                    obscureText: isPasswordHidden,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => Get.back(result: true),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(.85),
+                      labelText: 'كلمة المرور',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: Colors.blueGrey.withOpacity(.25),
+                        ),
+                      ),
+                      prefixIcon: const Icon(Icons.lock_rounded),
+                      suffixIcon: IconButton(
+                        splashRadius: 20,
+                        onPressed: () {
+                          setState(() => isPasswordHidden = !isPasswordHidden);
+                        },
+                        icon: Icon(
+                          isPasswordHidden
+                              ? Iconsax.eye
+                              : Iconsax.eye_slash,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // ✅ Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Get.back(result: false),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            side: BorderSide(color: Colors.blueGrey.withOpacity(.3)),
+                            backgroundColor: Colors.white.withOpacity(.55),
+                          ),
+                          child: const Text('إلغاء'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Get.back(result: true),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            elevation: 2,
+                          ),
+                          child: const Text('تأكيد'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+      barrierDismissible: false,
+    );
+
+    final enteredPass = passCtrl.text.trim();
+    passCtrl.dispose();
+
+    if (confirmed != true) return;
+
+    if (enteredPass.isEmpty) {
       Get.snackbar(
-        'خطأ',
-        'فشل في التحقق من الحالة: ${e.toString()}',
-        backgroundColor: Colors.red,
+        'تنبيه',
+        'أدخل كلمة المرور أولاً',
+        backgroundColor: Colors.orange,
         colorText: Colors.white,
       );
+      return;
+    }
+
+    try {
+      isAuthLoading.value = true;
+
+      final user = _auth.currentUser;
+      final emailNow = user?.email;
+
+      if (user == null || emailNow == null) {
+        Get.snackbar(
+          'خطأ',
+          'لا يوجد حساب مالك مسجل حالياً',
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
+        return;
+      }
+
+      // ✅ Authentication عادي: SignIn للتحقق
+      await _auth.signInWithEmailAndPassword(
+        email: emailNow,
+        password: enteredPass,
+      );
+
+      // ✅ لو صح: خروج + مسح مؤقت + للـ Login
+      await _auth.signOut();
+      _clearLocalData();
+      Get.offAll(() => const LoginPage());
+
+    } on FirebaseAuthException catch (e) {
+      String msg = 'فشل التحقق';
+      if (e.code == 'wrong-password') msg = 'كلمة المرور غير صحيحة';
+      if (e.code == 'user-not-found') msg = 'الحساب غير موجود';
+      if (e.code == 'too-many-requests') msg = 'محاولات كثيرة، حاول لاحقاً';
+      if (e.code == 'network-request-failed') msg = 'مشكلة في الإنترنت';
+
+      Get.snackbar('فشل', msg,
+          backgroundColor: Colors.red, colorText: Colors.white);
+    } catch (e) {
+      Get.snackbar('خطأ', 'حدث خطأ: $e',
+          backgroundColor: Colors.red, colorText: Colors.white);
+    } finally {
+      isAuthLoading.value = false;
     }
   }
 
+
   Future<void> loadPharmacyData(String uid) async {
-    isLoading.value = true; // تفعيل حالة التحميل في البداية
+    isPharmacyLoading.value = true; // تفعيل حالة التحميل في البداية
+    isPharmacyLoaded.value = false;
 
     try {
       final data = await _firestoreService.getPharmacyData(uid);
@@ -352,7 +592,7 @@ class AuthController extends GetxController {
       pharmacyData.value = {}; // تفريغ البيانات عند الخطأ
       isPharmacyLoaded.value = true; // لتجنب التحميل المستمر في الـ UI
     } finally {
-      isLoading.value = false; // إيقاف حالة التحميل
+      isPharmacyLoading.value = false; // إيقاف حالة التحميل
     }
   }
 
@@ -406,15 +646,15 @@ class AuthController extends GetxController {
     currentEmployee.value = null;
     currentUserName.value = '';
     currentUserRole.value = '';
+    isPharmacyLoaded.value = false;
+    isPermissionsLoaded.value = false;
+    rolePermissions.clear();
+    employeeOverrides.clear();
   }
 
   // دالة تبديل المستخدم
   Future<void> switchUser() async {
     try {
-      // حفظ بيانات الصيدلية الحالية
-      final currentPharmacyId = pharmacyId;
-      final currentPharmacyName = pharmacyData['pharmacyName'] ?? '';
-
       // مسح بيانات الموظف الحالي
       currentEmployee.value = null;
       currentUserName.value = '';
@@ -475,27 +715,28 @@ class AuthController extends GetxController {
 
   /// من قام بالفعل (Owner أو Employee)
   Map<String, dynamic> get actorInfo {
+    // ✅ موظف داخلي
     if (currentEmployee.value != null) {
-      // طباعة البيانات للتحقق
-      print('🔍 currentEmployee.value: ${currentEmployee.value}');
+      final emp = currentEmployee.value!;
+
+      // ⚠️ لازم employeeId يكون doc.id الحقيقي من employees
+      final employeeId = emp['id']?.toString() ?? '';
 
       return {
         'type': 'employee',
-        'id': currentEmployee.value!['id']?.toString() ??
-            currentEmployee.value!['userId']?.toString() ??
-            FirebaseAuth.instance.currentUser?.uid ??
-            'unknown_employee',
-        'name': currentEmployee.value!['name']?.toString() ??
-            currentEmployee.value!['fullName']?.toString() ??
-            currentEmployee.value!['username']?.toString() ??
+        'id': employeeId.isEmpty ? 'unknown_employee' : employeeId,
+        'name': emp['name']?.toString() ??
+            emp['fullName']?.toString() ??
+            emp['username']?.toString() ??
             currentUserName.value,
-        'username': currentUserName.value,
+        'username': emp['username']?.toString() ?? currentUserName.value,
         'role': currentUserRole.value,
-        'roleId': currentEmployee.value!['roleId']?.toString() ?? 'employee',
+        'roleId': emp['roleId']?.toString() ?? 'employee',
+        'pharmacyId': pharmacyId,
       };
     }
 
-    // صاحب الصيدلية
+    // ✅ Owner
     final user = FirebaseAuth.instance.currentUser;
     return {
       'type': 'owner',
@@ -503,66 +744,83 @@ class AuthController extends GetxController {
       'email': user?.email ?? '',
       'name': userName,
       'role': 'صاحب الصيدلية',
+      'pharmacyId': pharmacyId,
     };
   }
+
 
   // في AuthController
   Future<Map<String, dynamic>> getSaleActorInfo() async {
     try {
       print('🔍 جلب معلومات منفذ البيع...');
 
+      // ✅ موظف داخلي
       if (currentEmployee.value != null) {
-        print('👤 موظف داخلي: ${currentEmployee.value}');
+        final emp = currentEmployee.value!;
+        final employeeId = emp['id']?.toString() ?? '';
 
-        // محاولة جلب البيانات الكاملة من Firestore
-        final employeeId = currentEmployee.value!['id']?.toString() ??
-            currentEmployee.value!['userId']?.toString();
+        print('👤 موظف داخلي: $emp');
 
-        if (employeeId != null) {
-          try {
-            final doc = await FirebaseFirestore.instance
-                .collection('pharmacies')
-                .doc(pharmacyId)
-                .collection('employees')
-                .doc(employeeId)
-                .get();
-
-            if (doc.exists) {
-              final data = doc.data();
-              return {
-                'type': 'employee',
-                'id': employeeId,
-                'name': data?['name'] ??
-                    data?['fullName'] ??
-                    currentEmployee.value!['username'] ??
-                    'موظف',
-                'username': currentUserName.value,
-                'role': currentUserRole.value,
-                'roleId': currentEmployee.value!['roleId'] ?? 'employee',
-                'pharmacyId': pharmacyId,
-              };
-            }
-          } catch (e) {
-            print('⚠️ فشل جلب بيانات الموظف من Firestore: $e');
-          }
+        // ✅ لو id فاضي -> ما نستخدموش uid المالك كبديل
+        if (employeeId.isEmpty) {
+          return {
+            'type': 'employee',
+            'id': 'unknown_employee',
+            'name': emp['name']?.toString() ??
+                emp['fullName']?.toString() ??
+                emp['username']?.toString() ??
+                currentUserName.value,
+            'username': emp['username']?.toString() ?? currentUserName.value,
+            'role': currentUserRole.value,
+            'roleId': emp['roleId']?.toString() ?? 'employee',
+            'pharmacyId': pharmacyId,
+          };
         }
 
-        // استخدام البيانات المحلية
+        // ✅ جرب نجيب البيانات الكاملة من Firestore (اختياري)
+        try {
+          final doc = await FirebaseFirestore.instance
+              .collection('pharmacies')
+              .doc(pharmacyId)
+              .collection('employees')
+              .doc(employeeId)
+              .get();
+
+          if (doc.exists) {
+            final data = doc.data();
+            return {
+              'type': 'employee',
+              'id': employeeId,
+              'name': data?['name']?.toString() ??
+                  data?['fullName']?.toString() ??
+                  emp['username']?.toString() ??
+                  'موظف',
+              'username': emp['username']?.toString() ?? currentUserName.value,
+              'role': currentUserRole.value,
+              'roleId': emp['roleId']?.toString() ?? 'employee',
+              'pharmacyId': pharmacyId,
+            };
+          }
+        } catch (e) {
+          print('⚠️ فشل جلب بيانات الموظف من Firestore: $e');
+        }
+
+        // ✅ fallback محلي (بدون uid المالك)
         return {
           'type': 'employee',
-          'id': employeeId ?? FirebaseAuth.instance.currentUser?.uid ?? 'unknown',
-          'name': currentEmployee.value!['name']?.toString() ??
-              currentEmployee.value!['fullName']?.toString() ??
-              currentEmployee.value!['username']?.toString() ??
+          'id': employeeId,
+          'name': emp['name']?.toString() ??
+              emp['fullName']?.toString() ??
+              emp['username']?.toString() ??
               currentUserName.value,
-          'username': currentUserName.value,
+          'username': emp['username']?.toString() ?? currentUserName.value,
           'role': currentUserRole.value,
-          'roleId': currentEmployee.value!['roleId']?.toString() ?? 'employee',
+          'roleId': emp['roleId']?.toString() ?? 'employee',
           'pharmacyId': pharmacyId,
         };
       }
 
-      // صاحب الصيدلية
+      // ✅ Owner
       final user = FirebaseAuth.instance.currentUser;
       print('👑 صاحب الصيدلية: ${user?.email}');
 
@@ -574,12 +832,10 @@ class AuthController extends GetxController {
         'role': 'صاحب الصيدلية',
         'pharmacyId': pharmacyId,
       };
-
     } catch (e, stackTrace) {
       print('❌ خطأ في getSaleActorInfo: $e');
       print('📜 Stack trace: $stackTrace');
 
-      // بيانات افتراضية
       return {
         'type': 'unknown',
         'id': 'error_${DateTime.now().millisecondsSinceEpoch}',

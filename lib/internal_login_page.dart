@@ -26,6 +26,20 @@ class _InternalLoginPageState extends State<InternalLoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+
+    // Responsive card width
+    final double cardWidth = size.width >= 1200
+        ? 420
+        : size.width >= 900
+        ? 420
+        : size.width >= 600
+        ? 420
+        : size.width * 0.92;
+
+    // Responsive padding
+    final double cardPadding = size.width < 600 ? 16 : 20;
+
     return Scaffold(
       body: Stack(
         children: [
@@ -39,111 +53,154 @@ class _InternalLoginPageState extends State<InternalLoginPage> {
             ),
           ),
 
-          // طبقة شفافة لتعتيم الخلفية قليلاً
-          Container(
-            color: Colors.black.withOpacity(0.3),
-          ),
+          // طبقة شفافة
+          Container(color: Colors.black.withOpacity(0.35)),
 
-          // محتوى تسجيل الدخول
+          // المحتوى
           Center(
-            child: Container(
-              width: 400,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.9),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: const [
-                  BoxShadow(blurRadius: 12, color: Colors.black26)
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    "تسجيل دخول الموظفين",
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 20),
-
-                  // حقل Username
-                  TextField(
-                    focusNode: usernameFocus,
-                    decoration: const InputDecoration(
-                      labelText: "اسم المستخدم",
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (value) => controller.internalUsername.value = value,
-                    textInputAction: TextInputAction.next,
-                    onSubmitted: (_) {
-                      FocusScope.of(context).requestFocus(passwordFocus);
-                    },
-                  ),
-                  const SizedBox(height: 15),
-                  // حقل Password
-                  TextField(
-                    focusNode: passwordFocus,
-                    obscureText: !showPassword,
-                    textInputAction: TextInputAction.done,
-                    decoration: InputDecoration(
-                      labelText: "كلمة المرور",
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          showPassword ? Icons.visibility : Icons.visibility_off,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: cardWidth),
+              child: Container(
+                padding: EdgeInsets.all(cardPadding),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.92),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: const [
+                    BoxShadow(blurRadius: 18, color: Colors.black26),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header
+                    Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: Colors.lightBlueAccent.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.badge_outlined,
+                            color: Colors.lightBlueAccent.shade700,
+                          ),
                         ),
-                        onPressed: () {
-                          setState(() {
-                            showPassword = !showPassword;
-                          });
-                        },
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            "تسجيل دخول الموظفين",
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    Text(
+                      "ادخل اسم المستخدم وكلمة المرور الخاصة بالموظف",
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontSize: 13,
                       ),
                     ),
-                    onChanged: (value) => controller.internalPassword.value = value,
-                    onSubmitted: (_) async {
-                      if (controller.internalUsername.value.isEmpty ||
-                          controller.internalPassword.value.isEmpty) {
-                        Get.snackbar(
-                          "تنبيه",
-                          "يرجى ملء جميع الحقول",
-                          backgroundColor: Colors.lightBlueAccent,
-                        );
-                        return;
-                      }
-                      await _loginInternal();
-                    },
-                  ),
 
-                  const SizedBox(height: 25),
+                    const SizedBox(height: 18),
 
-                  // زر تسجيل الدخول
-                  Obx(() {
-                    return controller.isLoading.value
-                        ? const CircularProgressIndicator()
-                        : SizedBox(
+                    // Username
+                    TextField(
+                      focusNode: usernameFocus,
+                      decoration: InputDecoration(
+                        labelText: "اسم المستخدم",
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.person_outline),
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                      ),
+                      onChanged: (value) => controller.internalUsername.value = value.trim(),
+                      textInputAction: TextInputAction.next,
+                      onSubmitted: (_) => FocusScope.of(context).requestFocus(passwordFocus),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // Password
+                    TextField(
+                      focusNode: passwordFocus,
+                      obscureText: !showPassword,
+                      textInputAction: TextInputAction.done,
+                      decoration: InputDecoration(
+                        labelText: "كلمة المرور",
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                        suffixIcon: IconButton(
+                          icon: Icon(showPassword ? Icons.visibility : Icons.visibility_off),
+                          onPressed: () => setState(() => showPassword = !showPassword),
+                        ),
+                      ),
+                      onChanged: (value) => controller.internalPassword.value = value,
+                      onSubmitted: (_) async => _validateAndLogin(),
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    // Login button
+                    Obx(() {
+                      return controller.isInternalLoading.value
+                          ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8.0),
+                        child: CircularProgressIndicator(),
+                      )
+                          : SizedBox(
+                        width: double.infinity,
+                        height: 46,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.lightBlueAccent.shade700,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: _validateAndLogin,
+                          child: const Text(
+                            "تسجيل الدخول",
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      );
+                    }),
+
+                    const SizedBox(height: 12),
+
+                    // Actions row (Back to owner / Logout owner)
+                    SizedBox(
                       width: double.infinity,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 45),
-                          backgroundColor: Colors.lightBlueAccent[700],
-                          foregroundColor: Colors.white,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.logout),
+                        label: const Text("خروج نهائي"),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red.shade600,
+                          side: BorderSide(color: Colors.red.shade200),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          minimumSize: const Size(double.infinity, 44),
                         ),
                         onPressed: () async {
-                          if (controller.internalUsername.value.isEmpty ||
-                              controller.internalPassword.value.isEmpty) {
-                            Get.snackbar(
-                              "تنبيه",
-                              "يرجى ملء جميع الحقول",
-                              backgroundColor: Colors.lightBlueAccent,
-                            );
-                            return;
-                          }
-                          await _loginInternal();
+                          await controller.logoutOwnerSecure(); // يطلب كلمة مرور المالك
                         },
-                        child: const Text("تسجيل الدخول"),
                       ),
-                    );
-                  }),
-                ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -152,14 +209,35 @@ class _InternalLoginPageState extends State<InternalLoginPage> {
     );
   }
 
+  Future<void> _validateAndLogin() async {
+    if (controller.internalUsername.value.trim().isEmpty ||
+        controller.internalPassword.value.isEmpty) {
+      Get.snackbar(
+        "تنبيه",
+        "يرجى ملء جميع الحقول",
+        backgroundColor: Colors.lightBlueAccent,
+      );
+      return;
+    }
+    await _loginInternal();
+  }
+
   Future<void> _loginInternal() async {
     try {
-      final pharmacyId = controller.userId!; // uid الصيدلية
+      final pharmacyId = controller.userId; // uid الصيدلية (مالك Firebase)
+      if (pharmacyId == null || pharmacyId.isEmpty) {
+        Get.snackbar(
+          "خطأ",
+          "لم يتم العثور على معرف الصيدلية (تأكد أن المالك مسجل دخول)",
+          backgroundColor: Colors.redAccent,
+          colorText: Colors.white,
+        );
+        return;
+      }
 
-      bool success = await controller.loginInternal(pharmacyId: pharmacyId);
+      final success = await controller.loginInternal(pharmacyId: pharmacyId);
 
       if (success) {
-        // بعد نجاح تسجيل الدخول للموظف، انتقل للهوم
         Get.offAll(() => const HomePage());
       } else {
         Get.snackbar(

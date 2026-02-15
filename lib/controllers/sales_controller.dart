@@ -248,16 +248,14 @@ class SalesController extends GetxController {
           .where('employeeId', isEqualTo: uid)
           .where('isDeleted', isEqualTo: false)
           .orderBy('createdAt', descending: true)
-          .limit(200)
           .get();
 
       for (final doc in querySnapshot.docs) {
         try {
           final data = doc.data() as Map<String, dynamic>;
           final sale = Sale.fromMap({'id': doc.id, ...data})
-              .copyWith(id: doc.id, status: InvoiceStatus.completed, isSaved: true)
+              .copyWith(id: doc.id)
               .recalculate();
-
           _userInvoices[uid]!.add(sale);
         } catch (e) {
           debugPrint('❌ خطأ في تحويل فاتورة من Firebase: $e');
@@ -341,28 +339,37 @@ class SalesController extends GetxController {
   // Invoice list helpers
   // =============================
   void _addOrReplaceInvoice(Sale invoice) {
-    final uid = invoice.employeeId ?? _currentEmployeeId;
-    if (uid.isEmpty) return;
+    final userId = invoice.employeeId ?? '';
+    if (userId.isEmpty) return;
 
-    _userInvoices.putIfAbsent(uid, () => []);
+    final list = List<Sale>.from(_userInvoices[userId] ?? const <Sale>[]);
 
-    final idx = _userInvoices[uid]!.indexWhere((i) => i.invoiceNumber == invoice.invoiceNumber);
+    // ✅ لو الفاتورة مكتملة، امسح أي نسخة pending بنفس الرقم
+    if (invoice.status == InvoiceStatus.completed || invoice.isSaved) {
+      list.removeWhere((x) =>
+      x.invoiceNumber == invoice.invoiceNumber &&
+          x.status == InvoiceStatus.pending);
+    }
+
+    final idx = list.indexWhere((x) => x.invoiceNumber == invoice.invoiceNumber);
     if (idx >= 0) {
-      _userInvoices[uid]![idx] = invoice.recalculate();
+      list[idx] = invoice;
     } else {
-      _userInvoices[uid]!.add(invoice.recalculate());
+      list.add(invoice);
     }
 
-    if (invoice.status == InvoiceStatus.pending) {
-      _savePendingInvoicesToLocal();
-    }
+    // ✅ أعد إسناد + refresh للـ Obx
+    _userInvoices[userId] = list;
+    _userInvoices.refresh();
   }
 
   void _removeInvoiceFromUserList(String invoiceNumber) {
     final uid = _currentEmployeeId;
-    if (!_userInvoices.containsKey(uid)) return;
-
-    _userInvoices[uid]!.removeWhere((inv) => inv.invoiceNumber == invoiceNumber);
+    if (uid.isEmpty) return;
+    final list = List<Sale>.from(_userInvoices[uid] ?? const <Sale>[]);
+    list.removeWhere((inv) => inv.invoiceNumber == invoiceNumber);
+    _userInvoices[uid] = list;
+    _userInvoices.refresh();
     _savePendingInvoicesToLocal();
   }
 
@@ -420,53 +427,66 @@ class SalesController extends GetxController {
   }
 
   void createNewInvoice() {
-    _saveCurrentInvoice();
+    final uid = _currentEmployeeId;
+    if (uid.isEmpty) return;
 
+    final current = currentSale.value;
+
+    // ✅ لو الحالية pending فقط: خزّنها
+    if (!current.isSaved && current.status == InvoiceStatus.pending) {
+      _addOrReplaceInvoice(current.recalculate());
+    } else {
+      // ✅ لو الحالية completed (بعد saveSale): تأكد ما فيش نسخة pending بنفس الرقم
+      final list = List<Sale>.from(_userInvoices[uid] ?? const <Sale>[]);
+      list.removeWhere((inv) =>
+      inv.invoiceNumber == current.invoiceNumber &&
+          inv.status == InvoiceStatus.pending);
+      _userInvoices[uid] = list;
+      _userInvoices.refresh();
+    }
+
+    // ✅ أنشئ فاتورة جديدة pending
     final newInvoice = Sale.empty(
       pharmacyId: pharmacyId,
-      employeeId: _currentEmployeeId,
-      employeeName: currentSale.value.employeeName,
+      employeeId: uid,
+      employeeName: current.employeeName,
     );
 
     _addOrReplaceInvoice(newInvoice);
     _setCurrentSale(newInvoice);
 
-    Get.snackbar('فاتورة جديدة', 'تم إنشاء فاتورة #${newInvoice.invoiceNumber}',
-        duration: const Duration(seconds: 2));
+    // ✅ حدّث التخزين المحلي للفواتير المؤقتة
+    _savePendingInvoicesToLocal();
   }
 
   void deleteCurrentInvoice() {
     final sale = currentSale.value;
 
+    // ❌ لا نحذف محفوظة
     if (sale.isSaved || sale.status == InvoiceStatus.completed) {
       _safeSnackbar('غير مسموح', 'لا يمكن حذف فاتورة تم حفظها');
       return;
     }
 
+    // ❌ لازم تبقى فاتورة واحدة على الأقل
     if (activeInvoices.length <= 1) {
       _safeSnackbar('غير مسموح', 'يجب أن تبقى فاتورة واحدة نشطة على الأقل');
       return;
     }
 
-    Get.defaultDialog(
-      title: 'حذف الفاتورة',
-      middleText: 'هل تريد حذف فاتورة #${sale.invoiceNumber}؟',
-      textConfirm: 'نعم',
-      textCancel: 'لا',
-      onConfirm: () {
-        _removeInvoiceFromUserList(sale.invoiceNumber);
-        Get.back();
+    final invoiceNumber = sale.invoiceNumber;
 
-        if (activeInvoices.isEmpty) {
-          _createNewEmptyInvoice();
-        } else {
-          _loadInvoice(0);
-        }
+    // 🔥 احذف مباشرة
+    _removeInvoiceFromUserList(invoiceNumber);
 
-        update();
-        _safeSnackbar('تم الحذف', 'تم حذف الفاتورة بنجاح');
-      },
-    );
+    // لو فيه فواتير باقية نفتح أول وحدة
+    if (activeInvoices.isEmpty) {
+      _createNewEmptyInvoice();
+    } else {
+      _loadInvoice(0);
+    }
+
+    update();
   }
 
   void switchToNextInvoice() {
@@ -699,7 +719,6 @@ class SalesController extends GetxController {
 
       final now = DateTime.now();
 
-      // تنظيف حقول العملاء (خليها null لو فاضية)
       final customerName = customerNameController.text.trim();
       final customerPhone = customerPhoneController.text.trim();
       final notes = notesController.text.trim();
@@ -720,15 +739,22 @@ class SalesController extends GetxController {
 
       await doc.set(saved.toMap());
 
-      // تحديث القائمة
+      // ✅ حدّث القائمة (نفس رقم الفاتورة)
       _addOrReplaceInvoice(saved);
+
+      // ✅ مهم جداً: خلّي currentSale تصير مكتملة قبل createNewInvoice()
+      currentSale.value = saved;
 
       await _logSaleActivity(saved);
 
-      // تحديث التخزين المحلي (pending فقط)
+      // ✅ احذف أي نسخة pending بنفس الرقم (لو موجودة)
+      final userId = saved.employeeId ?? '';
+      await _removePendingInvoiceByNumber(userId, saved.invoiceNumber);
+
+      // ✅ حدّث التخزين المحلي بعد الحذف
       await _savePendingInvoicesToLocal();
 
-      // فاتورة جديدة
+      // ✅ افتح فاتورة جديدة
       createNewInvoice();
 
       _safeSnackbar('تم الحفظ', 'تم حفظ الفاتورة بنجاح');
@@ -758,18 +784,12 @@ class SalesController extends GetxController {
       int newPackageQty = currentPackageQty;
       int newPieceQty = currentPieceQty;
 
-      // 🔹 بيع بالقطعة
       if (item.sellAsPiece) {
-
         if (unitsPerPackage <= 0) {
-          throw Exception(
-              'لا يمكن البيع بالقطعة لأن unitsPerPackage غير محدد للدواء ${medicine.name}'
-          );
+          throw Exception('لا يمكن البيع بالقطعة لأن unitsPerPackage غير محدد للدواء ${medicine.name}');
         }
 
-        final int totalPieces =
-            currentPieceQty + (currentPackageQty * unitsPerPackage);
-
+        final int totalPieces = currentPieceQty + (currentPackageQty * unitsPerPackage);
         final int newTotalPieces = totalPieces - item.quantity;
 
         if (newTotalPieces < 0) {
@@ -778,15 +798,14 @@ class SalesController extends GetxController {
 
         newPackageQty = newTotalPieces ~/ unitsPerPackage;
         newPieceQty = newTotalPieces % unitsPerPackage;
-
-      }
-      // 🔹 بيع باكو
-      else {
+      } else {
         newPackageQty = currentPackageQty - item.quantity;
 
         if (newPackageQty < 0) {
           throw Exception('مخزون غير كافي للدواء ${medicine.name}');
         }
+        // ✅ في بيع الباكو ما نغيروش pieceQuantity
+        newPieceQty = currentPieceQty;
       }
 
       await inventoryController.updateStock(
@@ -797,6 +816,20 @@ class SalesController extends GetxController {
     }
   }
 
+  Future<void> _removePendingInvoiceByNumber(String userId, String invoiceNumber) async {
+    if (userId.isEmpty) return;
+
+    final list = List<Sale>.from(_userInvoices[userId] ?? const <Sale>[]);
+
+    list.removeWhere((inv) =>
+    inv.invoiceNumber == invoiceNumber &&
+        inv.status == InvoiceStatus.pending);
+
+    _userInvoices[userId] = list;
+    _userInvoices.refresh();
+
+    await _savePendingInvoicesToLocal();
+  }
 
   Future<void> _logSaleActivity(Sale savedSale) async {
     try {
@@ -927,6 +960,150 @@ class SalesController extends GetxController {
         'averageSale': 0.0,
       };
     }
+  }
+// =============================
+// History / Day helpers
+// =============================
+  DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
+  DateTime _startOfNextDay(DateTime d) => DateTime(d.year, d.month, d.day).add(const Duration(days: 1));
+
+  Future<List<Sale>> fetchMySalesForDay(DateTime day) async {
+    final uid = _currentEmployeeId;
+    if (uid.isEmpty) return [];
+
+    final start = _startOfDay(day);
+    final end = _startOfNextDay(day);
+
+    final qs = await salesCollection
+        .where('employeeId', isEqualTo: uid)
+        .where('isDeleted', isEqualTo: false)
+        .where('saleDate', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('saleDate', isLessThan: Timestamp.fromDate(end))
+        .orderBy('saleDate', descending: true)
+        .get();
+
+    return qs.docs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      return Sale.fromMap({'id': doc.id, ...data}).copyWith(id: doc.id).recalculate();
+    }).toList();
+  }
+
+  /// تحميل "هيستوري اليوم" للموظف الحالي (Firebase + optional local pending)
+  Future<void> loadMyHistoryToday({bool includeLocalPending = true}) async {
+    final uid = _currentEmployeeId;
+    if (uid.isEmpty) return;
+
+    try {
+      isLoading.value = true;
+
+      final todayFromFirebase = await fetchMySalesForDay(DateTime.now());
+
+      final merged = <Sale>[];
+      merged.addAll(todayFromFirebase);
+
+      if (includeLocalPending) {
+        // حمّل pending من local ثم التقطها
+        await _loadPendingInvoicesFromLocal(uid);
+        merged.addAll(activeInvoices);
+      }
+
+      // remove duplicates by invoiceNumber (Firebase wins غالباً)
+      final byNumber = <String, Sale>{};
+      for (final s in merged) {
+        byNumber[s.invoiceNumber] = s;
+      }
+
+      final list = byNumber.values.toList();
+      list.sort((a, b) {
+        if (a.status == InvoiceStatus.pending && b.status != InvoiceStatus.pending) return -1;
+        if (a.status != InvoiceStatus.pending && b.status == InvoiceStatus.pending) return 1;
+        return b.saleDate.compareTo(a.saleDate);
+      });
+
+      _userInvoices[uid] = list;
+      _userInvoices.refresh();
+      update();
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  /// (اختياري) تحميل كل فواتير الموظف - هذا يستعمل دالتك الحالية
+  Future<void> loadMyHistoryAll() async {
+    await _loadUserInvoices();
+  }
+
+  /// تحقق هل تم إقفال اليوم مسبقاً
+  Future<bool> isDayClosedForMe(DateTime day) async {
+    final uid = _currentEmployeeId;
+    if (uid.isEmpty) return false;
+    final start = _startOfDay(day);
+    final key = '${uid}_${start.year}${start.month.toString().padLeft(2,'0')}${start.day.toString().padLeft(2,'0')}';
+
+    final doc = await _firestore
+        .collection('pharmacies')
+        .doc(pharmacyId)
+        .collection('dailyClosings')
+        .doc(key)
+        .get();
+
+    return doc.exists;
+  }
+
+  /// إقفال اليوم: يخزن تقرير في Firestore
+  Future<Map<String, dynamic>> closeMyDay() async {
+    final uid = _currentEmployeeId;
+    if (uid.isEmpty) throw Exception('employeeId فارغ');
+
+    final now = DateTime.now();
+    final start = _startOfDay(now);
+    final key = '${uid}_${start.year}${start.month.toString().padLeft(2,'0')}${start.day.toString().padLeft(2,'0')}';
+
+    // لو تبي تمنع الإقفال مرتين:
+    final alreadyClosed = await isDayClosedForMe(now);
+    if (alreadyClosed) {
+      throw Exception('تم إقفال هذا اليوم مسبقاً');
+    }
+
+    final todaySales = await fetchMySalesForDay(now);
+    final completed = todaySales.where((s) =>
+    s.status == InvoiceStatus.completed &&
+        s.isDeleted == false &&
+        s.isSaved == true
+    ).toList();
+
+    double cashTotal = 0, cardTotal = 0, insTotal = 0;
+    for (final s in completed) {
+      switch (s.paymentMethod) {
+        case PaymentMethod.cash: cashTotal += s.total; break;
+        case PaymentMethod.card: cardTotal += s.total; break;
+        case PaymentMethod.insurance: insTotal += s.total; break;
+      }
+    }
+    final grandTotal = cashTotal + cardTotal + insTotal;
+
+    final payload = {
+      'pharmacyId': pharmacyId,
+      'employeeId': uid,
+      'employeeName': currentSale.value.employeeName,
+      'date': Timestamp.fromDate(start),
+      'createdAt': FieldValue.serverTimestamp(),
+      'completedCount': completed.length,
+      'cashTotal': cashTotal,
+      'cardTotal': cardTotal,
+      'insuranceTotal': insTotal,
+      'grandTotal': grandTotal,
+      'invoiceNumbers': completed.map((e) => e.invoiceNumber).toList(),
+    };
+
+    await _firestore
+        .collection('pharmacies')
+        .doc(pharmacyId)
+        .collection('dailyClosings')
+        .doc(key)
+        .set(payload, SetOptions(merge: true));
+
+    return payload;
   }
 
   // =============================

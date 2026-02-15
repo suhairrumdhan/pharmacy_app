@@ -6,7 +6,8 @@ abstract class DefaultPermissions {
     'dashboard.view': true,
     'dashboard.analytics.view': true,
     'dashboard.reports.view': true,
-
+    'shifts.view' :true,
+    'purchases.view':true,
     // Sales
     'sales.view': true,
     'sales.create': true,
@@ -53,7 +54,8 @@ abstract class DefaultPermissions {
     'dashboard.view': true,
     'dashboard.analytics.view': false,
     'dashboard.reports.view': false,
-
+    'shifts.view' :true,
+    'purchases.view':true,
     // Sales
     'sales.view': true,
     'sales.create': true,
@@ -100,7 +102,8 @@ abstract class DefaultPermissions {
     'dashboard.view': true,
     'dashboard.analytics.view': false,
     'dashboard.reports.view': false,
-
+    'shifts.view' :true,
+    'purchases.view':true,
     // Sales
     'sales.view': true,
     'sales.create': true,

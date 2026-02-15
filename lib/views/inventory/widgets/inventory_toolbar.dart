@@ -13,6 +13,7 @@ class InventoryToolbar extends StatelessWidget {
   const InventoryToolbar({super.key});
 
   @override
+  @override
   Widget build(BuildContext context) {
     final inventoryController = Get.find<InventoryController>();
 
@@ -20,49 +21,34 @@ class InventoryToolbar extends StatelessWidget {
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            // أزرار الإضافة والاستيراد
-            _buildActionButton(
-              icon: Icons.add,
-              label: 'إضافة دواء',
-              color: Colors.green,
-              onPressed: () => _showAddMedicineDialog(context),
-            ),
-            const SizedBox(width: 12),
-            _buildActionButton(
-              icon: Icons.upload_file,
-              label: 'استيراد CSV',
-              color: Colors.blue,
-              onPressed: () => _importFromCSV(inventoryController),
-            ),
-            const SizedBox(width: 12),
-            _buildActionButton(
-              icon: Icons.download,
-              label: 'تصدير CSV',
-              color: Colors.purple,
-              onPressed: () => _exportData(inventoryController),
-            ),
-            const SizedBox(width: 12),
-            _buildActionButton(
-              icon: Icons.inventory_2,
-              label: 'جرد سريع',
-              color: Colors.orange,
-              onPressed: () => _showQuickInventory(inventoryController),
-            ),
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final w = c.maxWidth;
 
-            const Spacer(),
+            // Breakpoints بسيطة
+            final bool isWide = w >= 1100;
+            final bool isMedium = w >= 760 && w < 1100;
+            final bool isNarrow = w < 760;
 
-            // البحث
-            SizedBox(
-              width: 300,
+            // عرض البحث حسب الشاشة
+            double searchWidth;
+            if (isWide) {
+              searchWidth = 320;
+            } else if (isMedium) {
+              searchWidth = 280;
+            } else {
+              searchWidth = w; // كامل العرض
+            }
+
+            final searchField = SizedBox(
+              width: searchWidth,
               child: TextField(
                 onChanged: inventoryController.searchMedicines,
                 decoration: InputDecoration(
                   hintText: 'ابحث بالاسم، التصنيف، أو الباركود...',
                   prefixIcon: const Icon(Icons.search),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(10),
                     borderSide: BorderSide.none,
                   ),
                   filled: true,
@@ -73,16 +59,89 @@ class InventoryToolbar extends StatelessWidget {
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
+            );
 
-            // التصفية
-            FilterButton(inventoryController: inventoryController),
-          ],
+            final filterBtn = FilterButton(inventoryController: inventoryController);
+
+            final actions = <Widget>[
+              _buildActionButton(
+                icon: Icons.add,
+                label: 'إضافة دواء',
+                color: Colors.green,
+                onPressed: () => _showAddMedicineDialog(context),
+              ),
+              _gap(12),
+              _buildActionButton(
+                icon: Icons.upload_file,
+                label: 'استيراد CSV',
+                color: Colors.blue,
+                onPressed: () => _importFromCSV(inventoryController),
+              ),
+              _gap(12),
+              _buildActionButton(
+                icon: Icons.download,
+                label: 'تصدير CSV',
+                color: Colors.purple,
+                onPressed: () => _exportData(inventoryController),
+              ),
+              _gap(12),
+              _buildActionButton(
+                icon: Icons.inventory_2,
+                label: 'جرد سريع',
+                color: Colors.orange,
+                onPressed: () => _showQuickInventory(inventoryController),
+              ),
+            ];
+
+            // ✅ Wide: نفس الRow تقريباً
+            if (isWide) {
+              return Row(
+                children: [
+                  ...actions,
+                  const Spacer(),
+                  searchField,
+                  const SizedBox(width: 12),
+                  filterBtn,
+                ],
+              );
+            }
+
+            // ✅ Medium/Narrow: نخليها Wrap + سطر ثاني للبحث/الفلتر
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: actions
+                      .where((w) => w is! SizedBox) // لأننا بنستعمل spacing بدل _gap
+                      .toList(),
+                ),
+                const SizedBox(height: 12),
+                isNarrow
+                    ? Column(
+                  children: [
+                    searchField,
+                    const SizedBox(height: 10),
+                    Align(alignment: Alignment.centerRight, child: filterBtn),
+                  ],
+                )
+                    : Row(
+                  children: [
+                    Expanded(child: searchField),
+                    const SizedBox(width: 12),
+                    filterBtn,
+                  ],
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
   }
+
+  Widget _gap(double w) => SizedBox(width: w);
 
   Widget _buildActionButton({
     required IconData icon,
@@ -113,7 +172,7 @@ class InventoryToolbar extends StatelessWidget {
 
   Future<void> _importFromCSV(InventoryController controller) async {
     try {
-      // 1. اختيار ملف CSV
+      // 1) اختيار ملف CSV
       FilePickerResult? picked = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['csv'],
@@ -124,23 +183,21 @@ class InventoryToolbar extends StatelessWidget {
       if (picked == null || picked.files.isEmpty) return;
 
       final file = picked.files.first;
-      if (file.path == null || file.path!.isEmpty) {
+      final filePath = file.path;
+      if (filePath == null || filePath.isEmpty) {
         Get.snackbar("فشل", "تعذر الوصول إلى الملف");
         return;
       }
 
-      final filePath = file.path!;
       final csvFile = File(filePath);
-
       if (!await csvFile.exists()) {
         Get.snackbar("فشل", "الملف غير موجود");
         return;
       }
 
-      // 2. قراءة وتحليل CSV
+      // 2) قراءة أول سطر (headers)
       final csvString = await csvFile.readAsString();
-      final converter = CsvToListConverter();
-      final table = converter.convert(csvString);
+      final table = const CsvToListConverter().convert(csvString);
 
       if (table.isEmpty) {
         Get.snackbar("فشل", "الملف فارغ");
@@ -149,18 +206,35 @@ class InventoryToolbar extends StatelessWidget {
 
       final csvHeaders = table.first.map((e) => e.toString().trim()).toList();
 
-      // 3. فتح نافذة اختيار الأعمدة
-      final mapping = await Get.dialog<Map<String, int>>(
+      // 3) فتح Dialog (يرجع mapping + defaults)
+      final result = await Get.dialog<Map<String, dynamic>>(
         CSVImportDialog(headers: csvHeaders),
         barrierDismissible: false,
       );
 
-      if (mapping == null || mapping.isEmpty) {
+      if (result == null) {
         Get.snackbar("ملاحظة", "تم إلغاء الاستيراد");
         return;
       }
 
-      // 4. التأكد من تعيين الاسم
+      // ✅ دعم النتيجة الجديدة (mapping + defaults)
+      Map<String, int> mapping = {};
+      Map<String, dynamic> defaults = {};
+
+      if (result.containsKey('mapping')) {
+        mapping = (result['mapping'] as Map).cast<String, int>();
+        defaults = (result['defaults'] as Map?)?.cast<String, dynamic>() ?? {};
+      } else {
+        // ✅ احتياط: لو رجع Map قديم (field -> index)
+        mapping = result.cast<String, int>();
+      }
+
+      if (mapping.isEmpty) {
+        Get.snackbar("ملاحظة", "تم إلغاء الاستيراد");
+        return;
+      }
+
+      // 4) التأكد من تعيين الاسم
       if (!mapping.containsKey('name')) {
         Get.defaultDialog(
           title: "تنبيه",
@@ -172,19 +246,25 @@ class InventoryToolbar extends StatelessWidget {
         return;
       }
 
-      // 5. استيراد البيانات
-      await controller.importFromCSV(filePath, mapping);
+      // 5) استيراد البيانات (مع defaults)
+      await controller.importFromCSV(
+        filePath,
+        mapping,
+        defaults: defaults,
+      );
 
     } catch (e) {
-      print('CSV Import Error: $e');
+      debugPrint('CSV Import Error: $e');
       Get.snackbar(
         "خطأ في الاستيراد",
         "حدث خطأ: ${e.toString()}",
         backgroundColor: Colors.red,
+        colorText: Colors.white,
         duration: const Duration(seconds: 5),
       );
     }
   }
+
   Future<void> _exportData(InventoryController controller) async {
     try {
       // يمكنك إضافة خيارات تصدير هنا

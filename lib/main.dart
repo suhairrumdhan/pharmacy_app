@@ -8,21 +8,12 @@ import 'package:window_manager/window_manager.dart';
 import 'controllers/auth_controller.dart';
 import 'controllers/inventory_controller.dart';
 import 'controllers/insurance_company_controller.dart';
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  try {
-    await Firebase.initializeApp(
+  await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-  } catch (e) {
-    debugPrint('❌ Firebase initialization failed: $e');
-  }
-
-
   await windowManager.ensureInitialized();
-
   WindowOptions windowOptions = const WindowOptions(
     size: Size(1200, 1000),
     center: true,
@@ -49,14 +40,13 @@ class MyApp extends StatelessWidget {
       initialBinding: InitialBinding(),
       home: const LoginPage(),
       theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        useMaterial3: true,
-      ),
+      useMaterial3: true,
+      colorSchemeSeed: Colors.blue,
+    ),
+
     );
   }
 }
-
 class InitialBinding extends Bindings {
   @override
   void dependencies() {

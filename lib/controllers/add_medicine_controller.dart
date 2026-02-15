@@ -46,6 +46,9 @@ class AddMedicineController extends GetxController {
   final RxString selectedSupplierName = RxString('');
   final RxBool isLoadingSuppliers = false.obs;
 
+  final isEditMode = false.obs;
+  String? editingMedicineId;
+  bool _initialized = false;
 
   // Get pharmacy ID
   String? get pharmacyId => FirebaseAuth.instance.currentUser?.uid;
@@ -75,6 +78,42 @@ class AddMedicineController extends GetxController {
     newCategoryController.dispose();
     unitsPerPackageController.dispose();
     super.onClose();
+  }
+
+
+  void init(Medicine? medicine) {
+    if (_initialized) return;
+    _initialized = true;
+
+    if (medicine == null) {
+      isEditMode.value = false;
+      editingMedicineId = null;
+      clearForm();
+      return;
+    }
+
+    isEditMode.value = true;
+    editingMedicineId = medicine.id;
+
+    nameController.text = medicine.name;
+    scientificNameController.text = medicine.scientificName;
+    descriptionController.text = medicine.description ?? '';
+    quantityController.text = medicine.quantity.toString();
+    minStockController.text = medicine.minStockLevel?.toString() ?? '';
+    purchasePriceController.text = medicine.purchasePrice?.toString() ?? '';
+    sellingPriceController.text = medicine.sellingPrice?.toString() ?? '';
+    supplierController.text = medicine.supplier ?? '';
+    barcodeController.text = medicine.barcode ?? '';
+
+    selectedCategory.value = medicine.category;
+    selectedUnit.value = medicine.unit ?? UnitType.Tablet;
+
+    unitsPerPackageController.text = medicine.unitsPerPackage?.toString() ?? '';
+    sellByPiece.value = medicine.sellByPiece;
+    piecePriceCalculated.value = medicine.piecePrice;
+
+    expiryDate.value = medicine.expiryDate ?? DateTime.now().add(const Duration(days: 365));
+    medicineImageUrl.value = medicine.imageUrl;
   }
 
   int? get unitsPerPackage {
@@ -842,6 +881,127 @@ class AddMedicineController extends GetxController {
         snackPosition: SnackPosition.TOP,
       );
 
+      rethrow;
+    } finally {
+      isAddingMedicine.value = false;
+    }
+  }
+
+  Future<void> submit() async {
+    if (isEditMode.value) {
+      await updateMedicine();
+    } else {
+      await addMedicine();
+    }
+  }
+
+  Future<void> updateMedicine() async {
+    try {
+      isAddingMedicine.value = true;
+
+      // ✅ نفس التحقق
+      final fieldErrors = validateRequiredFields();
+      if (fieldErrors.isNotEmpty) {
+        final errorMessage = fieldErrors.entries.map((e) => '• ${e.value}').join('\n');
+        throw Exception('يوجد أخطاء في البيانات:\n$errorMessage');
+      }
+
+      if (editingMedicineId == null || editingMedicineId!.isEmpty) {
+        throw Exception('معرف الدواء غير موجود للتحديث');
+      }
+
+      // ✅ barcode: في التعديل لازم نتأكد ما يصطدمش مع دواء آخر
+      String? barcode;
+      final b = barcodeController.text.trim();
+      if (b.isNotEmpty) {
+        // تحقق: نفس الباركود مسموح لو هو نفس الدواء
+        final q = await FirebaseFirestore.instance
+            .collection('pharmacies')
+            .doc(pharmacyId)
+            .collection('medicines')
+            .where('barcode', isEqualTo: b)
+            .limit(1)
+            .get();
+
+        if (q.docs.isNotEmpty && q.docs.first.id != editingMedicineId) {
+          throw Exception('الباركود "$b" مستخدم بالفعل لصنف آخر');
+        }
+        barcode = b;
+      }
+
+      int quantity = int.parse(quantityController.text);
+      double? purchasePrice =
+      purchasePriceController.text.isNotEmpty ? double.tryParse(purchasePriceController.text) : null;
+      double sellingPrice = double.parse(sellingPriceController.text);
+
+      int? unitsPerPackage =
+      unitsPerPackageController.text.isNotEmpty ? int.tryParse(unitsPerPackageController.text) : null;
+
+      int? minStockLevel =
+      minStockController.text.isNotEmpty ? int.tryParse(minStockController.text) : null;
+
+      String? scientificName = scientificNameController.text.trim();
+      if (scientificName.isEmpty) scientificName = null;
+
+      // المورد
+      String? supplier;
+      if (selectedSupplierId.value.isNotEmpty) {
+        supplier = selectedSupplierName.value;
+      } else if (supplierController.text.trim().isNotEmpty) {
+        supplier = supplierController.text.trim();
+      }
+
+      // ✅ الصورة: لو اختار صورة جديدة ارفعها، غير هيك خليك على القديمة
+      String? imageUrl = medicineImageUrl.value;
+      if (medicineImage.value != null) {
+        final uploaded = await uploadImageToFirebase();
+        if (uploaded != null) imageUrl = uploaded;
+      }
+
+      final updated = Medicine(
+        id: editingMedicineId!,
+        name: nameController.text.trim(),
+        scientificName: scientificName,
+        quantity: quantity,
+        description: descriptionController.text.trim().isEmpty ? null : descriptionController.text.trim(),
+        category: selectedCategory.value,
+        purchasePrice: purchasePrice,
+        sellingPrice: sellingPrice,
+        unit: selectedUnit.value,
+        unitsPerPackage: unitsPerPackage,
+        sellByPiece: sellByPiece.value,
+        piecePrice: piecePriceCalculated.value,
+        minStockLevel: minStockLevel,
+        supplier: supplier,
+        expiryDate: expiryDate.value,
+        barcode: barcode,
+        imageUrl: imageUrl,
+        lastUpdated: DateTime.now(),
+      );
+
+      await inventoryController.updateMedicine(editingMedicineId!, updated);
+
+      Get.snackbar(
+        'تم التحديث ✓',
+        'تم تحديث "${updated.name}" بنجاح',
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 3),
+        snackPosition: SnackPosition.TOP,
+      );
+
+      clearForm();
+      Get.back(); // اقفل الديالوج بعد التحديث
+
+    } catch (e) {
+      Get.snackbar(
+        'خطأ في التحديث',
+        e.toString(),
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 5),
+        snackPosition: SnackPosition.TOP,
+      );
       rethrow;
     } finally {
       isAddingMedicine.value = false;

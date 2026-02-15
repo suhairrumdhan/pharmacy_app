@@ -71,3 +71,9 @@ class AddCategoryDialog extends StatelessWidget {
     Navigator.of(context).pop();
   }
 }
+void showAddCategoryDialog(BuildContext context, AddMedicineController controller) {
+  showDialog(
+    context: context,
+    builder: (_) => AddCategoryDialog(controller: controller),
+  );
+}

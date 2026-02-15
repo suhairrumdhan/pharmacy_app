@@ -1,17 +1,49 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:iconsax_flutter/iconsax_flutter.dart';
+
 import '../controllers/auth_controller.dart';
 import '../widgets/sidebar.dart';
+
+// صفحاتك الحالية
 import 'chat/chat_page.dart';
 import 'inventory/inventory_page.dart';
 import 'orders/orders_page.dart';
 import 'sales/sales_page.dart';
 import 'settings/settings_page.dart';
-import 'package:iconsax_flutter/iconsax_flutter.dart';
 import 'accounts_page.dart';
 import 'suppliers_page.dart';
 import 'insurance_companies_page.dart';
 import 'finance_page.dart';
+
+/// ✅ صفحات جديدة (Placeholder) - تقدر تنقلها لملفات منفصلة لاحقاً
+class PurchasesPage extends StatelessWidget {
+  const PurchasesPage({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Text(
+        'المشتريات (قريباً)\nأوامر شراء • استلام • فواتير موردين',
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 18),
+      ),
+    );
+  }
+}
+
+class ShiftsPage extends StatelessWidget {
+  const ShiftsPage({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Text(
+        'الورديات (قريباً)\nبدء شفت • إغلاق • تسليم صندوق',
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 18),
+      ),
+    );
+  }
+}
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -22,13 +54,17 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int selectedIndex = 0;
-  final AuthController authController = Get.find();
+  final AuthController authController = Get.find<AuthController>();
+
   late List<Widget> pages;
   late List<SidebarItem> sidebarItems;
+
+  // ✅ مصدر واحد يولّد الاثنين بنفس الترتيب
+  late List<Map<String, dynamic>> visibleRoutes;
+
   @override
   void initState() {
     super.initState();
-    // تحديث اسم المستخدم والدور عند فتح الصفحة
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateUserInfo();
     });
@@ -38,15 +74,19 @@ class _HomePageState extends State<HomePage> {
     final employee = authController.currentEmployee.value;
     if (employee != null) {
       authController.currentUserName.value = employee['username'] ?? '';
+    } else {
+      authController.currentUserName.value = authController.userName;
     }
   }
 
-  // قائمة العناوين
+  // عناوين الصفحات (الترتيب هنا يتطابق مع allPages titleIndex)
   final List<String> pageTitles = [
     'لوحة التحكم',
-    'المبيعات',
-    'المخزون',
     'الطلبات',
+    'المبيعات',
+    'الورديات',
+    'المخزون',
+    'المشتريات',
     'الموردين',
     'شركات التأمين',
     'الحسابات',
@@ -55,24 +95,29 @@ class _HomePageState extends State<HomePage> {
     'الإعدادات',
   ];
 
+  /// ✅ الترتيب الجديد (MVP صيدلية قوي)
   final List<Map<String, dynamic>> allPages = [
-    {'widget': DashboardPage(), 'permission': 'dashboard.view', 'titleIndex': 0},
-    {'widget': SalesPage(), 'permission': 'sales.view', 'titleIndex': 1},
-    {'widget': InventoryPage(), 'permission': 'inventory.view', 'titleIndex': 2},
-    {'widget': OrdersPage(), 'permission': 'orders.view', 'titleIndex': 3},
-    {'widget': SuppliersPage(), 'permission': 'suppliers.view', 'titleIndex': 4},
-    {'widget': InsuranceCompaniesPage(), 'permission': 'insurance.view', 'titleIndex': 5},
-    {'widget': AccountsPage(), 'permission': 'accounts.view', 'titleIndex': 6},
-    {'widget': FinancePage(), 'permission': 'finance.view', 'titleIndex': 7},
-    {'widget': ChatPage(), 'permission': 'messages.view', 'titleIndex': 8},
-    {'widget': SettingsPage(), 'permission': 'settings.view', 'titleIndex': 9},
+    {'widget': const DashboardPage(), 'permission': 'dashboard.view', 'titleIndex': 0},
+    {'widget': OrdersPage(), 'permission': 'orders.view', 'titleIndex': 1},
+    {'widget': SalesPage(), 'permission': 'sales.view', 'titleIndex': 2},
+    {'widget': const ShiftsPage(), 'permission': 'shifts.view', 'titleIndex': 3},
+    {'widget': InventoryPage(), 'permission': 'inventory.view', 'titleIndex': 4},
+    {'widget': const PurchasesPage(), 'permission': 'purchases.view', 'titleIndex': 5},
+    {'widget': SuppliersPage(), 'permission': 'suppliers.view', 'titleIndex': 6},
+    {'widget': InsuranceCompaniesPage(), 'permission': 'insurance.view', 'titleIndex': 7},
+    {'widget': AccountsPage(), 'permission': 'accounts.view', 'titleIndex': 8},
+    {'widget': FinancePage(), 'permission': 'finance.view', 'titleIndex': 9},
+    {'widget': ChatPage(), 'permission': 'messages.view', 'titleIndex': 10},
+    {'widget': SettingsPage(), 'permission': 'settings.view', 'titleIndex': 11},
   ];
 
   final List<Map<String, dynamic>> allSidebarItems = [
     {'item': SidebarItem(icon: Iconsax.home_2, label: "لوحة التحكم", activeIcon: Iconsax.home_2), 'permission': 'dashboard.view'},
-    {'item': SidebarItem(icon: Iconsax.shopping_cart, label: "المبيعات", activeIcon: Iconsax.shopping_cart), 'permission': 'sales.view'},
-    {'item': SidebarItem(icon: Iconsax.box, label: "المخزون", activeIcon: Iconsax.box), 'permission': 'inventory.view'},
     {'item': SidebarItem(icon: Iconsax.receipt, label: "الطلبات", activeIcon: Iconsax.receipt), 'permission': 'orders.view'},
+    {'item': SidebarItem(icon: Iconsax.shopping_cart, label: "المبيعات", activeIcon: Iconsax.shopping_cart), 'permission': 'sales.view'},
+    {'item': SidebarItem(icon: Iconsax.clock, label: "الورديات", activeIcon: Iconsax.clock), 'permission': 'shifts.view'},
+    {'item': SidebarItem(icon: Iconsax.box, label: "المخزون", activeIcon: Iconsax.box), 'permission': 'inventory.view'},
+    {'item': SidebarItem(icon: Iconsax.shopping_bag, label: "المشتريات", activeIcon: Iconsax.shopping_bag), 'permission': 'purchases.view'},
     {'item': SidebarItem(icon: Iconsax.truck, label: "الموردين", activeIcon: Iconsax.truck), 'permission': 'suppliers.view'},
     {'item': SidebarItem(icon: Iconsax.shield_tick, label: "شركات التأمين", activeIcon: Iconsax.shield_tick), 'permission': 'insurance.view'},
     {'item': SidebarItem(icon: Iconsax.wallet, label: "الحسابات", activeIcon: Iconsax.wallet), 'permission': 'accounts.view'},
@@ -82,20 +127,35 @@ class _HomePageState extends State<HomePage> {
   ];
 
   void _buildUiFromPermissions() {
-    pages = allPages
-        .where((p) => authController.can(p['permission']))
-        .map((p) {
+    visibleRoutes = [];
+
+    // ✅ فلترة واحدة: نفس الترتيب ونفس الـ index
+    final len = (allPages.length < allSidebarItems.length)
+        ? allPages.length
+        : allSidebarItems.length;
+
+    for (int i = 0; i < len; i++) {
+      final pagePerm = allPages[i]['permission'] as String;
+      // نستخدم permission من الصفحة (أو تقدر تستعمل من السايدبار نفس الشي)
+      if (authController.can(pagePerm)) {
+        visibleRoutes.add({
+          'page': allPages[i],
+          'sidebar': allSidebarItems[i],
+        });
+      }
+    }
+
+    pages = visibleRoutes.map((r) {
+      final p = r['page'] as Map<String, dynamic>;
       final titleIndex = p['titleIndex'] as int;
       return PageWrapper(
         title: pageTitles[titleIndex],
         child: p['widget'] as Widget,
       );
-    })
-        .toList();
+    }).toList();
 
-    sidebarItems = allSidebarItems
-        .where((i) => authController.can(i['permission']))
-        .map((i) => i['item'] as SidebarItem)
+    sidebarItems = visibleRoutes
+        .map((r) => (r['sidebar'] as Map<String, dynamic>)['item'] as SidebarItem)
         .toList();
 
     if (selectedIndex >= pages.length) selectedIndex = 0;
@@ -109,6 +169,7 @@ class _HomePageState extends State<HomePage> {
             !authController.isPermissionsLoaded.value) {
           return const Center(child: CircularProgressIndicator());
         }
+
         _buildUiFromPermissions();
 
         if (pages.isEmpty) {
@@ -120,41 +181,48 @@ class _HomePageState extends State<HomePage> {
           );
         }
 
-        if (selectedIndex >= pages.length) {
-          selectedIndex = 0;
-        }
+        if (selectedIndex >= pages.length) selectedIndex = 0;
 
         final String pharmacyName =
             authController.pharmacyData['pharmacyName'] as String? ?? '';
 
-        return Row(
-          children: [
-            SidebarWidget(
-              selectedIndex: selectedIndex,
-              sidebarItems: sidebarItems,
-              onItemSelected: (index) {
-                setState(() => selectedIndex = index);
-              },
-              pharmacyName: pharmacyName,
-              backgroundColor: const Color(0xFF1E40AF),
-              activeColor: const Color(0xFF3B82F6),
-              textColor: Colors.white,
-              activeTextColor: Colors.white,
-            ),
-            Expanded(
-              child: pages[selectedIndex],
-            ),
-          ],
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final w = constraints.maxWidth;
+
+            // ✅ Responsive breakpoints للابتوبات
+            final bool collapsed = w < 1150;
+            final double sidebarWidth = collapsed ? 86 : 260;
+
+            return Row(
+              children: [
+                SizedBox(
+                  width: sidebarWidth,
+                  child: SidebarWidget(
+                    collapsed: collapsed,
+                    selectedIndex: selectedIndex,
+                    sidebarItems: sidebarItems,
+                    onItemSelected: (index) {
+                      setState(() => selectedIndex = index);
+                    },
+                    pharmacyName: pharmacyName,
+                    backgroundColor: const Color(0xFF1E40AF),
+                    activeColor: const Color(0xFF3B82F6),
+                    textColor: Colors.white,
+                    activeTextColor: Colors.white,
+                  ),
+                ),
+                Expanded(child: pages[selectedIndex]),
+              ],
+            );
+          },
         );
       }),
     );
   }
 }
 
-
-
-
-
+// ======= باقي الكلاسات كما هي (PageWrapper / Dashboard / NotificationButton) =======
 class PageWrapper extends StatelessWidget {
   final Widget child;
   final String title;
@@ -173,7 +241,6 @@ class PageWrapper extends StatelessWidget {
       backgroundColor: Colors.white,
       body: Column(
         children: [
-          // AppBar مخصص
           Container(
             height: 70,
             color: Colors.white,
@@ -201,83 +268,66 @@ class PageWrapper extends StatelessWidget {
           ),
           const Divider(height: 1, color: Colors.grey),
 
-          // محتوى الصفحة - بدون SingleChildScrollView
-          Expanded(
-            child: child,
-          ),
+          Expanded(child: child),
         ],
       ),
     );
   }
 }
+
+/// ✅ Dashboard responsive
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final crossAxisCount = width >= 1400 ? 4 : (width >= 1100 ? 3 : 2);
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20.0),
       child: Column(
         children: [
-          // بطاقات الإحصائيات
           GridView.count(
-            crossAxisCount: 4,
+            crossAxisCount: crossAxisCount,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             crossAxisSpacing: 20,
             mainAxisSpacing: 20,
             children: [
-              _buildStatCard(
-                Icons.medication,
-                "إجمالي الأدوية",
-                "120",
-                const Color(0xFF2E7D32),
-                Icons.trending_up,
-              ),
-              _buildStatCard(
-                Icons.shopping_cart,
-                "المبيعات اليوم",
-                "1,250 ",
-                const Color(0xFF1976D2),
-                Icons.trending_up,
-              ),
-              _buildStatCard(
-                Icons.pending_actions,
-                "طلبات قيد الانتظار",
-                "8",
-                const Color(0xFFF57C00),
-                Icons.schedule,
-              ),
-              _buildStatCard(
-                Icons.warning,
-                "منخفضة المخزون",
-                "5",
-                const Color(0xFFD32F2F),
-                Icons.inventory_2,
-              ),
+              _buildStatCard(Icons.medication, "إجمالي الأدوية", "120", const Color(0xFF2E7D32), Icons.trending_up),
+              _buildStatCard(Icons.shopping_cart, "المبيعات اليوم", "1,250", const Color(0xFF1976D2), Icons.trending_up),
+              _buildStatCard(Icons.pending_actions, "طلبات قيد الانتظار", "8", const Color(0xFFF57C00), Icons.schedule),
+              _buildStatCard(Icons.warning, "منخفضة المخزون", "5", const Color(0xFFD32F2F), Icons.inventory_2),
             ],
           ),
-
           const SizedBox(height: 32),
-
-          // مخططات سريعة
-          Row(
-            children: [
-              Expanded(
-                child: _buildQuickChart("المبيعات الأسبوعية", Colors.blue),
-              ),
-              const SizedBox(width: 20),
-              Expanded(
-                child: _buildQuickChart("الأدوية الأكثر مبيعاً", Colors.green),
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, c) {
+              final isNarrow = c.maxWidth < 1100;
+              return isNarrow
+                  ? Column(
+                children: [
+                  _buildQuickChart("المبيعات الأسبوعية", Colors.blue),
+                  const SizedBox(height: 20),
+                  _buildQuickChart("الأدوية الأكثر مبيعاً", Colors.green),
+                ],
+              )
+                  : Row(
+                children: [
+                  Expanded(child: _buildQuickChart("المبيعات الأسبوعية", Colors.blue)),
+                  const SizedBox(width: 20),
+                  Expanded(child: _buildQuickChart("الأدوية الأكثر مبيعاً", Colors.green)),
+                ],
+              );
+            },
           ),
         ],
       ),
     );
   }
 
-  Widget _buildStatCard(IconData icon, String title, String value, Color color, IconData trendIcon) {
+  static Widget _buildStatCard(IconData icon, String title, String value, Color color, IconData trendIcon) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -289,7 +339,7 @@ class DashboardPage extends StatelessWidget {
         children: [
           Icon(icon, color: color, size: 32),
           const SizedBox(height: 8),
-          Text(title, style: TextStyle(color: Colors.black54)),
+          Text(title, style: const TextStyle(color: Colors.black54)),
           const SizedBox(height: 4),
           Text(value, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
@@ -299,7 +349,7 @@ class DashboardPage extends StatelessWidget {
     );
   }
 
-  Widget _buildQuickChart(String title, Color color) {
+  static Widget _buildQuickChart(String title, Color color) {
     return Container(
       height: 200,
       padding: const EdgeInsets.all(16),
@@ -307,17 +357,13 @@ class DashboardPage extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2)),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
           Expanded(
             child: Container(
@@ -330,6 +376,7 @@ class DashboardPage extends StatelessWidget {
     );
   }
 }
+
 class NotificationButton extends StatelessWidget {
   const NotificationButton({super.key});
 
@@ -342,11 +389,7 @@ class NotificationButton extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
+              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2)),
             ],
           ),
           child: IconButton(
@@ -361,10 +404,7 @@ class NotificationButton extends StatelessWidget {
           child: Container(
             width: 12,
             height: 12,
-            decoration: const BoxDecoration(
-              color: Colors.red,
-              shape: BoxShape.circle,
-            ),
+            decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
           ),
         ),
       ],

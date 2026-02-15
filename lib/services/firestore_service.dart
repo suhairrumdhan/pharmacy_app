@@ -79,16 +79,6 @@ class FirestoreService {
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
-
-      // 2️⃣ الموظف admin
-      batch.set(employeeRef, {
-        'username': 'admin',
-        'password': 'admin',
-        'roleId' : 'admin',
-        'isActive': true,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
       // 3️⃣ Roles الافتراضية
       for (final role in DefaultPermissions.defaultRoles) {
         batch.set(
@@ -152,17 +142,22 @@ class FirestoreService {
           .collection('pharmacies')
           .doc(pharmacyId)
           .collection('employees')
-          .where('username', isEqualTo: username)
-          .where('password', isEqualTo: password) // ⚠️ لاحقاً يمكن تشفير الباسوورد
+          .where('username', isEqualTo: username.trim())
+          .where('password', isEqualTo: password) // ⚠️ لاحقاً تشفير
           .where('isActive', isEqualTo: true)
           .limit(1)
           .get();
 
-      if (query.docs.isEmpty) {
-        return null; // الموظف غير موجود أو غير نشط
-      }
+      if (query.docs.isEmpty) return null;
 
-      return query.docs.first.data();
+      final doc = query.docs.first;
+      final data = doc.data();
+
+      // ✅ مهم جداً: نضيف id = doc.id
+      return {
+        'id': doc.id,
+        ...data,
+      };
     } catch (e) {
       print("❌ خطأ في جلب الموظف: $e");
       return null;

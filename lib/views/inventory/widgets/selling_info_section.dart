@@ -11,41 +11,46 @@ class SellingInfoSection extends StatefulWidget {
   State<SellingInfoSection> createState() => _SellingInfoSectionState();
 }
 
-class _SellingInfoSectionState extends State<SellingInfoSection> with TickerProviderStateMixin {
+class _SellingInfoSectionState extends State<SellingInfoSection> {
   bool sellByPiece = false;
+
   final pieceCountController = TextEditingController();
-  final _pieceCountFormKey = GlobalKey<FormFieldState>();
+  final _pieceCountKey = GlobalKey<FormFieldState<String>>();
   String? _pieceCountError;
 
   @override
   void initState() {
     super.initState();
 
-    // ربط الـ controller من widget مع controller المحلي
-    widget.controller.unitsPerPackageController.addListener(_calculatePiecePrice);
-    pieceCountController.addListener(_calculatePiecePrice);
-    widget.controller.sellingPriceController.addListener(_calculatePiecePrice);
-
-    // مزامنة القيمة الأولية
+    // initial sync
     sellByPiece = widget.controller.sellByPiece.value;
     if (widget.controller.unitsPerPackageController.text.isNotEmpty) {
       pieceCountController.text = widget.controller.unitsPerPackageController.text;
     }
+
+    // listeners
+    widget.controller.unitsPerPackageController.addListener(_calculatePiecePrice);
+    pieceCountController.addListener(_calculatePiecePrice);
+    widget.controller.sellingPriceController.addListener(_calculatePiecePrice);
+
+    // calculate once
+    WidgetsBinding.instance.addPostFrameCallback((_) => _calculatePiecePrice());
   }
 
   void _calculatePiecePrice() {
-    // تحديث الـ controller الرئيسي
-    widget.controller.unitsPerPackageController.text = pieceCountController.text;
+    // keep main controller synced
+    if (widget.controller.unitsPerPackageController.text != pieceCountController.text) {
+      widget.controller.unitsPerPackageController.text = pieceCountController.text;
+    }
 
     if (!sellByPiece) {
       widget.controller.piecePriceCalculated.value = null;
       return;
     }
 
-    final priceText = widget.controller.sellingPriceController.text;
-    final unitsText = pieceCountController.text;
+    final priceText = widget.controller.sellingPriceController.text.trim();
+    final unitsText = pieceCountController.text.trim();
 
-    // التحقق من صحة البيانات
     if (priceText.isEmpty || unitsText.isEmpty) {
       widget.controller.piecePriceCalculated.value = null;
       return;
@@ -54,242 +59,252 @@ class _SellingInfoSectionState extends State<SellingInfoSection> with TickerProv
     final price = double.tryParse(priceText);
     final units = int.tryParse(unitsText);
 
-    if (price == null || units == null || units == 0) {
+    if (price == null || units == null || units <= 0) {
       widget.controller.piecePriceCalculated.value = null;
       return;
     }
 
-    // تحديث قيمة القطعة المحسوبة
-    final piecePrice = price / units;
-    widget.controller.piecePriceCalculated.value = piecePrice;
+    widget.controller.piecePriceCalculated.value = price / units;
   }
 
-  // التحقق من صحة عدد القطع
   String? _validatePieceCount(String? value) {
     if (!sellByPiece) {
       _pieceCountError = null;
       return null;
     }
 
-    if (value == null || value.isEmpty) {
-      _pieceCountError = 'عدد القطع مطلوب عند البيع بالقطعة';
-      return _pieceCountError;
-    }
+    final v = (value ?? '').trim();
+    if (v.isEmpty) return _pieceCountError = 'عدد القطع مطلوب عند البيع بالقطعة';
 
-    final units = int.tryParse(value);
-    if (units == null) {
-      _pieceCountError = 'يجب أن يكون عدد القطع رقماً صحيحاً';
-      return _pieceCountError;
-    }
-
-    if (units <= 0) {
-      _pieceCountError = 'عدد القطع يجب أن يكون أكبر من صفر';
-      return _pieceCountError;
-    }
-
-    if (units > 10000) {
-      _pieceCountError = 'عدد القطع كبير جداً (الحد الأقصى 10,000)';
-      return _pieceCountError;
-    }
+    final units = int.tryParse(v);
+    if (units == null) return _pieceCountError = 'يجب أن يكون عدد القطع رقماً صحيحاً';
+    if (units <= 0) return _pieceCountError = 'عدد القطع يجب أن يكون أكبر من صفر';
+    if (units > 10000) return _pieceCountError = 'عدد القطع كبير جداً (الحد الأقصى 10,000)';
 
     _pieceCountError = null;
     return null;
   }
 
+  void _toggleSellByPiece(bool enabled) {
+    setState(() {
+      sellByPiece = enabled;
+      widget.controller.sellByPiece.value = enabled;
+
+      if (!enabled) {
+        pieceCountController.clear();
+        widget.controller.unitsPerPackageController.clear();
+        _pieceCountError = null;
+        _pieceCountKey.currentState?.validate();
+      } else {
+        _pieceCountError = _validatePieceCount(pieceCountController.text);
+        _pieceCountKey.currentState?.validate();
+      }
+    });
+
+    _calculatePiecePrice();
+  }
+
   @override
   void dispose() {
     widget.controller.unitsPerPackageController.removeListener(_calculatePiecePrice);
-    pieceCountController.removeListener(_calculatePiecePrice);
     widget.controller.sellingPriceController.removeListener(_calculatePiecePrice);
+    pieceCountController.removeListener(_calculatePiecePrice);
+
     pieceCountController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return buildSection(
-      title: 'معلومات البيع',
-      icon: Icons.sell,
-      children: [
-        // سعر البيع للعبوة مع تحقق إجباري
-        TextFormField(
-          controller: widget.controller.sellingPriceController,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(
-            labelText: 'سعر البيع للعبوة*',
-            prefixIcon: const Icon(Icons.money),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            filled: true,
-            fillColor: Colors.grey[50],
-            errorStyle: const TextStyle(fontSize: 12),
-          ),
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'سعر البيع مطلوب';
-            }
-            final price = double.tryParse(value);
-            if (price == null) {
-              return 'يجب أن يكون سعر البيع رقماً';
-            }
-            if (price <= 0) {
-              return 'سعر البيع يجب أن يكون أكبر من صفر';
-            }
-            if (price > 1000000) {
-              return 'سعر البيع كبير جداً (الحد الأقصى 1,000,000)';
-            }
-            return null;
-          },
-          onChanged: (_) => _calculatePiecePrice(),
-        ),
-        const SizedBox(height: 16),
+    return LayoutBuilder(
+      builder: (context, c) {
+        final w = c.maxWidth;
+        final compact = w < 520;      // ضيق جداً
+        final twoCols = w >= 900;     // شاشة واسعة
 
-        // Checkbox بيع بالقطعة
-        Row(
+        final gap = compact ? 12.0 : 16.0;
+
+        return buildSection(
+          title: 'معلومات البيع',
+          icon: Icons.sell,
           children: [
-            Checkbox(
-              value: sellByPiece,
-              onChanged: (value) {
-                setState(() {
-                  sellByPiece = value ?? false;
-                  widget.controller.sellByPiece.value = sellByPiece;
-
-                  // تنظيف حقل عدد القطع عند إلغاء التفعيل
-                  if (!sellByPiece) {
-                    pieceCountController.clear();
-                    widget.controller.unitsPerPackageController.clear();
-                    _pieceCountError = null;
-                    if (_pieceCountFormKey.currentState != null) {
-                      _pieceCountFormKey.currentState!.validate();
-                    }
-                  }
-                });
-                _calculatePiecePrice();
-
-                // إعادة التحقق من صحة عدد القطع عند التفعيل
-                if (value == true) {
-                  _pieceCountError = _validatePieceCount(pieceCountController.text);
-                }
-              },
-            ),
-            const Text(
-              'البيع بالقطعة',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(width: 8),
-            if (sellByPiece)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.red.shade100),
-                ),
-                child: Text(
-                  'مطلوب',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.red.shade700,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+            // ====== Selling price + toggle row (responsive) ======
+            if (twoCols)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _sellingPriceField()),
+                  SizedBox(width: gap),
+                  Expanded(child: _sellByPieceRow(compact: compact)),
+                ],
+              )
+            else
+              Column(
+                children: [
+                  _sellingPriceField(),
+                  SizedBox(height: gap),
+                  _sellByPieceRow(compact: compact),
+                ],
               ),
-          ],
-        ),
 
-        // ---------- الجزء المتغير مع AnimatedSize ----------
-        AnimatedSize(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeInOut,
-          child: ClipRect(
-            child: sellByPiece
-                ? Column(
-              children: [
-                const SizedBox(height: 12),
+            SizedBox(height: gap),
 
-                // عدد القطع (إجباري عند تفعيل البيع بالقطعة)
-                TextFormField(
-                  key: _pieceCountFormKey,
-                  controller: pieceCountController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: 'عدد القطع في العبوة *',
-                    prefixIcon: const Icon(Icons.format_list_numbered),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+            // ====== Animated piece fields ======
+            AnimatedSize(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOut,
+              child: ClipRect(
+                child: sellByPiece
+                    ? Column(
+                  children: [
+                    TextFormField(
+                      key: _pieceCountKey,
+                      controller: pieceCountController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'عدد القطع في العبوة *',
+                        prefixIcon: const Icon(Icons.format_list_numbered),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                        errorText: _pieceCountError,
+                        errorStyle: const TextStyle(fontSize: 12),
+                        isDense: compact,
+                      ),
+                      validator: _validatePieceCount,
+                      onChanged: (value) {
+                        setState(() => _pieceCountError = _validatePieceCount(value));
+                        _pieceCountKey.currentState?.validate();
+                        _calculatePiecePrice();
+                      },
                     ),
-                    filled: true,
-                    fillColor: Colors.grey[50],
-                    errorText: _pieceCountError,
-                    errorStyle: const TextStyle(fontSize: 12),
-                  ),
-                  validator: _validatePieceCount,
-                  onChanged: (value) {
-                    _pieceCountError = _validatePieceCount(value);
-                    if (_pieceCountFormKey.currentState != null) {
-                      _pieceCountFormKey.currentState!.validate();
-                    }
-                    _calculatePiecePrice();
-                  },
-                ),
-                const SizedBox(height: 12),
+                    SizedBox(height: gap),
 
-                // سعر القطعة المحسوب - فقط استخدام Obx هنا حيث يوجد observable
-                Obx(() {
-                  final piece = widget.controller.piecePriceCalculated.value;
-                  if (piece == null) return const SizedBox();
+                    Obx(() {
+                      final piece = widget.controller.piecePriceCalculated.value;
+                      if (piece == null) return const SizedBox();
 
-                  return Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.green.shade100),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                      return Container(
+                        width: double.infinity,
+                        padding: EdgeInsets.all(compact ? 10 : 12),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.green.shade100),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Icon(Icons.calculate, color: Colors.green.shade700),
-                            const SizedBox(width: 8),
-                            Text(
-                              'سعر القطعة المحسوب:',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green.shade700,
-                                fontSize: 13,
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'سعر القطعة المحسوب',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.green.shade800,
+                                      fontSize: compact ? 12.5 : 13.5,
+                                    ),
+                                    textDirection: TextDirection.rtl,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${piece.toStringAsFixed(2)} د.ل للقطعة الواحدة',
+                                    style: TextStyle(
+                                      fontSize: compact ? 12 : 13,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    textDirection: TextDirection.rtl,
+                                  ),
+                                ],
                               ),
-                              textDirection: TextDirection.rtl, // 🔥 إضافة هذا السطر
-
                             ),
                           ],
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${piece.toStringAsFixed(2)}د.ل للقطعة الواحدة ',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.center,
-                          textDirection: TextDirection.rtl, // 🔥 إضافة هذا السطر
+                      );
+                    }),
+                  ],
+                )
+                    : const SizedBox(),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
-                        ),
-                        if (widget.controller.sellingPriceController.text.isNotEmpty &&
-                            pieceCountController.text.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                          ),
-                      ],
-                    ),
-                  );
-                }),
-              ],
-            )
-                : const SizedBox(),
+  Widget _sellingPriceField() {
+    return TextFormField(
+      controller: widget.controller.sellingPriceController,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(
+        labelText: 'سعر البيع للعبوة*',
+        prefixIcon: const Icon(Icons.money),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        filled: true,
+        fillColor: Colors.grey[50],
+        errorStyle: const TextStyle(fontSize: 12),
+      ),
+      validator: (value) {
+        final v = (value ?? '').trim();
+        if (v.isEmpty) return 'سعر البيع مطلوب';
+        final price = double.tryParse(v);
+        if (price == null) return 'يجب أن يكون سعر البيع رقماً';
+        if (price <= 0) return 'سعر البيع يجب أن يكون أكبر من صفر';
+        if (price > 1000000) return 'سعر البيع كبير جداً (الحد الأقصى 1,000,000)';
+        return null;
+      },
+      onChanged: (_) => _calculatePiecePrice(),
+    );
+  }
+
+  Widget _sellByPieceRow({required bool compact}) {
+    return Container(
+      padding: EdgeInsets.all(compact ? 10 : 12),
+      decoration: BoxDecoration(
+        color: Colors.blue.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.withOpacity(0.12)),
+      ),
+      child: Row(
+        children: [
+          Checkbox(
+            value: sellByPiece,
+            onChanged: (v) => _toggleSellByPiece(v ?? false),
           ),
-        ),
-      ],
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'البيع بالقطعة',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: compact ? 13 : 14,
+              ),
+            ),
+          ),
+          if (sellByPiece)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.red.shade100),
+              ),
+              child: Text(
+                'مطلوب',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.red.shade700,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

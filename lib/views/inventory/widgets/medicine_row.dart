@@ -10,7 +10,6 @@ class MedicineRow extends StatelessWidget {
   final MedicinesPresenter presenter;
   final VoidCallback onViewDetails;
   final VoidCallback onEdit;
-  final VoidCallback onUpdateStock;
   final VoidCallback onDelete;
 
   const MedicineRow({
@@ -19,7 +18,6 @@ class MedicineRow extends StatelessWidget {
     required this.presenter,
     required this.onViewDetails,
     required this.onEdit,
-    required this.onUpdateStock,
     required this.onDelete,
   });
 
@@ -302,15 +300,6 @@ class MedicineRow extends StatelessWidget {
           'تعديل',
           onEdit, // ✅ يجب أن يكون onEdit
         ),
-
-        // زر المخزون - لتحديث المخزون
-        _buildActionButton(
-          Icons.inventory,
-          MedicinesTableStyle.warningColor,
-          'مخزون',
-          onUpdateStock, // ✅ يجب أن يكون onUpdateStock
-        ),
-
         // زر الحذف - للحذف
         _buildActionButton(
           Icons.delete,

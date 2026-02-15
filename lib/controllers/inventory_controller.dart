@@ -1,4 +1,3 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -10,6 +9,9 @@ import '../views/inventory/widgets/quick_alerts.dart';
 import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 
+import 'auth_controller.dart';
+import 'dart:convert'; // utf8
+
 class InventoryController extends GetxController {
   final RxList<Medicine> medicines = <Medicine>[].obs;
   final RxList<Medicine> filteredMedicines = <Medicine>[].obs;
@@ -20,10 +22,11 @@ class InventoryController extends GetxController {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Get pharmacy ID from current user
-  String? get _pharmacyId {
-    return FirebaseAuth.instance.currentUser?.uid;
-  }
+  String get _pharmacyId => Get.find<AuthController>().pharmacyId;
+
+  final isEditMode = false.obs;
+  String? editingMedicineId;
+  bool _initialized = false;
 
   @override
   void onInit() {
@@ -31,6 +34,7 @@ class InventoryController extends GetxController {
     loadPharmacyData();
     loadMedicines();
   }
+
 
   // Load pharmacy data
   Future<void> loadPharmacyData() async {
@@ -238,30 +242,35 @@ class InventoryController extends GetxController {
     }
   }
 
-  // Import from CSV (uses batch write for performance)
-  // mapping: Map<fieldName, columnIndex> where fieldName can be:
-  // id, name, scientificName, description, category, purchasePrice, sellingPrice,
-  // unit, unitsPerPackage, sellByPiece, piecePrice, quantity, minStockLevel,
-  // supplier, expiryDate, barcode, imageUrl
-  Future<void> importFromCSV(String filePath, Map<String, int> mapping) async {
+  Future<void> importFromCSV(
+      String filePath,
+      Map<String, int> mapping, {
+        Map<String, dynamic>? defaults,
+      }) async {
     try {
       final file = File(filePath);
       final csvString = await file.readAsString();
 
-      final List<Medicine> parsed = await _parseCSVToMedicines(csvString, mapping);
+      final List<Medicine> parsed =
+      await _parseCSVToMedicines(csvString, mapping, defaults: defaults);
 
       if (parsed.isEmpty) {
         Get.snackbar('تنبيه', 'لم يتم العثور على صفوف صالحة للاستيراد');
         return;
       }
 
-      // Batch write to Firestore
       final WriteBatch batch = _firestore.batch();
-      final docRefBase = _medicinesCollection;
+      final col = _medicinesCollection;
 
       for (final med in parsed) {
-        final docRef = docRefBase.doc(med.id.isNotEmpty ? med.id : null);
+        final docRef = (med.id.isNotEmpty) ? col.doc(med.id) : col.doc();
+
         batch.set(docRef, med.toMap(forFirestore: true));
+
+        // ✅ لو الـ id فاضي، خزّن id اللي ولّده Firestore
+        if (med.id.isEmpty) {
+          batch.update(docRef, {'id': docRef.id});
+        }
       }
 
       await batch.commit();
@@ -286,10 +295,8 @@ class InventoryController extends GetxController {
         return;
       }
 
-      // إنشاء محتوى CSV
       final List<List<dynamic>> csvData = [];
 
-      // العناوين (إنجليزية لأعمدة قابلة لإعادة الاستيراد)
       csvData.add([
         'id',
         'name',
@@ -302,6 +309,7 @@ class InventoryController extends GetxController {
         'unitsPerPackage',
         'sellByPiece',
         'piecePrice',
+        'pieceQuantity', // ✅ عندك في الداتا
         'quantity',
         'minStockLevel',
         'supplier',
@@ -311,7 +319,6 @@ class InventoryController extends GetxController {
         'lastUpdated'
       ]);
 
-      // البيانات
       for (final medicine in medicines) {
         csvData.add([
           medicine.id,
@@ -323,8 +330,9 @@ class InventoryController extends GetxController {
           medicine.sellingPrice?.toString() ?? '',
           medicine.unit?.name ?? '',
           medicine.unitsPerPackage?.toString() ?? '',
-          medicine.sellByPiece.toString(),
+          medicine.sellByPiece ? 'true' : 'false',
           medicine.piecePrice?.toString() ?? '',
+          medicine.pieceQuantity.toString(),
           medicine.quantity.toString(),
           medicine.minStockLevel?.toString() ?? '',
           medicine.supplier ?? '',
@@ -335,19 +343,26 @@ class InventoryController extends GetxController {
         ]);
       }
 
-      // تحويل إلى نص CSV
-      final String csvContent = const ListToCsvConverter().convert(csvData);
+      final csvContent = const ListToCsvConverter().convert(csvData);
 
-      // حفظ الملف
-      final String outputFile = '/storage/emulated/Download/medicines_export_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.csv';
-      final File file = File(outputFile);
-      await file.writeAsString(csvContent);
+      // ✅ Windows downloads
+      Directory? downloadsDir = await getDownloadsDirectory();
+      downloadsDir ??= await getApplicationDocumentsDirectory();
+
+      final fileName = 'medicines_export_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.csv';
+      final filePath = '${downloadsDir.path}\\$fileName';
+
+      final file = File(filePath);
+
+      final bytes = utf8.encode('\uFEFF$csvContent'); // ✅ BOM
+      await file.writeAsBytes(bytes, flush: true);
 
       Get.snackbar(
         'نجاح التصدير',
-        'تم تصدير البيانات إلى: $outputFile',
+        'تم حفظ الملف هنا:\n$filePath',
         backgroundColor: Colors.green,
         colorText: Colors.white,
+        duration: const Duration(seconds: 6),
       );
     } catch (e) {
       Get.snackbar(
@@ -355,15 +370,22 @@ class InventoryController extends GetxController {
         'فشل في تصدير البيانات: $e',
         backgroundColor: Colors.red,
         colorText: Colors.white,
+        duration: const Duration(seconds: 6),
       );
     }
   }
 
-  Future<List<Medicine>> _parseCSVToMedicines(String csvString, Map<String, int> mapping) async {
+  Future<List<Medicine>> _parseCSVToMedicines(
+      String csvString,
+      Map<String, int> mapping, {
+        Map<String, dynamic>? defaults,
+      }) async {
     try {
       debugPrint('Starting CSV parsing with mapping: $mapping');
+      debugPrint('Defaults: $defaults');
 
-      final List<List<dynamic>> csvTable = const CsvToListConverter().convert(csvString);
+      final List<List<dynamic>> csvTable =
+      const CsvToListConverter().convert(csvString);
 
       if (csvTable.isEmpty) return [];
 
@@ -375,15 +397,17 @@ class InventoryController extends GetxController {
       for (int i = 1; i < csvTable.length; i++) {
         try {
           final row = csvTable[i];
-          final med = _mapRowToMedicine(row, headers, mapping);
 
-          // تحقق من الاسم فقط
+          // ✅ تجاهل صفوف فاضية بالكامل
+          if (row.every((c) => (c?.toString().trim() ?? '').isEmpty)) continue;
+
+          final med = _mapRowToMedicine(row, headers, mapping, defaults: defaults);
+
           if (med.name.trim().isEmpty) {
             debugPrint('Row ${i + 1} skipped: missing required name');
             continue;
           }
 
-          // تحقق من الكمية فقط
           if (med.quantity < 0) {
             debugPrint('Row ${i + 1} skipped: invalid quantity');
             continue;
@@ -404,48 +428,62 @@ class InventoryController extends GetxController {
     }
   }
 
-  Medicine _mapRowToMedicine(List<dynamic> row, List<dynamic> headers, Map<String, int> mapping) {
-    // دالة مساعدة لاستخراج القيمة من الصف
+  Medicine _mapRowToMedicine(
+      List<dynamic> row,
+      List<dynamic> headers,
+      Map<String, int> mapping, {
+        Map<String, dynamic>? defaults,
+      }) {
     dynamic getValue(String field) {
-      if (!mapping.containsKey(field)) return null;
+      // 1) لو مربوط في CSV
+      if (mapping.containsKey(field)) {
+        final int? idx = mapping[field];
+        if (idx != null && idx >= 0 && idx < row.length) {
+          final val = row[idx];
+          final s = val?.toString().trim();
+          if (s != null && s.isNotEmpty) return s;
+        }
+      }
 
-      final int? idx = mapping[field];
-      if (idx == null || idx < 0 || idx >= row.length) return null;
-
-      final val = row[idx];
-      if (val == null) return null;
-
-      return val.toString().trim();
+      // 2) لو مش مربوط أو فاضي → خذ default
+      final def = defaults != null ? defaults[field] : null;
+      if (def == null) return null;
+      final s = def.toString().trim();
+      return s.isEmpty ? null : s;
     }
 
-    // توليد معرف فريد
-    String generateId() => 'med_${DateTime.now().millisecondsSinceEpoch}_${row.hashCode}';
+    // ✅ id: لو المستخدم ربط عمود id نستخدمه، غير هيك نخليه فاضي (Firestore يولّد)
+    final id = (mapping.containsKey('id') ? (getValue('id')?.toString() ?? '') : '');
 
-    // استخراج القيم
-    final id = getValue('id')?.toString() ?? generateId();
     final name = getValue('name')?.toString() ?? '';
 
-    // الاسم العلمي الآن اختياري - إذا كان فارغاً نستخدم الاسم العادي
-    String scientificNameValue = getValue('scientificName')?.toString() ?? '';
+    // الاسم العلمي اختياري - إذا كان فارغاً نستخدم الاسم
+    final scientificNameValue = getValue('scientificName')?.toString() ?? '';
     final scientificName = scientificNameValue.isNotEmpty ? scientificNameValue : name;
 
     final description = getValue('description')?.toString();
     final category = getValue('category')?.toString();
+
     final purchasePrice = _parseDouble(getValue('purchasePrice')?.toString());
     final sellingPrice = _parseDouble(getValue('sellingPrice')?.toString());
+
     final unit = _parseUnitFromString(getValue('unit')?.toString());
     final unitsPerPackage = _parseInt(getValue('unitsPerPackage')?.toString());
+
     final sellByPiece = _parseBool(getValue('sellByPiece')?.toString());
     final piecePrice = _parseDouble(getValue('piecePrice')?.toString());
+
     final quantity = _parseInt(getValue('quantity')?.toString()) ?? 0;
+
+    // ✅ خليها نفس اسم الحقل في Firestore والمودل: minStockLevel
     final minStockLevel = _parseInt(getValue('minStockLevel')?.toString());
+
     final supplier = getValue('supplier')?.toString();
     final expiryDate = _parseDate(getValue('expiryDate')?.toString());
     final barcode = getValue('barcode')?.toString();
     final imageUrl = getValue('imageUrl')?.toString();
 
-    // إنشاء كائن الدواء
-    final medicine = Medicine(
+    return Medicine(
       id: id,
       name: name,
       scientificName: scientificName,
@@ -465,8 +503,6 @@ class InventoryController extends GetxController {
       imageUrl: imageUrl,
       lastUpdated: DateTime.now(),
     );
-
-    return medicine;
   }
 
   // ========== HELPER METHODS ==========

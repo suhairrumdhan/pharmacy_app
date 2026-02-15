@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../controllers/add_medicine_controller.dart';
-
+import '../add_category_dialog.dart';
 import '../add_medicine_dialog.dart';
 
 class BasicInfoSection extends StatelessWidget {
@@ -11,76 +11,107 @@ class BasicInfoSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _buildSection(
-      title: 'المعلومات الأساسية',
-      icon: Icons.info,
-      children: [
-        TextFormField(
-          controller: controller.nameController,
-          decoration: InputDecoration(
-            labelText: 'اسم الصنف التجاري',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            prefixIcon: const Icon(Icons.medication),
+    return LayoutBuilder(
+      builder: (context, c) {
+        final w = c.maxWidth;
+
+        final bool compact = w < 520;       // ضيق
+        final bool mid = w >= 520 && w < 800;
+
+        final double pad = compact ? 14 : (mid ? 16 : 20);
+        final double titleSize = compact ? 15.5 : 17.5;
+        final double gap = compact ? 12 : 16;
+        final double headerGap = compact ? 16 : 22;
+
+        InputDecoration deco({
+          required String label,
+          required IconData icon,
+        }) {
+          return InputDecoration(
+            labelText: label,
+            prefixIcon: Icon(icon),
             filled: true,
             fillColor: Colors.grey[50],
-          ),
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'يرجى إدخال اسم الصنف';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: controller.scientificNameController,
-          decoration: InputDecoration(
-            labelText: 'الاسم العلمي (اختياري - سيتم استخدام الاسم التجاري إذا فارغ)',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            prefixIcon: const Icon(Icons.science),
-            filled: true,
-            fillColor: Colors.grey[50],
-          ),
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: controller.descriptionController,
-          decoration: InputDecoration(
-            labelText: 'الوصف (اختياري)',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            prefixIcon: const Icon(Icons.description),
-            filled: true,
-            fillColor: Colors.grey[50],
-          ),
-          maxLines: 2,
-        ),
-        const SizedBox(height: 16),
-        Obx(() => controller.isLoadingCategories.value
-            ? _buildLoadingWidget()
-            : _buildCategoryDropdown(context)),
-      ],
+            isDense: compact,
+            contentPadding: EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: compact ? 12 : 14,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          );
+        }
+
+        return _buildSection(
+          title: 'المعلومات الأساسية',
+          icon: Icons.info,
+          pad: pad,
+          titleSize: titleSize,
+          headerGap: headerGap,
+          children: [
+            TextFormField(
+              controller: controller.nameController,
+              decoration: deco(label: 'اسم الصنف التجاري', icon: Icons.medication),
+              validator: (value) {
+                if (value == null || value.isEmpty) return 'يرجى إدخال اسم الصنف';
+                return null;
+              },
+            ),
+            SizedBox(height: gap),
+            TextFormField(
+              controller: controller.scientificNameController,
+              decoration: deco(
+                label: 'الاسم العلمي (اختياري - سيتم استخدام الاسم التجاري إذا فارغ)',
+                icon: Icons.science,
+              ),
+            ),
+            SizedBox(height: gap),
+            TextFormField(
+              controller: controller.descriptionController,
+              decoration: deco(label: 'الوصف (اختياري)', icon: Icons.description),
+              maxLines: compact ? 2 : 3,
+            ),
+            SizedBox(height: gap),
+
+            // ✅ Loading / Dropdown
+            Obx(() => controller.isLoadingCategories.value
+                ? _buildLoadingWidget(compact: compact)
+                : _buildCategoryDropdown(context, compact: compact)),
+          ],
+        );
+      },
     );
   }
 
-  Widget _buildCategoryDropdown(BuildContext context) {
+  // ✅ Dropdown صار String? بالكامل (لأنه فيه null و add_new)
+  Widget _buildCategoryDropdown(BuildContext context, {required bool compact}) {
+    final String? current = controller.selectedCategory.value;
+    final String? safeValue = (current == null || current == 'add_new') ? null : current;
+
     return InputDecorator(
       decoration: InputDecoration(
         labelText: 'الفئة (اختياري)',
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         filled: true,
         fillColor: Colors.grey[50],
+        isDense: compact,
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: compact ? 12 : 14,
+        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
       ),
       child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: controller.selectedCategory.value,
+        child: DropdownButton<String?>(
+          value: safeValue,
           isExpanded: true,
+          icon: const Icon(Icons.arrow_drop_down),
           hint: const Padding(
             padding: EdgeInsets.symmetric(horizontal: 8),
             child: Text('اختر التصنيف'),
           ),
-          icon: const Icon(Icons.arrow_drop_down),
           items: [
-            const DropdownMenuItem<String>(
+            const DropdownMenuItem<String?>(
               value: null,
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 8),
@@ -88,21 +119,23 @@ class BasicInfoSection extends StatelessWidget {
               ),
             ),
             ...controller.categories.map((category) {
-              return DropdownMenuItem<String>(
+              return DropdownMenuItem<String?>(
                 value: category,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   child: Row(
                     children: [
-                      Icon(Icons.category, size: 18, color: Colors.grey.shade600),
+                      Icon(Icons.category, size: 18, color: Colors.grey),
                       const SizedBox(width: 8),
-                      Text(category),
+                      Expanded(
+                        child: Text(category, overflow: TextOverflow.ellipsis),
+                      ),
                     ],
                   ),
                 ),
               );
             }).toList(),
-            const DropdownMenuItem<String>(
+            const DropdownMenuItem<String?>(
               value: 'add_new',
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 8),
@@ -120,7 +153,7 @@ class BasicInfoSection extends StatelessWidget {
             if (newValue == 'add_new') {
               showAddCategoryDialog(context, controller);
             } else {
-              controller.updateSelectedCategory(newValue);
+              controller.updateSelectedCategory(newValue); // يقبل null
             }
           },
         ),
@@ -128,23 +161,33 @@ class BasicInfoSection extends StatelessWidget {
     );
   }
 
-  Widget _buildLoadingWidget() {
+  Widget _buildLoadingWidget({required bool compact}) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(compact ? 12 : 16),
       decoration: BoxDecoration(
         color: Colors.grey[50],
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue.shade700),
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.blue.shade700,
+            ),
           ),
-          const SizedBox(width: 12),
-          Text('جاري تحميل التصنيفات...', style: TextStyle(color: Colors.grey.shade600)),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Text(
+              'جاري تحميل التصنيفات...',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: compact ? 12.5 : 13.5),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );
@@ -155,12 +198,17 @@ Widget _buildSection({
   required String title,
   required IconData icon,
   required List<Widget> children,
+
+  // ✅ Responsive params
+  double pad = 20,
+  double titleSize = 18,
+  double headerGap = 22,
 }) {
   return Card(
     elevation: 2,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     child: Padding(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(pad),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -175,25 +223,23 @@ Widget _buildSection({
                 child: Icon(icon, size: 20, color: Colors.blue),
               ),
               const SizedBox(width: 12),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.blue,
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: titleSize,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 26),
+          SizedBox(height: headerGap),
           ...children,
-          const SizedBox(height: 26),
-
         ],
-
       ),
-
     ),
-
   );
 }

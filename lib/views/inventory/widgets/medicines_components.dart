@@ -2,89 +2,142 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'medicines_presenter.dart';
 import 'medicines_style.dart';
-import '../../../models/inventory_model.dart';
-// في أعلى medicines_components.dart
-export 'medicine_row.dart'; // إذا أردت تصديرها
-// Loading State Component
+
+export 'medicine_row.dart';
+
+// =========================
+// Helpers (breakpoints)
+// =========================
+class _MedBp {
+  static bool isNarrow(BuildContext c) => MediaQuery.of(c).size.width < 1050;
+  static bool isVeryNarrow(BuildContext c) => MediaQuery.of(c).size.width < 820;
+}
+
+// =========================
+// Loading State
+// =========================
 class LoadingState extends StatelessWidget {
+  const LoadingState({super.key});
+
   @override
   Widget build(BuildContext context) {
+    final w = MediaQuery.of(context).size.width;
+    final boxW = w < 600 ? w * 0.92 : 520.0;
+
     return Center(
-      child: Container(
-        padding: EdgeInsets.all(40),
-        decoration: BoxDecoration(
-          gradient: MedicinesTableStyle.loadingGradient,
-          borderRadius: MedicinesTableStyle.cardBorderRadius,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(
-              strokeWidth: 3,
-              valueColor: AlwaysStoppedAnimation<Color>(MedicinesTableStyle.primaryColor),
-            ),
-            SizedBox(height: 20),
-            Text(
-              'جاري تحميل البيانات...',
-              style: TextStyle(
-                color: MedicinesTableStyle.mediumText,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: boxW),
+        child: Container(
+          padding: const EdgeInsets.all(28),
+          decoration: BoxDecoration(
+            gradient: MedicinesTableStyle.loadingGradient,
+            borderRadius: MedicinesTableStyle.cardBorderRadius,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(
+                strokeWidth: 3,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                    MedicinesTableStyle.primaryColor),
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Text(
+                'جاري تحميل البيانات...',
+                style: TextStyle(
+                  color: MedicinesTableStyle.mediumText,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-// Empty State Component
+// =========================
+// Empty State
+// =========================
 class EmptyState extends StatelessWidget {
   final VoidCallback? onAddMedicine;
-
-  const EmptyState({this.onAddMedicine});
+  const EmptyState({super.key, this.onAddMedicine});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.all(40),
-      decoration: BoxDecoration(
-        borderRadius: MedicinesTableStyle.cardBorderRadius,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(height: 70),
+    final w = MediaQuery.of(context).size.width;
+    final pad = w < 700 ? 20.0 : 40.0;
 
-          Icon(
-            Icons.not_interested,
-            size: 80,
-            color: MedicinesTableStyle.lightText,
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: w < 700 ? w * 0.95 : 620),
+        child: Container(
+          padding: EdgeInsets.all(pad),
+          decoration: BoxDecoration(
+            borderRadius: MedicinesTableStyle.cardBorderRadius,
           ),
-          SizedBox(height: 30),
-          Text(
-            'لا توجد اصناف للعرض',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: MedicinesTableStyle.mediumText,
-            ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(height: w < 700 ? 24 : 60),
+              Icon(
+                Icons.not_interested,
+                size: w < 700 ? 60 : 80,
+                color: MedicinesTableStyle.lightText,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'لا توجد اصناف للعرض',
+                style: TextStyle(
+                  fontSize: w < 700 ? 16 : 20,
+                  fontWeight: FontWeight.w700,
+                  color: MedicinesTableStyle.mediumText,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              if (onAddMedicine != null) ...[
+                const SizedBox(height: 14),
+                ElevatedButton.icon(
+                  onPressed: onAddMedicine,
+                  icon: const Icon(Icons.add),
+                  label: const Text('إضافة دواء'),
+                ),
+              ],
+            ],
           ),
-          SizedBox(height: 10),
-        ],
+        ),
       ),
     );
   }
 }
 
-// Table Header Component
-// Table Header Component
+// =========================
+// Table Header (Responsive Columns)
+// =========================
 class MedicinesTableHeader extends StatelessWidget {
   const MedicinesTableHeader({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final narrow = _MedBp.isNarrow(context);
+    final veryNarrow = _MedBp.isVeryNarrow(context);
+
+    // في الشاشات الصغيرة نقلل الأعمدة ونركز على المهم
+    // - veryNarrow: صنف + كمية + حالة + إجراءات
+    // - narrow: صنف + تصنيف + سعر + كمية + حالة + إجراءات
+    // - wide: الكل
+    final columns = <_HeaderCol>[
+      _HeaderCol('الصنف', Icons.medication, flex: 2, show: true),
+      _HeaderCol('التصنيف', Icons.category, flex: 1, show: !veryNarrow),
+      _HeaderCol('السعر', Icons.monetization_on, flex: 1, show: !veryNarrow),
+      _HeaderCol('الكمية', Icons.inventory, flex: 1, show: true),
+      _HeaderCol('المورد', Icons.business, flex: 1, show: !narrow),
+      _HeaderCol('الصلاحية', Icons.calendar_today, flex: 1, show: !narrow),
+      _HeaderCol('الحالة', Icons.info, flex: 1, show: true),
+    ];
+
     return Container(
       padding: MedicinesTableStyle.headerPadding,
       decoration: BoxDecoration(
@@ -93,18 +146,9 @@ class MedicinesTableHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // الأعمدة المرنة
-          _buildHeaderCell('الصنف', Icons.medication, 2),
-          _buildHeaderCell('التصنيف', Icons.category, 1),
-          _buildHeaderCell('السعر', Icons.monetization_on, 1),
-          _buildHeaderCell('الكمية', Icons.inventory, 1),
-          _buildHeaderCell('المورد', Icons.business, 1),
-          _buildHeaderCell('الصلاحية', Icons.calendar_today, 1),
-          _buildHeaderCell('الحالة', Icons.info, 1),
-
-          // العمود الأخير بعرض ثابت
+          ...columns.where((c) => c.show).map((c) => _buildHeaderCell(c)),
           SizedBox(
-            width: 160,
+            width: narrow ? 120 : 160,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -113,11 +157,10 @@ class MedicinesTableHeader extends StatelessWidget {
                   size: MedicinesTableStyle.headerIconSize,
                   color: Colors.white.withOpacity(0.9),
                 ),
-                const SizedBox(width: 10),
-                Text(
-                  'الإجراءات',
-                  style: MedicinesTableStyle.headerText,
-                ),
+                if (!veryNarrow) ...[
+                  const SizedBox(width: 10),
+                  Text('الإجراءات', style: MedicinesTableStyle.headerText),
+                ],
               ],
             ),
           ),
@@ -126,38 +169,45 @@ class MedicinesTableHeader extends StatelessWidget {
     );
   }
 
-  // الأعمدة المرنة فقط
-  Widget _buildHeaderCell(String title, IconData icon, int flex) {
+  Widget _buildHeaderCell(_HeaderCol c) {
     return Expanded(
-      flex: flex,
+      flex: c.flex,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            icon,
+            c.icon,
             size: MedicinesTableStyle.headerIconSize,
             color: Colors.white.withOpacity(0.9),
           ),
           const SizedBox(width: 10),
-          Text(
-            title,
-            style: MedicinesTableStyle.headerText,
-          ),
+          Text(c.title, style: MedicinesTableStyle.headerText),
         ],
       ),
     );
   }
 }
 
-// Table Footer Component
+class _HeaderCol {
+  final String title;
+  final IconData icon;
+  final int flex;
+  final bool show;
+
+  _HeaderCol(this.title, this.icon, {required this.flex, required this.show});
+}
+
+// =========================
+// Table Footer (Wrap بدل Row ثابت)
+// =========================
 class MedicinesTableFooter extends StatelessWidget {
   final MedicinesPresenter presenter;
-
-  const MedicinesTableFooter({required this.presenter});
+  const MedicinesTableFooter({super.key, required this.presenter});
 
   @override
   Widget build(BuildContext context) {
     final stats = presenter.getStatistics();
+    final narrow = _MedBp.isNarrow(context);
 
     return Container(
       padding: MedicinesTableStyle.footerPadding,
@@ -168,44 +218,83 @@ class MedicinesTableFooter extends StatelessWidget {
           top: BorderSide(color: MedicinesTableStyle.borderColor, width: 1),
         ),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Row(
-              children: [
-                _buildStatItem('عدد الأصناف', stats['total'].toString(),
-                    Icons.medication, MedicinesTableStyle.primaryColor),
-                SizedBox(width: 16),
-                if (stats['lowStockCount'] > 0) ...[
-                  SizedBox(width: 16),
-                  _buildStatItem('منخفض', stats['lowStockCount'].toString(),
-                      Icons.warning, MedicinesTableStyle.warningColor),
-                ],
-                if (stats['expiredCount'] > 0) ...[
-                  SizedBox(width: 16),
-                  _buildStatItem('منتهي', stats['expiredCount'].toString(),
-                      Icons.error, MedicinesTableStyle.dangerColor),
-                ],
-              ],
-            ),
-          ),
+      child: narrow ? _buildNarrowFooter(stats) : _buildWideFooter(stats),
+    );
+  }
 
-          Row(
+  Widget _buildWideFooter(Map<String, dynamic> stats) {
+    return Row(
+      children: [
+        Expanded(
+          child: Row(
             children: [
-              Icon(
-                Icons.access_time_filled,
-                size: MedicinesTableStyle.statIconSize,
-                color: MedicinesTableStyle.mediumText,
-              ),
-              SizedBox(width: 8),
-              Text(
-                DateFormat('hh:mm a | yyyy/MM/dd').format(DateTime.now()),
-                style: MedicinesTableStyle.footerText,
-              ),
+              _buildStatItem('عدد الأصناف', stats['total'].toString(),
+                  Icons.medication, MedicinesTableStyle.primaryColor),
+              const SizedBox(width: 16),
+              if (stats['lowStockCount'] > 0)
+                _buildStatItem('منخفض', stats['lowStockCount'].toString(),
+                    Icons.warning, MedicinesTableStyle.warningColor),
+              if (stats['expiredCount'] > 0) ...[
+                const SizedBox(width: 16),
+                _buildStatItem('منتهي', stats['expiredCount'].toString(),
+                    Icons.error, MedicinesTableStyle.dangerColor),
+              ],
             ],
           ),
-        ],
-      ),
+        ),
+        Row(
+          children: [
+            Icon(Icons.access_time_filled,
+                size: MedicinesTableStyle.statIconSize,
+                color: MedicinesTableStyle.mediumText),
+            const SizedBox(width: 8),
+            Text(
+              DateFormat('hh:mm a | yyyy/MM/dd').format(DateTime.now()),
+              style: MedicinesTableStyle.footerText,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNarrowFooter(Map<String, dynamic> stats) {
+    final chips = <Widget>[
+      _buildStatItem('عدد الأصناف', stats['total'].toString(),
+          Icons.medication, MedicinesTableStyle.primaryColor),
+      if (stats['lowStockCount'] > 0)
+        _buildStatItem('منخفض', stats['lowStockCount'].toString(),
+            Icons.warning, MedicinesTableStyle.warningColor),
+      if (stats['expiredCount'] > 0)
+        _buildStatItem('منتهي', stats['expiredCount'].toString(),
+            Icons.error, MedicinesTableStyle.dangerColor),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: chips,
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Icon(Icons.access_time_filled,
+                size: MedicinesTableStyle.statIconSize,
+                color: MedicinesTableStyle.mediumText),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                DateFormat('hh:mm a | yyyy/MM/dd').format(DateTime.now()),
+                style: MedicinesTableStyle.footerText,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -217,13 +306,10 @@ class MedicinesTableFooter extends StatelessWidget {
         borderRadius: MedicinesTableStyle.chipBorderRadius,
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: MedicinesTableStyle.statIconSize,
-            color: color,
-          ),
-          SizedBox(width: 6),
+          Icon(icon, size: MedicinesTableStyle.statIconSize, color: color),
+          const SizedBox(width: 6),
           Text(
             '$label: $value',
             style: MedicinesTableStyle.footerText.copyWith(
