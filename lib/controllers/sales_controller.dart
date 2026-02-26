@@ -26,7 +26,11 @@ class SalesController extends GetxController {
   // المفتاح لحفظ الفواتير المؤقتة محلياً
   static const String _pendingInvoicesKey = 'pending_invoices_';
 
-  // قائمة الفواتير حسب الموظف (pending + completed)
+  // ✅ مفاتيح ثابتة للهيستوري (حل مشكلة اليوم/الكل/المدة عند المالك)
+  static const String _kPharmacyHistory = '__pharmacy__';
+  static const String _kMyHistory = '__my_history__';
+
+  // قائمة الفواتير حسب المفتاح (pending + completed)
   final RxMap<String, List<Sale>> _userInvoices = <String, List<Sale>>{}.obs;
 
   // مؤشر تنقل الفاتورة
@@ -90,8 +94,26 @@ class SalesController extends GetxController {
 
   String get _currentEmployeeId => currentSale.value.employeeId ?? '';
 
+  // ✅ هل المستخدم الحالي مالك؟
+  bool get isOwnerView {
+    try {
+      final auth = Get.find<AuthController>();
+      return auth.actorInfo['type'] == 'owner';
+    } catch (_) {
+      return false;
+    }
+  }
+
   // =============================
-  // Getters: invoices
+  // ✅ Getter جديد: مصدر الهيستوري للديالوج
+  // =============================
+  List<Sale> get historyInvoices {
+    if (isOwnerView) return _userInvoices[_kPharmacyHistory] ?? [];
+    return _userInvoices[_kMyHistory] ?? [];
+  }
+
+  // =============================
+  // Getters (قديمة) - نخليهم زي ما هم لواجهة المبيعات النشطة
   // =============================
   List<Sale> get allUserInvoices {
     final uid = _currentEmployeeId;
@@ -126,16 +148,13 @@ class SalesController extends GetxController {
     if (_initialized) return;
 
     try {
-      // انتظر auth جاهز
       final authController = Get.find<AuthController>();
       while (!authController.isPharmacyLoaded.value) {
         await Future.delayed(const Duration(milliseconds: 80));
       }
 
-      // تأكد InventoryController موجود
       Get.find<InventoryController>();
 
-      // حمل بيانات الموظف + التأمين + الفواتير
       await initializeEmployeeData();
       await loadInsuranceCompanies();
       await _loadUserInvoices();
@@ -244,11 +263,11 @@ class SalesController extends GetxController {
       _userInvoices.putIfAbsent(uid, () => []);
       _userInvoices[uid]!.clear();
 
-      // 1) completed from Firebase
+      // ✅ completed from Firebase (orderBy saleDate بدل createdAt)
       final querySnapshot = await salesCollection
           .where('employeeId', isEqualTo: uid)
           .where('isDeleted', isEqualTo: false)
-          .orderBy('createdAt', descending: true)
+          .orderBy('saleDate', descending: true)
           .get();
 
       for (final doc in querySnapshot.docs) {
@@ -263,10 +282,10 @@ class SalesController extends GetxController {
         }
       }
 
-      // 2) pending from Local
+      // pending from Local
       await _loadPendingInvoicesFromLocal(uid);
 
-      // 3) sort: pending أولاً ثم completed بالأحدث
+      // sort: pending أولاً ثم completed بالأحدث
       _userInvoices[uid]!.sort((a, b) {
         if (a.status == InvoiceStatus.pending && b.status != InvoiceStatus.pending) return -1;
         if (a.status != InvoiceStatus.pending && b.status == InvoiceStatus.pending) return 1;
@@ -282,6 +301,120 @@ class SalesController extends GetxController {
     }
   }
 
+  // =============================
+  // ✅ Owner history (ALL / RANGE) - تخزين ثابت في __pharmacy__
+  // =============================
+// =============================
+// ✅ تعديل loadHistoryAllForOwner
+// =============================
+  Future<void> loadHistoryAllForOwner({String? employeeId}) async {
+    try {
+      isLoading.value = true;
+
+      Query q = salesCollection
+          .where('isDeleted', isEqualTo: false)
+          .orderBy('saleDate', descending: true);
+
+      if (employeeId != null && employeeId.isNotEmpty) {
+        q = q.where('employeeId', isEqualTo: employeeId);
+      }
+
+      final qs = await q.get();
+
+      final list = qs.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return Sale.fromMap({'id': doc.id, ...data})
+            .copyWith(id: doc.id)
+            .recalculate();
+      }).toList();
+
+      _userInvoices[_kPharmacyHistory] = list;
+      _userInvoices.refresh();
+      update();
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+// =============================
+// ✅ إضافة دالة مساعدة للتأكد من وجود بيانات
+// =============================
+  Future<void> ensureHistoryLoaded() async {
+    if (isOwnerView) {
+      if ((_userInvoices[_kPharmacyHistory] ?? []).isEmpty) {
+        await loadHistoryAllForOwner();
+      }
+    } else {
+      if ((_userInvoices[_kMyHistory] ?? []).isEmpty) {
+        await loadMyHistoryToday();
+      }
+    }
+  }
+
+  // للتصحيح - اعرض محتوى الهيستوري
+  void debugPrintHistory() {
+    debugPrint('🔍 isOwnerView: $isOwnerView');
+    debugPrint('🔍 _kPharmacyHistory: ${_userInvoices[_kPharmacyHistory]?.length ?? 0} فاتورة');
+    debugPrint('🔍 _kMyHistory: ${_userInvoices[_kMyHistory]?.length ?? 0} فاتورة');
+    debugPrint('🔍 uid $_currentEmployeeId: ${_userInvoices[_currentEmployeeId]?.length ?? 0} فاتورة');
+  }
+  // =============================
+// ✅ تعديل loadHistoryByRange للموظف
+// =============================
+  Future<void> loadHistoryByRange({
+    required DateTime start,
+    required DateTime end,
+    bool includeLocalPending = false,
+    String? employeeId,
+  }) async {
+    try {
+      isLoading.value = true;
+
+      final startDay = DateTime(start.year, start.month, start.day);
+      final endDay = DateTime(end.year, end.month, end.day, 23, 59, 59, 999);
+
+      Query q = salesCollection
+          .where('isDeleted', isEqualTo: false)
+          .where('saleDate', isGreaterThanOrEqualTo: Timestamp.fromDate(startDay))
+          .where('saleDate', isLessThanOrEqualTo: Timestamp.fromDate(endDay))
+          .orderBy('saleDate', descending: true);
+
+      // إذا كان employeeId محدد (للمالك)
+      if (employeeId != null && employeeId.isNotEmpty) {
+        q = q.where('employeeId', isEqualTo: employeeId);
+      }
+      // إذا لم يتم تحديد employeeId وليس مالك → نفلتر للموظف الحالي
+      else if (!isOwnerView) {
+        q = q.where('employeeId', isEqualTo: _currentEmployeeId);
+      }
+
+      final qs = await q.get();
+
+      final list = qs.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return Sale.fromMap({'id': doc.id, ...data})
+            .copyWith(id: doc.id)
+            .recalculate();
+      }).toList();
+
+      // ✅ تخزين في المفتاح المناسب
+      if (isOwnerView) {
+        _userInvoices[_kPharmacyHistory] = list;
+      } else {
+        _userInvoices[_kMyHistory] = list;
+      }
+
+      _userInvoices.refresh();
+      update();
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+
+  // =============================
+  // Local pending
+  // =============================
   Future<void> loadSavedInvoices({bool forceRefresh = false}) async {
     await _loadUserInvoices();
   }
@@ -303,8 +436,11 @@ class SalesController extends GetxController {
           final sale = Sale.fromLocalMap(Map<String, dynamic>.from(raw));
           if (sale.status != InvoiceStatus.pending) continue;
 
-          final exists = _userInvoices[uid]!.any((inv) => inv.invoiceNumber == sale.invoiceNumber);
-          if (!exists) _userInvoices[uid]!.add(sale.recalculate());
+          final exists = (_userInvoices[uid] ?? []).any((inv) => inv.invoiceNumber == sale.invoiceNumber);
+          if (!exists) {
+            _userInvoices.putIfAbsent(uid, () => []);
+            _userInvoices[uid]!.add(sale.recalculate());
+          }
         } catch (e) {
           debugPrint('❌ خطأ في تحويل فاتورة محلية: $e');
         }
@@ -359,7 +495,6 @@ class SalesController extends GetxController {
       list.add(invoice);
     }
 
-    // ✅ أعد إسناد + refresh للـ Obx
     _userInvoices[userId] = list;
     _userInvoices.refresh();
   }
@@ -377,11 +512,9 @@ class SalesController extends GetxController {
   void _setCurrentSale(Sale sale) {
     currentSale.value = sale.recalculate();
 
-    // reset cash
     cashReceived.value = 0.0;
     changeAmount.value = 0.0;
 
-    // insurance selection
     if (currentSale.value.insuranceCompanyId != null) {
       selectedInsuranceCompany.value = insuranceCompanies.firstWhereOrNull(
             (c) => c.id == currentSale.value.insuranceCompanyId,
@@ -390,7 +523,6 @@ class SalesController extends GetxController {
       selectedInsuranceCompany.value = null;
     }
 
-    // customer fields
     customerNameController.text = currentSale.value.customerName ?? '';
     customerPhoneController.text = currentSale.value.customerPhone ?? '';
     notesController.text = currentSale.value.notes ?? '';
@@ -433,11 +565,9 @@ class SalesController extends GetxController {
 
     final current = currentSale.value;
 
-    // ✅ لو الحالية pending فقط: خزّنها
     if (!current.isSaved && current.status == InvoiceStatus.pending) {
       _addOrReplaceInvoice(current.recalculate());
     } else {
-      // ✅ لو الحالية completed (بعد saveSale): تأكد ما فيش نسخة pending بنفس الرقم
       final list = List<Sale>.from(_userInvoices[uid] ?? const <Sale>[]);
       list.removeWhere((inv) =>
       inv.invoiceNumber == current.invoiceNumber &&
@@ -446,7 +576,6 @@ class SalesController extends GetxController {
       _userInvoices.refresh();
     }
 
-    // ✅ أنشئ فاتورة جديدة pending
     final newInvoice = Sale.empty(
       pharmacyId: pharmacyId,
       employeeId: uid,
@@ -456,31 +585,25 @@ class SalesController extends GetxController {
     _addOrReplaceInvoice(newInvoice);
     _setCurrentSale(newInvoice);
 
-    // ✅ حدّث التخزين المحلي للفواتير المؤقتة
     _savePendingInvoicesToLocal();
   }
 
   void deleteCurrentInvoice() {
     final sale = currentSale.value;
 
-    // ❌ لا نحذف محفوظة
     if (sale.isSaved || sale.status == InvoiceStatus.completed) {
       _safeSnackbar('غير مسموح', 'لا يمكن حذف فاتورة تم حفظها');
       return;
     }
 
-    // ❌ لازم تبقى فاتورة واحدة على الأقل
     if (activeInvoices.length <= 1) {
       _safeSnackbar('غير مسموح', 'يجب أن تبقى فاتورة واحدة نشطة على الأقل');
       return;
     }
 
     final invoiceNumber = sale.invoiceNumber;
-
-    // 🔥 احذف مباشرة
     _removeInvoiceFromUserList(invoiceNumber);
 
-    // لو فيه فواتير باقية نفتح أول وحدة
     if (activeInvoices.isEmpty) {
       _createNewEmptyInvoice();
     } else {
@@ -516,7 +639,6 @@ class SalesController extends GetxController {
   }
 
   void loadInvoiceForEditing(Sale invoice) {
-    // completed: عرض فقط
     _setCurrentSale(invoice);
 
     if (invoice.status == InvoiceStatus.completed) {
@@ -526,18 +648,16 @@ class SalesController extends GetxController {
   }
 
   void switchToInvoice(Sale invoice) {
-    // لو invoice pending: نحاول نجيبه من activeInvoices
     final idx = activeInvoices.indexWhere((i) => i.invoiceNumber == invoice.invoiceNumber);
     if (idx >= 0) {
       _loadInvoice(idx);
       return;
     }
-    // غير ذلك: عرض
     loadInvoiceForEditing(invoice);
   }
 
   // =============================
-  // Add / Update / Remove items (COMPATIBLE with model)
+  // Add / Update / Remove items
   // =============================
   void addMedicineToSale(
       Medicine medicine, {
@@ -551,7 +671,6 @@ class SalesController extends GetxController {
       return;
     }
 
-    // تحقق مخزون (علب فقط - حالياً)
     if (!sellAsPiece && medicine.quantity < quantity) {
       _safeSnackbar('مخزون غير كافي', 'المخزون المتوفر: ${medicine.quantity} فقط');
       return;
@@ -607,7 +726,6 @@ class SalesController extends GetxController {
 
     final item = sale.items[index];
 
-    // تحقق مخزون (علب فقط)
     if (!item.sellAsPiece) {
       final inventory = Get.find<InventoryController>();
       final med = inventory.getMedicineById(item.medicineId);
@@ -663,7 +781,6 @@ class SalesController extends GetxController {
 
     selectedInsuranceCompany.value = company;
 
-    // خصم التأمين نسبة من subtotal الحالي (بعد خصومات الأصناف إن وجدت)
     final sub = sale.recalculate().subtotal;
     final insuranceValue = (sub * company.discountPercentage / 100);
 
@@ -705,12 +822,10 @@ class SalesController extends GetxController {
   // =============================
   // Save sale to Firebase
   // =============================
-
   Future<Sale?> completeSaleAndPrint() async {
     final shiftCtrl = Get.find<ShiftController>();
     final auth = Get.find<AuthController>();
 
-    // ✅ لازم شيفت نشط
     shiftCtrl.ensureActiveShiftOrThrow();
     final shiftId = shiftCtrl.activeShift.value!.id;
 
@@ -718,7 +833,6 @@ class SalesController extends GetxController {
     if (sale.items.isEmpty) throw Exception('السلة فارغة');
     if (sale.isSaved) throw Exception('هذه الفاتورة محفوظة مسبقاً');
 
-    // ✅ حفظ الفاتورة (مع shiftId + performedBy)
     final saved = await saveSale(
       shiftId: shiftId,
       performedBy: auth.actorInfo,
@@ -727,7 +841,7 @@ class SalesController extends GetxController {
     if (saved == null) {
       throw Exception('فشل حفظ الفاتورة');
     }
-    // ✅ تحديث الشيفت بعد نجاح الحفظ
+
     await shiftCtrl.registerSaleOnShift(
       total: saved.total,
       method: saved.paymentMethod,
@@ -736,10 +850,12 @@ class SalesController extends GetxController {
 
     return saved;
   }
+
   Future<bool> saveSaleSimple() async {
     final saved = await saveSale();
     return saved != null;
   }
+
   Future<Sale?> saveSale({
     String? shiftId,
     Map<String, dynamic>? performedBy,
@@ -748,22 +864,23 @@ class SalesController extends GetxController {
     if (sale.items.isEmpty) {
       return null;
     }
-    // ✅ منع حفظ فاتورة محفوظة
+
     if (sale.isSaved || sale.status == InvoiceStatus.completed) {
       _safeSnackbar('غير مسموح', 'هذه الفاتورة محفوظة مسبقاً');
       return null;
     }
+
     try {
       isLoading.value = true;
-      // ✅ خصم/تأمين/إجمالي محسوب
+
       final recalculated = sale.recalculate();
-      // ✅ تحديث المخزون
       await _updateInventoryStockForSale(recalculated);
+
       final now = DateTime.now();
       final customerName = customerNameController.text.trim();
       final customerPhone = customerPhoneController.text.trim();
       final notes = notesController.text.trim();
-      // ✅ جهز الفاتورة المكتملة
+
       final completedSale = recalculated.copyWith(
         customerName: customerName.isEmpty ? null : customerName,
         customerPhone: customerPhone.isEmpty ? null : customerPhone,
@@ -775,27 +892,29 @@ class SalesController extends GetxController {
         isDeleted: false,
       ).recalculate();
 
-      // ✅ doc id
       final doc = salesCollection.doc();
       final saved = completedSale.copyWith(id: doc.id);
 
-      // ✅ payload مع حقول الشيفت/من نفّذ (اختياري)
       final payload = saved.toMap();
+
+      // ✅ الأفضل: createdAt لو مش موجود
+      payload['createdAt'] ??= FieldValue.serverTimestamp();
+
       if (shiftId != null) payload['shiftId'] = shiftId;
       if (performedBy != null) payload['performedBy'] = performedBy;
+
       await doc.set(payload);
-      // ✅ حدّث قائمة الفواتير (واشيل pending نفس الرقم)
+
       _addOrReplaceInvoice(saved);
-      // ✅ خلّي currentSale تصير saved (قبل إنشاء فاتورة جديدة)
       currentSale.value = saved;
-      // ✅ Log
+
       await _logSaleActivity(saved);
-      // ✅ احذف أي نسخة pending بنفس الرقم
+
       final userId = saved.employeeId ?? '';
       await _removePendingInvoiceByNumber(userId, saved.invoiceNumber);
-      // ✅ حدّث local pending
+
       await _savePendingInvoicesToLocal();
-      // ✅ افتح فاتورة جديدة
+
       createNewInvoice();
       return saved;
     } catch (e, st) {
@@ -807,7 +926,6 @@ class SalesController extends GetxController {
       isLoading.value = false;
     }
   }
-
 
   Future<void> _updateInventoryStockForSale(Sale sale) async {
     final inventoryController = Get.find<InventoryController>();
@@ -843,7 +961,6 @@ class SalesController extends GetxController {
         if (newPackageQty < 0) {
           throw Exception('مخزون غير كافي للدواء ${medicine.name}');
         }
-        // ✅ في بيع الباكو ما نغيروش pieceQuantity
         newPieceQty = currentPieceQty;
       }
 
@@ -903,25 +1020,8 @@ class SalesController extends GetxController {
   }
 
   // =============================
-  // Stats / Reports
+  // Reports
   // =============================
-  Map<String, dynamic> getInvoiceStats() {
-    final pendingCount = activeInvoices.length;
-    final completedCount = completedInvoices.length;
-    final totalCount = allInvoices.length;
-
-    final pendingItems = activeInvoices.fold<int>(0, (sum, inv) => sum + inv.items.length);
-    final completedAmount = completedInvoices.fold<double>(0.0, (sum, inv) => sum + inv.total);
-
-    return {
-      'totalInvoices': totalCount,
-      'pendingInvoices': pendingCount,
-      'completedInvoices': completedCount,
-      'pendingItems': pendingItems,
-      'completedAmount': completedAmount,
-    };
-  }
-
   Future<List<Sale>> getSalesReport(DateTime startDate, DateTime endDate) async {
     try {
       final querySnapshot = await salesCollection
@@ -966,6 +1066,132 @@ class SalesController extends GetxController {
     }
   }
 
+  // =============================
+  // History helpers (My)
+  // =============================
+  DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
+  DateTime _startOfNextDay(DateTime d) => DateTime(d.year, d.month, d.day).add(const Duration(days: 1));
+
+  Future<List<Sale>> fetchMySalesForDay(DateTime day) async {
+    final uid = _currentEmployeeId;
+    if (uid.isEmpty) return [];
+
+    final start = _startOfDay(day);
+    final end = _startOfNextDay(day);
+
+    final qs = await salesCollection
+        .where('employeeId', isEqualTo: uid)
+        .where('isDeleted', isEqualTo: false)
+        .where('saleDate', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('saleDate', isLessThan: Timestamp.fromDate(end))
+        .orderBy('saleDate', descending: true)
+        .get();
+
+    return qs.docs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      return Sale.fromMap({'id': doc.id, ...data}).copyWith(id: doc.id).recalculate();
+    }).toList();
+  }
+
+  Future<void> loadMyHistoryToday({bool includeLocalPending = true}) async {
+    final uid = _currentEmployeeId;
+    if (uid.isEmpty) return;
+
+    try {
+      isLoading.value = true;
+
+      final todayFromFirebase = await fetchMySalesForDay(DateTime.now());
+
+      final merged = <Sale>[];
+      merged.addAll(todayFromFirebase);
+
+      if (includeLocalPending) {
+        await _loadPendingInvoicesFromLocal(uid);
+        merged.addAll(activeInvoices);
+      }
+
+      final byNumber = <String, Sale>{};
+      for (final s in merged) {
+        byNumber[s.invoiceNumber] = s;
+      }
+
+      final list = byNumber.values.toList();
+      list.sort((a, b) {
+        if (a.status == InvoiceStatus.pending && b.status != InvoiceStatus.pending) return -1;
+        if (a.status != InvoiceStatus.pending && b.status == InvoiceStatus.pending) return 1;
+        return b.saleDate.compareTo(a.saleDate);
+      });
+
+      // ✅ نخزن في __my_history__ بدل uid
+      _userInvoices[_kMyHistory] = list;
+      _userInvoices.refresh();
+      update();
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  Future<void> loadMyHistoryAll() async {
+    final uid = _currentEmployeeId;
+    if (uid.isEmpty) return;
+
+    try {
+      isLoading.value = true;
+
+      final qs = await salesCollection
+          .where('employeeId', isEqualTo: uid)
+          .where('isDeleted', isEqualTo: false)
+          .orderBy('saleDate', descending: true)
+          .get();
+
+      final list = qs.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return Sale.fromMap({'id': doc.id, ...data}).copyWith(id: doc.id).recalculate();
+      }).toList();
+
+      await _loadPendingInvoicesFromLocal(uid);
+      list.addAll(activeInvoices);
+
+      final byNumber = <String, Sale>{};
+      for (final s in list) {
+        byNumber[s.invoiceNumber] = s;
+      }
+
+      final merged = byNumber.values.toList();
+      merged.sort((a, b) {
+        if (a.status == InvoiceStatus.pending && b.status != InvoiceStatus.pending) return -1;
+        if (a.status != InvoiceStatus.pending && b.status == InvoiceStatus.pending) return 1;
+        return b.saleDate.compareTo(a.saleDate);
+      });
+
+      _userInvoices[_kMyHistory] = merged;
+      _userInvoices.refresh();
+      update();
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  // =============================
+  // Stats
+  // =============================
+  Map<String, dynamic> getInvoiceStats() {
+    final pendingCount = activeInvoices.length;
+    final completedCount = completedInvoices.length;
+    final totalCount = allInvoices.length;
+
+    final pendingItems = activeInvoices.fold<int>(0, (sum, inv) => sum + inv.items.length);
+    final completedAmount = completedInvoices.fold<double>(0.0, (sum, inv) => sum + inv.total);
+
+    return {
+      'totalInvoices': totalCount,
+      'pendingInvoices': pendingCount,
+      'completedInvoices': completedCount,
+      'pendingItems': pendingItems,
+      'completedAmount': completedAmount,
+    };
+  }
+
   Future<Map<String, dynamic>> getTodaySalesStats() async {
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
@@ -1000,79 +1226,10 @@ class SalesController extends GetxController {
       };
     }
   }
-// =============================
-// History / Day helpers
-// =============================
-  DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
-  DateTime _startOfNextDay(DateTime d) => DateTime(d.year, d.month, d.day).add(const Duration(days: 1));
 
-  Future<List<Sale>> fetchMySalesForDay(DateTime day) async {
-    final uid = _currentEmployeeId;
-    if (uid.isEmpty) return [];
-
-    final start = _startOfDay(day);
-    final end = _startOfNextDay(day);
-
-    final qs = await salesCollection
-        .where('employeeId', isEqualTo: uid)
-        .where('isDeleted', isEqualTo: false)
-        .where('saleDate', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-        .where('saleDate', isLessThan: Timestamp.fromDate(end))
-        .orderBy('saleDate', descending: true)
-        .get();
-
-    return qs.docs.map((doc) {
-      final data = doc.data() as Map<String, dynamic>;
-      return Sale.fromMap({'id': doc.id, ...data}).copyWith(id: doc.id).recalculate();
-    }).toList();
-  }
-
-  /// تحميل "هيستوري اليوم" للموظف الحالي (Firebase + optional local pending)
-  Future<void> loadMyHistoryToday({bool includeLocalPending = true}) async {
-    final uid = _currentEmployeeId;
-    if (uid.isEmpty) return;
-
-    try {
-      isLoading.value = true;
-
-      final todayFromFirebase = await fetchMySalesForDay(DateTime.now());
-
-      final merged = <Sale>[];
-      merged.addAll(todayFromFirebase);
-
-      if (includeLocalPending) {
-        // حمّل pending من local ثم التقطها
-        await _loadPendingInvoicesFromLocal(uid);
-        merged.addAll(activeInvoices);
-      }
-
-      // remove duplicates by invoiceNumber (Firebase wins غالباً)
-      final byNumber = <String, Sale>{};
-      for (final s in merged) {
-        byNumber[s.invoiceNumber] = s;
-      }
-
-      final list = byNumber.values.toList();
-      list.sort((a, b) {
-        if (a.status == InvoiceStatus.pending && b.status != InvoiceStatus.pending) return -1;
-        if (a.status != InvoiceStatus.pending && b.status == InvoiceStatus.pending) return 1;
-        return b.saleDate.compareTo(a.saleDate);
-      });
-
-      _userInvoices[uid] = list;
-      _userInvoices.refresh();
-      update();
-    } finally {
-      isLoading.value = false;
-    }
-  }
-
-  /// (اختياري) تحميل كل فواتير الموظف - هذا يستعمل دالتك الحالية
-  Future<void> loadMyHistoryAll() async {
-    await _loadUserInvoices();
-  }
-
-  /// تحقق هل تم إقفال اليوم مسبقاً
+  // =============================
+  // Day closing
+  // =============================
   Future<bool> isDayClosedForMe(DateTime day) async {
     final uid = _currentEmployeeId;
     if (uid.isEmpty) return false;
@@ -1089,7 +1246,6 @@ class SalesController extends GetxController {
     return doc.exists;
   }
 
-  /// إقفال اليوم: يخزن تقرير في Firestore
   Future<Map<String, dynamic>> closeMyDay() async {
     final uid = _currentEmployeeId;
     if (uid.isEmpty) throw Exception('employeeId فارغ');
@@ -1098,7 +1254,6 @@ class SalesController extends GetxController {
     final start = _startOfDay(now);
     final key = '${uid}_${start.year}${start.month.toString().padLeft(2,'0')}${start.day.toString().padLeft(2,'0')}';
 
-    // لو تبي تمنع الإقفال مرتين:
     final alreadyClosed = await isDayClosedForMe(now);
     if (alreadyClosed) {
       throw Exception('تم إقفال هذا اليوم مسبقاً');
@@ -1321,7 +1476,7 @@ class SalesController extends GetxController {
   }
 
   // =============================
-  // Optional UI widget (keep if you want)
+  // Optional UI widget
   // =============================
   Widget buildInsuranceDropdown() {
     return Obx(() {

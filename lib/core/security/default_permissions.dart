@@ -18,7 +18,14 @@ abstract class DefaultPermissions {
     'sales.refund': true,
     'sales.override_price': true,
     'sales.view_history': true,
-
+    'sales.history.view': true,
+    'sales.history.export': true,
+    'sales.history.open': true,
+    'sales.history.delete': true,
+    'sales.history.filter.employee': true,
+    'sales.history.filter.date': true,
+    'sales.history.filter.payment': true,
+    'sales.history.filter.insurance': true,
     // Inventory
     'inventory.view': true,
     'inventory.create': true,
@@ -68,7 +75,14 @@ abstract class DefaultPermissions {
     'sales.refund': true,
     'sales.override_price': false,
     'sales.view_history': true,
-
+    'sales.history.view': true,
+    'sales.history.export': true,
+    'sales.history.open': true,
+    'sales.history.delete': false, // نخليها false افتراضياً
+    'sales.history.filter.employee': false,
+    'sales.history.filter.date': true,
+    'sales.history.filter.payment': true,
+    'sales.history.filter.insurance': true,
     // Inventory
     'inventory.view': true,
     'inventory.create': true,
@@ -118,7 +132,14 @@ abstract class DefaultPermissions {
     'sales.refund': false,
     'sales.override_price': false,
     'sales.view_history': false,
-
+    'sales.history.view': true,     // أو false إذا تبي تمنع عليه الديالوج
+    'sales.history.export': false,
+    'sales.history.open': true,
+    'sales.history.delete': false,
+    'sales.history.filter.employee': false,
+    'sales.history.filter.date': true,
+    'sales.history.filter.payment': true,
+    'sales.history.filter.insurance': true,
     // Inventory
     'inventory.view': true,
     'inventory.create': false,
@@ -234,7 +255,15 @@ const List<String> ALL_PERMISSIONS = [
   'sales.refund',
   'sales.override_price',
   'sales.view_history',
-
+// Sales History (Dialog)
+  'sales.history.view',
+  'sales.history.export',
+  'sales.history.open',
+  'sales.history.delete',
+  'sales.history.filter.employee',
+  'sales.history.filter.date',
+  'sales.history.filter.payment',
+  'sales.history.filter.insurance',
   // Inventory
   'inventory.view',
   'inventory.create',
@@ -286,7 +315,15 @@ final Map<String, String> permissionTranslations = {
   'sales.refund': 'إرجاع المبيعات',
   'sales.override_price': 'تجاوز السعر',
   'sales.view_history': 'عرض تاريخ المبيعات',
-
+// Sales History (Dialog)
+  'sales.history.view': 'عرض تاريخ الفواتير',
+  'sales.history.export': 'تصدير تاريخ الفواتير',
+  'sales.history.open': 'فتح فاتورة من التاريخ',
+  'sales.history.delete': 'حذف فاتورة من التاريخ',
+  'sales.history.filter.employee': 'فلترة حسب الموظف',
+  'sales.history.filter.date': 'فلترة حسب التاريخ',
+  'sales.history.filter.payment': 'فلترة حسب طريقة الدفع',
+  'sales.history.filter.insurance': 'فلترة حسب شركة التأمين',
   // Inventory
   'inventory.view': 'عرض المخزون',
   'inventory.create': 'إضافة منتجات',
@@ -335,6 +372,14 @@ final Map<String, List<String>> permissionGroups = {
     'sales.refund',
     'sales.override_price',
     'sales.view_history',
+    'sales.history.view',
+    'sales.history.export',
+    'sales.history.open',
+    'sales.history.delete',
+    'sales.history.filter.employee',
+    'sales.history.filter.date',
+    'sales.history.filter.payment',
+    'sales.history.filter.insurance',
   ],
   'المخزون': [
     'inventory.view',

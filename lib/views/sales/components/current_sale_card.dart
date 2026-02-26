@@ -6,12 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
 import 'package:intl/intl.dart';
-import 'package:pharmacy_desktop/views/sales/components/sales_history_screen.dart';
-
 import '../../../controllers/sales_controller.dart';
 import '../../../models/sales_model.dart';
 import '../dialogs/edit_item_dialog.dart';
 import 'sale_item.dart';
+import 'package:pharmacy_desktop/views/sales/dialogs/sales_history_dialog.dart';
 
 class CurrentSaleCard extends StatefulWidget {
   final SalesController salesController;
@@ -256,7 +255,16 @@ class _CurrentSaleCardState extends State<CurrentSaleCard> {
 
                         // ✅ زر التاريخ في الصف الأول (تصميم مرتب)
                         OutlinedButton.icon(
-                          onPressed: () => Get.to(() => SalesHistoryScreen()),
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (_) => SalesHistoryDialog(
+                                onOpenInvoice: (sale) {
+                                  widget.salesController.switchToInvoice(sale);
+                                },
+                              ),
+                            );
+                          },
                           icon: const Icon(Iconsax.receipt_search, size: 18),
                           label: const Text(
                             'تاريخ الفواتير',

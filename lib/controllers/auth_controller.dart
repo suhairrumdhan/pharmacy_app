@@ -10,7 +10,9 @@ import '../internal_login_page.dart';
 import '../views/home_page.dart';
 import '../views/login_page.dart';
 import '../views/waiting_approval_page.dart';
-import 'package:iconsax_flutter/iconsax_flutter.dart'; // Added iconsax import
+import 'package:iconsax_flutter/iconsax_flutter.dart';
+
+import 'employee_controller.dart'; // Added iconsax import
 
 class AuthController extends GetxController {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -134,6 +136,10 @@ class AuthController extends GetxController {
         // ✅ هنا بالضبط: سجل ShiftController بعد نجاح الدخول
         if (!Get.isRegistered<ShiftController>()) {
           Get.put(ShiftController(), permanent: true);
+        }
+        // ✅ أضف هذا
+        if (!Get.isRegistered<EmployeeController>()) {
+          Get.put(EmployeeController(), permanent: true);
         }
 
         // ✅ المالك يدخل Home مباشرة
