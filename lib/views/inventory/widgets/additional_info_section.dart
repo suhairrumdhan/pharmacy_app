@@ -166,78 +166,54 @@ class AdditionalInfoSection extends StatelessWidget {
           controller: controller.supplierController,
           decoration: InputDecoration(
             labelText: 'المورد (جاري التحميل...)',
-            labelStyle: TextStyle(fontSize: fontSize),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(isMobile ? 10 : 12),
-            ),
-            prefixIcon: Icon(
-              Icons.business,
-              size: iconSize,
-            ),
-            filled: true,
-            fillColor: Colors.grey[50],
-            contentPadding: _getResponsivePadding(width),
-            suffixIcon: SizedBox(
-              width: iconSize + 8,
-              height: iconSize + 8,
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                ),
-              ),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
-          style: TextStyle(fontSize: fontSize),
         );
       }
 
+      // ✅ 1) dedupe items by id (قفل نهائي ضد التكرار)
+      final Map<String, Map<String, dynamic>> uniqueMap = {};
+      for (final s in controller.suppliers) {
+        final id = (s['id'] ?? '').toString().trim();
+        // نخلي خيار "بدون مورد" موجود مرة وحدة فقط
+        if (id.isEmpty) {
+          uniqueMap[''] = s;
+          continue;
+        }
+        uniqueMap[id] = s; // لو تكرر نفس id بياخذ آخر نسخة
+      }
+      final uniqueSuppliers = uniqueMap.values.toList();
+
+      // ✅ 2) safe value
+      final selectedId = controller.selectedSupplierId.value.trim();
+      final ids = uniqueSuppliers.map((s) => (s['id'] ?? '').toString()).toSet();
+      final String? safeValue = (selectedId.isNotEmpty && ids.contains(selectedId))
+          ? selectedId
+          : null;
+
       return DropdownButtonFormField<String>(
-        value: controller.selectedSupplierId.value.isEmpty
-            ? null
-            : controller.selectedSupplierId.value,
+        value: safeValue,
         decoration: InputDecoration(
           labelText: 'المورد (اختياري)',
-          labelStyle: TextStyle(fontSize: fontSize),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(isMobile ? 10 : 12),
-          ),
-          prefixIcon: Icon(
-            Icons.business,
-            size: iconSize,
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          prefixIcon: const Icon(Icons.business),
           filled: true,
-          fillColor: Colors.grey[50],
-          contentPadding: _getResponsivePadding(width),
         ),
-        items: controller.suppliers.map((supplier) {
-          final supplierId = supplier['id'] ?? '';
-          final supplierName = supplier['name'] ?? '';
+        items: uniqueSuppliers.map((supplier) {
+          final supplierId = (supplier['id'] ?? '').toString().trim();
+          final supplierName = (supplier['name'] ?? '').toString();
 
           return DropdownMenuItem<String>(
-            value: supplierId,
-            child: Text(
-              supplierId.isEmpty ? 'بدون مورد' : supplierName,
-              style: TextStyle(
-                fontSize: fontSize,
-                fontStyle: supplierId.isEmpty ? FontStyle.italic : null,
-                color: supplierId.isEmpty ? Colors.grey.shade600 : Colors.grey.shade900, // <- تم التعديل هنا
-                fontWeight: supplierId.isEmpty ? FontWeight.normal : FontWeight.w500,
-              ),
-            ),
+            value: supplierId.isEmpty ? '' : supplierId,
+            child: Text(supplierId.isEmpty ? 'بدون مورد' : supplierName),
           );
         }).toList(),
-        onChanged: (String? newValue) {
-          controller.updateSelectedSupplier(newValue);
-        },
+        onChanged: controller.updateSelectedSupplier,
         isExpanded: true,
-        iconSize: iconSize,
-        style: TextStyle(fontSize: fontSize),
       );
     });
-  }
 
+  }
   // ============================================================
   // حقل الباركود
   // ============================================================

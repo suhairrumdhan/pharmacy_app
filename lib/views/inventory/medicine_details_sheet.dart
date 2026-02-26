@@ -320,7 +320,7 @@ class MedicineDetailsSheet extends StatelessWidget {
             runSpacing: 12,
             children: [
               _buildInfoItem(
-                title: 'الصنف',
+                title: 'الفئة',
                 value: medicine.category ?? 'غير محدد',
                 icon: Icons.category_rounded,
                 iconColor: const Color(0xFF805AD5),
@@ -335,7 +335,7 @@ class MedicineDetailsSheet extends StatelessWidget {
               ),
               if (medicine.unitsPerPackage != null)
                 _buildInfoItem(
-                  title: 'القطع/العلبة',
+                  title: 'القطع في كل علبة',
                   value: '${medicine.unitsPerPackage} قطعة',
                   icon: Icons.layers_rounded,
                   iconColor: const Color(0xFF4299E1),
@@ -407,7 +407,7 @@ class MedicineDetailsSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '${medicine.quantity} ${_getUnitName(medicine.unit)}',
+                  '${medicine.quantity} ',
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
@@ -468,7 +468,7 @@ class MedicineDetailsSheet extends StatelessWidget {
               ),
               if (medicine.sellByPiece && medicine.piecePrice != null)
                 _buildPriceItem(
-                  title: 'سعر القطعة',
+                  title: 'سعر البيع للقطعة',
                   price: medicine.piecePrice,
                   icon: Icons.monetization_on_rounded,
                   color: const Color(0xFF805AD5),

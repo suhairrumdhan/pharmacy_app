@@ -47,7 +47,7 @@ dependencies:
   printing: ^5.14.2
   get: ^4.6.6
   path_provider: ^2.1.1
-  csv: ^5.0.3    # مكتبة CSV خفيفة
+  csv: ^6.0.0
   crypto: ^3.0.3
   flutter_map: ^5.0.0
   latlong2: ^0.9.0

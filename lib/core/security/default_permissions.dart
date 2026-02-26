@@ -6,7 +6,9 @@ abstract class DefaultPermissions {
     'dashboard.view': true,
     'dashboard.analytics.view': true,
     'dashboard.reports.view': true,
-    'shifts.view' :true,
+    'shifts.view': true,
+    'shifts.open': true,
+    'shifts.close': true,
     'purchases.view':true,
     // Sales
     'sales.view': true,
@@ -54,7 +56,9 @@ abstract class DefaultPermissions {
     'dashboard.view': true,
     'dashboard.analytics.view': false,
     'dashboard.reports.view': false,
-    'shifts.view' :true,
+    'shifts.view': true,
+    'shifts.open': true,
+    'shifts.close': true,
     'purchases.view':true,
     // Sales
     'sales.view': true,
@@ -102,7 +106,9 @@ abstract class DefaultPermissions {
     'dashboard.view': true,
     'dashboard.analytics.view': false,
     'dashboard.reports.view': false,
-    'shifts.view' :true,
+    'shifts.view': true,
+    'shifts.open': true,
+    'shifts.close': true,
     'purchases.view':true,
     // Sales
     'sales.view': true,
@@ -217,7 +223,9 @@ const List<String> ALL_PERMISSIONS = [
   'dashboard.view',
   'dashboard.analytics.view',
   'dashboard.reports.view',
-
+  'shifts.view',
+  'shifts.open',
+  'shifts.close',
   // Sales
   'sales.view',
   'sales.create',
@@ -266,6 +274,9 @@ final Map<String, String> permissionTranslations = {
   'dashboard.view': 'عرض لوحة التحكم',
   'dashboard.analytics.view': 'عرض التحليلات',
   'dashboard.reports.view': 'عرض التقارير',
+  'shifts.view': 'عرض الورديات',
+  'shifts.open': 'فتح وردية',
+  'shifts.close': 'إغلاق وردية',
 
   // Sales
   'sales.view': 'عرض المبيعات',

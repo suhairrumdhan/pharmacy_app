@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
+import 'package:pharmacy_desktop/views/shifts/shifts_page.dart';
 
 import '../controllers/auth_controller.dart';
 import '../widgets/sidebar.dart';
@@ -15,6 +16,7 @@ import 'accounts_page.dart';
 import 'suppliers_page.dart';
 import 'insurance_companies_page.dart';
 import 'finance_page.dart';
+//import 'shifts/shifts_page.dart';
 
 /// ✅ صفحات جديدة (Placeholder) - تقدر تنقلها لملفات منفصلة لاحقاً
 class PurchasesPage extends StatelessWidget {
@@ -24,20 +26,6 @@ class PurchasesPage extends StatelessWidget {
     return const Center(
       child: Text(
         'المشتريات (قريباً)\nأوامر شراء • استلام • فواتير موردين',
-        textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 18),
-      ),
-    );
-  }
-}
-
-class ShiftsPage extends StatelessWidget {
-  const ShiftsPage({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Text(
-        'الورديات (قريباً)\nبدء شفت • إغلاق • تسليم صندوق',
         textAlign: TextAlign.center,
         style: TextStyle(fontSize: 18),
       ),
@@ -100,7 +88,7 @@ class _HomePageState extends State<HomePage> {
     {'widget': const DashboardPage(), 'permission': 'dashboard.view', 'titleIndex': 0},
     {'widget': OrdersPage(), 'permission': 'orders.view', 'titleIndex': 1},
     {'widget': SalesPage(), 'permission': 'sales.view', 'titleIndex': 2},
-    {'widget': const ShiftsPage(), 'permission': 'shifts.view', 'titleIndex': 3},
+    {'widget': ShiftsPage(), 'permission': 'shifts.view', 'titleIndex': 3},
     {'widget': InventoryPage(), 'permission': 'inventory.view', 'titleIndex': 4},
     {'widget': const PurchasesPage(), 'permission': 'purchases.view', 'titleIndex': 5},
     {'widget': SuppliersPage(), 'permission': 'suppliers.view', 'titleIndex': 6},

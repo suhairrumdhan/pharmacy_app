@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:pharmacy_desktop/controllers/shift_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/inventory_model.dart';
@@ -704,26 +705,66 @@ class SalesController extends GetxController {
   // =============================
   // Save sale to Firebase
   // =============================
-  Future<bool> saveSale() async {
+
+  Future<Sale?> completeSaleAndPrint() async {
+    final shiftCtrl = Get.find<ShiftController>();
+    final auth = Get.find<AuthController>();
+
+    // ✅ لازم شيفت نشط
+    shiftCtrl.ensureActiveShiftOrThrow();
+    final shiftId = shiftCtrl.activeShift.value!.id;
+
     final sale = currentSale.value;
+    if (sale.items.isEmpty) throw Exception('السلة فارغة');
+    if (sale.isSaved) throw Exception('هذه الفاتورة محفوظة مسبقاً');
 
-    if (sale.items.isEmpty) {
-      _safeSnackbar('فاتورة فارغة', 'أضف منتجات للفاتورة أولاً');
-      return false;
+    // ✅ حفظ الفاتورة (مع shiftId + performedBy)
+    final saved = await saveSale(
+      shiftId: shiftId,
+      performedBy: auth.actorInfo,
+    );
+
+    if (saved == null) {
+      throw Exception('فشل حفظ الفاتورة');
     }
+    // ✅ تحديث الشيفت بعد نجاح الحفظ
+    await shiftCtrl.registerSaleOnShift(
+      total: saved.total,
+      method: saved.paymentMethod,
+      isRefund: false,
+    );
 
+    return saved;
+  }
+  Future<bool> saveSaleSimple() async {
+    final saved = await saveSale();
+    return saved != null;
+  }
+  Future<Sale?> saveSale({
+    String? shiftId,
+    Map<String, dynamic>? performedBy,
+  }) async {
+    final sale = currentSale.value;
+    if (sale.items.isEmpty) {
+      return null;
+    }
+    // ✅ منع حفظ فاتورة محفوظة
+    if (sale.isSaved || sale.status == InvoiceStatus.completed) {
+      _safeSnackbar('غير مسموح', 'هذه الفاتورة محفوظة مسبقاً');
+      return null;
+    }
     try {
       isLoading.value = true;
-
-      await _updateInventoryStockForSale(sale);
-
+      // ✅ خصم/تأمين/إجمالي محسوب
+      final recalculated = sale.recalculate();
+      // ✅ تحديث المخزون
+      await _updateInventoryStockForSale(recalculated);
       final now = DateTime.now();
-
       final customerName = customerNameController.text.trim();
       final customerPhone = customerPhoneController.text.trim();
       final notes = notesController.text.trim();
-
-      final completedSale = sale.copyWith(
+      // ✅ جهز الفاتورة المكتملة
+      final completedSale = recalculated.copyWith(
         customerName: customerName.isEmpty ? null : customerName,
         customerPhone: customerPhone.isEmpty ? null : customerPhone,
         notes: notes.isEmpty ? null : notes,
@@ -734,36 +775,34 @@ class SalesController extends GetxController {
         isDeleted: false,
       ).recalculate();
 
+      // ✅ doc id
       final doc = salesCollection.doc();
       final saved = completedSale.copyWith(id: doc.id);
 
-      await doc.set(saved.toMap());
-
-      // ✅ حدّث القائمة (نفس رقم الفاتورة)
+      // ✅ payload مع حقول الشيفت/من نفّذ (اختياري)
+      final payload = saved.toMap();
+      if (shiftId != null) payload['shiftId'] = shiftId;
+      if (performedBy != null) payload['performedBy'] = performedBy;
+      await doc.set(payload);
+      // ✅ حدّث قائمة الفواتير (واشيل pending نفس الرقم)
       _addOrReplaceInvoice(saved);
-
-      // ✅ مهم جداً: خلّي currentSale تصير مكتملة قبل createNewInvoice()
+      // ✅ خلّي currentSale تصير saved (قبل إنشاء فاتورة جديدة)
       currentSale.value = saved;
-
+      // ✅ Log
       await _logSaleActivity(saved);
-
-      // ✅ احذف أي نسخة pending بنفس الرقم (لو موجودة)
+      // ✅ احذف أي نسخة pending بنفس الرقم
       final userId = saved.employeeId ?? '';
       await _removePendingInvoiceByNumber(userId, saved.invoiceNumber);
-
-      // ✅ حدّث التخزين المحلي بعد الحذف
+      // ✅ حدّث local pending
       await _savePendingInvoicesToLocal();
-
       // ✅ افتح فاتورة جديدة
       createNewInvoice();
-
-      _safeSnackbar('تم الحفظ', 'تم حفظ الفاتورة بنجاح');
-      return true;
+      return saved;
     } catch (e, st) {
       debugPrint('❌ saveSale error: $e');
       debugPrint('$st');
       _safeSnackbar('خطأ', 'فشل في حفظ الفاتورة: $e');
-      return false;
+      return null;
     } finally {
       isLoading.value = false;
     }

@@ -1,4 +1,5 @@
 // main.dart
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -10,21 +11,16 @@ import 'controllers/inventory_controller.dart';
 import 'controllers/insurance_company_controller.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-  await windowManager.ensureInitialized();
-  WindowOptions windowOptions = const WindowOptions(
-    size: Size(1200, 1000),
-    center: true,
-    backgroundColor: Colors.transparent,
+    options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  windowManager.waitUntilReadyToShow(windowOptions, () async {
-    await windowManager.maximize();
-    await windowManager.show();
-    await windowManager.focus();
-  });
+
+
+
+
+  await windowManager.ensureInitialized();
 
   runApp(const MyApp());
 }
@@ -56,5 +52,6 @@ class InitialBinding extends Bindings {
           () => InsuranceCompanyController(),
       fenix: true,
     );
+    //Get.lazyPut(() => ShiftController(), fenix: true);
   }
 }

@@ -16,83 +16,83 @@ class _PurchaseInfoSectionState extends State<PurchaseInfoSection>
     with TickerProviderStateMixin {
   final Rx<PurchaseType> purchaseType = PurchaseType.retail.obs;
 
-  // ✅ Controllers (will be disposed)
-  late final TextEditingController retailPriceCtrl;
-  late final TextEditingController retailQtyCtrl;
-
+  // ✅ wholesale فقط (محلي)
   late final TextEditingController boxCountCtrl;
   late final TextEditingController piecesPerBoxCtrl;
   late final TextEditingController boxPriceCtrl;
 
+  // ✅ Trigger لإعادة بناء الـ Summary لما تتغير Controllers
+  final RxInt _tick = 0.obs;
+  void _forceRebuild() => _tick.value++;
+
   @override
   void initState() {
     super.initState();
-    retailPriceCtrl = TextEditingController();
-    retailQtyCtrl = TextEditingController();
 
     boxCountCtrl = TextEditingController();
     piecesPerBoxCtrl = TextEditingController();
     boxPriceCtrl = TextEditingController();
 
-    // أول تحديث للكونترولر (اختياري)
-    WidgetsBinding.instance.addPostFrameCallback((_) => _seedFromMainController());
+    // ✅ Retail: تابع تغيّر الحقول المربوطة بالكنترولر الرئيسي
+    widget.controller.quantityController.addListener(_forceRebuild);
+    widget.controller.purchasePriceController.addListener(_forceRebuild);
+
+    // ✅ Wholesale: تابع تغيّر حقول الجملة
+    boxCountCtrl.addListener(_forceRebuild);
+    piecesPerBoxCtrl.addListener(_forceRebuild);
+    boxPriceCtrl.addListener(_forceRebuild);
   }
 
   @override
   void dispose() {
-    retailPriceCtrl.dispose();
-    retailQtyCtrl.dispose();
+    // ✅ لازم نحذف listeners
+    widget.controller.quantityController.removeListener(_forceRebuild);
+    widget.controller.purchasePriceController.removeListener(_forceRebuild);
+
     boxCountCtrl.dispose();
     piecesPerBoxCtrl.dispose();
     boxPriceCtrl.dispose();
     super.dispose();
   }
-  void _seedFromMainController() {
-    // 👈 لو تعديل: عبّي حقول الشاشة من الداتا اللي جت من init(medicine)
-    final isEdit = widget.controller.isEditMode.value;
 
-    if (isEdit) {
-      // افتراضياً نخليها Retail (لأن ما عندكش حفظ لنوع الشراء)
-      purchaseType.value = PurchaseType.retail;
+  // ========= Retail values from MAIN controller مباشرة =========
+  int get retailQty =>
+      int.tryParse(widget.controller.quantityController.text.trim()) ?? 0;
 
-      retailPriceCtrl.text = widget.controller.purchasePriceController.text;
-      retailQtyCtrl.text = widget.controller.quantityController.text;
+  double get retailPrice =>
+      double.tryParse(widget.controller.purchasePriceController.text.trim()) ?? 0;
 
-      // ✅ مهم: ما نديروش sync هنا (لأننا أصلاً جايبين من الرئيسي)
-      return;
-    }
-
-    // لو إضافة: تقدر تبدأ بـ sync عادي (اختياري)
-    _syncToMainController();
-  }
-
+  // ========= Wholesale حسابات =========
   int get totalPieces {
     if (purchaseType.value == PurchaseType.wholesale) {
       final b = int.tryParse(boxCountCtrl.text) ?? 0;
       final p = int.tryParse(piecesPerBoxCtrl.text) ?? 0;
       return b * p;
     }
-    return int.tryParse(retailQtyCtrl.text) ?? 0;
+    return retailQty;
   }
 
   double get pricePerPiece {
     if (purchaseType.value == PurchaseType.wholesale) {
       final bp = double.tryParse(boxPriceCtrl.text) ?? 0;
       final p = int.tryParse(piecesPerBoxCtrl.text) ?? 0;
-      if (p <= 0) return 0; // ✅ حماية
+      if (p <= 0) return 0;
       return bp / p;
     }
-    return double.tryParse(retailPriceCtrl.text) ?? 0;
+    return retailPrice;
   }
 
-  void _syncToMainController() {
+  // ✅ مزامنة wholesale -> main
+  void _syncWholesaleToMain() {
     widget.controller.quantityController.text = totalPieces.toString();
-    widget.controller.purchasePriceController.text = pricePerPiece.toStringAsFixed(2);
+    widget.controller.purchasePriceController.text =
+        pricePerPiece.toStringAsFixed(2);
   }
 
-  void _onAnyChanged() {
-    purchaseType.refresh(); // يخلي Obx يعيد البناء
-    //_syncToMainController();
+  void _onWholesaleChanged() {
+    _syncWholesaleToMain();
+    purchaseType.refresh();
+    _forceRebuild(); // ✅ تحديث summary فورًا
   }
 
   @override
@@ -132,7 +132,7 @@ class _PurchaseInfoSectionState extends State<PurchaseInfoSection>
           padding: pad,
           titleSize: titleSize,
           children: [
-            // ---------------------- Radio Buttons (Responsive) ----------------------
+            // ---------------------- Radio Buttons ----------------------
             Obx(() {
               if (compact) {
                 return Column(
@@ -146,7 +146,8 @@ class _PurchaseInfoSectionState extends State<PurchaseInfoSection>
                       onChanged: (v) {
                         if (v == null) return;
                         purchaseType.value = v;
-                        _onAnyChanged();
+                        purchaseType.refresh();
+                        _forceRebuild(); // ✅ تحديث summary عند التبديل
                       },
                     ),
                     RadioListTile<PurchaseType>(
@@ -158,7 +159,8 @@ class _PurchaseInfoSectionState extends State<PurchaseInfoSection>
                       onChanged: (v) {
                         if (v == null) return;
                         purchaseType.value = v;
-                        _onAnyChanged();
+                        purchaseType.refresh();
+                        _forceRebuild(); // ✅ تحديث summary عند التبديل
                       },
                     ),
                   ],
@@ -175,7 +177,8 @@ class _PurchaseInfoSectionState extends State<PurchaseInfoSection>
                       onChanged: (v) {
                         if (v == null) return;
                         purchaseType.value = v;
-                        _onAnyChanged();
+                        purchaseType.refresh();
+                        _forceRebuild();
                       },
                     ),
                   ),
@@ -187,7 +190,8 @@ class _PurchaseInfoSectionState extends State<PurchaseInfoSection>
                       onChanged: (v) {
                         if (v == null) return;
                         purchaseType.value = v;
-                        _onAnyChanged();
+                        purchaseType.refresh();
+                        _forceRebuild();
                       },
                     ),
                   ),
@@ -214,8 +218,7 @@ class _PurchaseInfoSectionState extends State<PurchaseInfoSection>
 
             // ------------------- Summary -------------------
             Obx(() {
-              // نضمن التزامن حتى لو تغيّر نوع الشراء فقط
-              _syncToMainController();
+              _tick.value; // ✅ يخلي summary يتحدث مع أي تغيير controllers
 
               return Container(
                 width: double.infinity,
@@ -250,7 +253,7 @@ class _PurchaseInfoSectionState extends State<PurchaseInfoSection>
     );
   }
 
-  // ---------------------- UI — شراء قطاعي ----------------------
+  // ✅ Retail: مربوط مباشرة بـ Main Controllers (يطلع في التعديل فوراً)
   Widget _buildRetailFields(
       Widget Function(Widget, Widget) twoFields,
       bool compact,
@@ -260,15 +263,13 @@ class _PurchaseInfoSectionState extends State<PurchaseInfoSection>
       children: [
         twoFields(
           TextFormField(
-            controller: retailPriceCtrl,
+            controller: widget.controller.purchasePriceController,
             decoration: _input("سعر الشراء للقطعة", Icons.attach_money, compact),
-            onChanged: (_) => _onAnyChanged(),
             keyboardType: TextInputType.number,
           ),
           TextFormField(
-            controller: retailQtyCtrl,
+            controller: widget.controller.quantityController,
             decoration: _input("الكمية بالقطع", Icons.inventory, compact),
-            onChanged: (_) => _onAnyChanged(),
             keyboardType: TextInputType.number,
           ),
         ),
@@ -276,7 +277,7 @@ class _PurchaseInfoSectionState extends State<PurchaseInfoSection>
     );
   }
 
-  // ---------------------- UI — شراء جملة ----------------------
+  // ✅ Wholesale: محلي + sync للـ main
   Widget _buildWholesaleFields(
       Widget Function(Widget, Widget) twoFields,
       bool compact,
@@ -288,13 +289,14 @@ class _PurchaseInfoSectionState extends State<PurchaseInfoSection>
           TextFormField(
             controller: boxCountCtrl,
             decoration: _input("عدد الصناديق", Icons.inventory_2, compact),
-            onChanged: (_) => _onAnyChanged(),
+            onChanged: (_) => _onWholesaleChanged(),
             keyboardType: TextInputType.number,
           ),
           TextFormField(
             controller: piecesPerBoxCtrl,
-            decoration: _input("عدد القطع في الصندوق", Icons.format_list_numbered, compact),
-            onChanged: (_) => _onAnyChanged(),
+            decoration:
+            _input("عدد القطع في الصندوق", Icons.format_list_numbered, compact),
+            onChanged: (_) => _onWholesaleChanged(),
             keyboardType: TextInputType.number,
           ),
         ),
@@ -302,14 +304,13 @@ class _PurchaseInfoSectionState extends State<PurchaseInfoSection>
         TextFormField(
           controller: boxPriceCtrl,
           decoration: _input("سعر الصندوق الواحد", Icons.attach_money, compact),
-          onChanged: (_) => _onAnyChanged(),
+          onChanged: (_) => _onWholesaleChanged(),
           keyboardType: TextInputType.number,
         ),
       ],
     );
   }
 
-  // ---------------------- Input Decoration Helper ----------------------
   InputDecoration _input(String label, IconData icon, bool compact) {
     return InputDecoration(
       labelText: label,
@@ -326,7 +327,6 @@ class _PurchaseInfoSectionState extends State<PurchaseInfoSection>
   }
 }
 
-// ---------------------- Section Wrapper (Responsive params) ----------------------
 Widget _buildSection({
   required String title,
   required IconData icon,

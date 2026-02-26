@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
 import '../../../controllers/sales_controller.dart';
-import '../dialogs/checkout_confirmation_dialog.dart';
-
+import '../dialogs/receipt_options_dialog.dart';
 import '../utils/dialog_utils.dart';
 
 class CheckoutButton extends StatefulWidget {
@@ -19,32 +18,25 @@ class CheckoutButton extends StatefulWidget {
 }
 
 class _CheckoutButtonState extends State<CheckoutButton> {
-  bool _isOpeningDialog = false;
+  bool _isProcessing = false;
 
-  Future<void> _openCheckoutDialog(BuildContext context) async {
-    if (!context.mounted) return;
-
-    setState(() => _isOpeningDialog = true);
+  Future<void> _processCheckout() async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
 
     try {
-      await DialogUtils.showSafeDialog(
-        context: context,
-        builder: (_) => CheckoutConfirmationDialog(
-          salesController: widget.salesController,
-        ),
-        barrierDismissible: false,
-      );
-    } catch (e, stackTrace) {
-      print('❌ خطأ في فتح dialog: $e');
-      print('📜 Stack trace: $stackTrace');
-
+      // ✅ يحفظ + يحدّث الشيفت + يرجع الفاتورة المحفوظة
+      final savedSale = await widget.salesController.completeSaleAndPrint();
+      if (!mounted) return;
+    } catch (e) {
+      if (!mounted) return;
       DialogUtils.showSafeSnackbar(
         title: 'خطأ',
-        message: 'فشل في فتح نافذة التأكيد',
+        message: 'حدث خطأ غير متوقع: $e',
       );
     } finally {
       if (mounted) {
-        setState(() => _isOpeningDialog = false);
+        setState(() => _isProcessing = false);
       }
     }
   }
@@ -54,7 +46,8 @@ class _CheckoutButtonState extends State<CheckoutButton> {
     return Obx(() {
       final sale = widget.salesController.currentSale.value;
       final isLoading = widget.salesController.isLoading.value;
-      final isDisabled = sale.items.isEmpty || isLoading || _isOpeningDialog;
+
+      final isDisabled = sale.items.isEmpty || isLoading || _isProcessing;
 
       return Container(
         decoration: BoxDecoration(
@@ -70,13 +63,9 @@ class _CheckoutButtonState extends State<CheckoutButton> {
           ],
         ),
         child: ElevatedButton(
-          onPressed: isDisabled
-              ? null
-              : () => _openCheckoutDialog(context),
+          onPressed: isDisabled ? null : _processCheckout,
           style: ElevatedButton.styleFrom(
-            backgroundColor: isDisabled
-                ? Colors.grey[400]
-                : Colors.green[700],
+            backgroundColor: isDisabled ? Colors.grey[400] : Colors.green[700],
             foregroundColor: Colors.white,
             minimumSize: const Size(double.infinity, 56),
             shape: RoundedRectangleBorder(
@@ -86,7 +75,7 @@ class _CheckoutButtonState extends State<CheckoutButton> {
             elevation: 0,
             shadowColor: Colors.transparent,
           ),
-          child: isLoading || _isOpeningDialog
+          child: isLoading || _isProcessing
               ? const SizedBox(
             width: 24,
             height: 24,

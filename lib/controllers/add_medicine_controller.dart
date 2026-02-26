@@ -49,21 +49,23 @@ class AddMedicineController extends GetxController {
   final isEditMode = false.obs;
   String? editingMedicineId;
   bool _initialized = false;
-
+  String? _originalBarcode;
   // Get pharmacy ID
   String? get pharmacyId => FirebaseAuth.instance.currentUser?.uid;
 
   @override
+  @override
   void onInit() {
     super.onInit();
-    _loadCategories();
-    loadSuppliers(); // ← أضف هذا السطر
 
-    // Add listeners for piece price calculation
+    Future.microtask(() async {
+      await _loadCategories();
+      await loadSuppliers();
+    });
+
     unitsPerPackageController.addListener(_calculatePiecePrice);
     sellingPriceController.addListener(_calculatePiecePrice);
   }
-
   @override
   void onClose() {
     nameController.dispose();
@@ -81,39 +83,103 @@ class AddMedicineController extends GetxController {
   }
 
 
-  void init(Medicine? medicine) {
-    if (_initialized) return;
-    _initialized = true;
+  Future<void> init(Medicine? medicine) async {
+    // ✅ كل مرة نفتح الديالوج نبدأ نظيف
+    resetForm();
+
+    // ✅ حمّل التصنيفات + الموردين قبل تعبئة بيانات التعديل
+    await Future.wait([
+      _loadCategories(),
+      loadSuppliers(),
+    ]);
 
     if (medicine == null) {
       isEditMode.value = false;
       editingMedicineId = null;
-      clearForm();
       return;
     }
 
     isEditMode.value = true;
     editingMedicineId = medicine.id;
 
+    // ✅ تعبية البيانات (ومنها معلومات الشراء)
     nameController.text = medicine.name;
-    scientificNameController.text = medicine.scientificName;
+    scientificNameController.text = medicine.scientificName ?? '';
     descriptionController.text = medicine.description ?? '';
+
     quantityController.text = medicine.quantity.toString();
-    minStockController.text = medicine.minStockLevel?.toString() ?? '';
-    purchasePriceController.text = medicine.purchasePrice?.toString() ?? '';
-    sellingPriceController.text = medicine.sellingPrice?.toString() ?? '';
-    supplierController.text = medicine.supplier ?? '';
-    barcodeController.text = medicine.barcode ?? '';
+    minStockController.text = (medicine.minStockLevel ?? 10).toString();
 
-    selectedCategory.value = medicine.category;
-    selectedUnit.value = medicine.unit ?? UnitType.Tablet;
+    // ✅ معلومات الشراء
+    purchasePriceController.text = (medicine.purchasePrice ?? '').toString();
 
-    unitsPerPackageController.text = medicine.unitsPerPackage?.toString() ?? '';
+    // ✅ معلومات البيع
+    sellingPriceController.text = (medicine.sellingPrice ?? '').toString();
     sellByPiece.value = medicine.sellByPiece;
+    unitsPerPackageController.text = medicine.unitsPerPackage?.toString() ?? '';
     piecePriceCalculated.value = medicine.piecePrice;
 
+    // ✅ الباقي
+    supplierController.text = medicine.supplier ?? '';
+    barcodeController.text = medicine.barcode ?? '';
+    _originalBarcode = barcodeController.text.trim(); // ✅ مهم جداً
+    selectedCategory.value = medicine.category;
+    selectedUnit.value = medicine.unit ?? UnitType.Tablet;
     expiryDate.value = medicine.expiryDate ?? DateTime.now().add(const Duration(days: 365));
+
+    // ✅ الصورة
+    medicineImage.value = null;
     medicineImageUrl.value = medicine.imageUrl;
+
+    // ✅ طابق المورد بعد ما suppliers تحمّلت
+    final supName = (medicine.supplier ?? '').trim();
+    if (supName.isNotEmpty) {
+      final found = suppliers.firstWhere(
+            (s) => ((s['name'] ?? '').toString().trim() == supName),
+        orElse: () => {},
+      );
+
+      if (found.isNotEmpty) {
+        selectedSupplierId.value = (found['id'] ?? '').toString();
+        selectedSupplierName.value = (found['name'] ?? '').toString();
+      } else {
+        selectedSupplierId.value = '';
+        selectedSupplierName.value = '';
+      }
+    }
+  }
+  void resetForm() {
+    isEditMode.value = false;
+    editingMedicineId = null;
+
+    nameController.clear();
+    scientificNameController.clear();
+    descriptionController.clear();
+    purchasePriceController.clear();
+    quantityController.clear();
+    sellingPriceController.clear();
+
+    minStockController.text = '10'; // ✅ يرجع default
+    supplierController.clear();
+    barcodeController.clear();
+    unitsPerPackageController.clear();
+    newCategoryController.clear();
+
+    selectedCategory.value = null;
+    selectedUnit.value = UnitType.Tablet;
+
+    sellByPiece.value = false;
+    piecePriceCalculated.value = null;
+
+    medicineImage.value = null;
+    medicineImageUrl.value = null; // خليه هنا عادي، لأن init في التعديل بيرجع يحطها من جديد
+
+    selectedSupplierId.value = '';
+    selectedSupplierName.value = '';
+    isUploadingImage.value = false;
+    _originalBarcode = null;
+
+    expiryDate.value = DateTime.now().add(const Duration(days: 365));
   }
 
   int? get unitsPerPackage {
@@ -125,12 +191,12 @@ class AddMedicineController extends GetxController {
   Future<void> loadSuppliers() async {
     try {
       if (pharmacyId == null) {
-        print('❌ No pharmacy ID available');
         return;
       }
+      // ✅ امنع إعادة التحميل لو فعلاً جاري تحميل
+      if (isLoadingSuppliers.value) return;
 
       isLoadingSuppliers.value = true;
-      suppliers.clear();
 
       print('📡 Loading suppliers for pharmacy: $pharmacyId');
 
@@ -143,28 +209,66 @@ class AddMedicineController extends GetxController {
 
       print('📊 Found ${querySnapshot.docs.length} suppliers');
 
-      for (var doc in querySnapshot.docs) {
+      // ✅ اجمعهم في Map عشان تضمن uniqueness بالـ doc.id
+      final Map<String, Map<String, dynamic>> unique = {};
+
+      for (final doc in querySnapshot.docs) {
         final data = doc.data();
-        suppliers.add({
+        unique[doc.id] = {
           'id': doc.id,
           'name': data['name']?.toString() ?? 'بدون اسم',
           'phone': data['phone']?.toString() ?? '',
           'address': data['address']?.toString() ?? '',
           'contactPerson': data['contactPerson']?.toString() ?? '',
-        });
+        };
       }
 
-      // إضافة خيار "بدون مورد"
-      suppliers.insert(0, {
-        'id': '',
-        'name': 'بدون مورد',
-        'phone': '',
-        'address': '',
-        'contactPerson': '',
-      });
+      // ✅ جهّز القائمة النهائية: "بدون مورد" + الموردين unique
+      final List<Map<String, dynamic>> result = [
+        {
+          'id': '',
+          'name': 'بدون مورد',
+          'phone': '',
+          'address': '',
+          'contactPerson': '',
+        },
+        ...unique.values.toList(),
+      ];
+
+      // ✅ بدل add/insert/clear استخدم assignAll (أسرع وأنظف)
+      suppliers.assignAll(result);
 
       print('✅ Loaded ${suppliers.length} suppliers total');
 
+      // ✅ مزامنة اختيار المورد (لو في edit)
+      if (isEditMode.value) {
+        // الأفضل: اعتمد على selectedSupplierId لو موجود
+        final currentId = selectedSupplierId.value.trim();
+
+        if (currentId.isNotEmpty) {
+          final exists = suppliers.any((s) => (s['id'] ?? '').toString() == currentId);
+          if (!exists) {
+            selectedSupplierId.value = '';
+            selectedSupplierName.value = '';
+          } else {
+            final s = suppliers.firstWhere((e) => (e['id'] ?? '').toString() == currentId);
+            selectedSupplierName.value = (s['name'] ?? '').toString();
+            supplierController.text = selectedSupplierName.value;
+          }
+        } else if (supplierController.text.trim().isNotEmpty) {
+          // fallback: طابق بالاسم
+          final name = supplierController.text.trim();
+          final found = suppliers.firstWhere(
+                (s) => ((s['name'] ?? '').toString().trim() == name),
+            orElse: () => {},
+          );
+
+          if (found.isNotEmpty) {
+            selectedSupplierId.value = (found['id'] ?? '').toString();
+            selectedSupplierName.value = (found['name'] ?? '').toString();
+          }
+        }
+      }
     } catch (e, stackTrace) {
       print('❌ Error loading suppliers: $e');
       print('📝 Stack trace: $stackTrace');
@@ -180,7 +284,6 @@ class AddMedicineController extends GetxController {
       isLoadingSuppliers.value = false;
     }
   }
-
   // دالة لتحديث المورد المختار
   void updateSelectedSupplier(String? supplierId) {
     if (supplierId == null || supplierId.isEmpty) {
@@ -584,38 +687,31 @@ class AddMedicineController extends GetxController {
   }
 
   // Validate barcode
-  Future<String?> _validateBarcode(String barcode) async {
-    try {
-      // Check if barcode is not empty
-      if (barcode.trim().isEmpty) {
-        return null; // Barcode is optional
-      }
+  Future<String?> _validateBarcode(String barcode, {String? ignoreDocId}) async {
+    final b = barcode.trim();
+    if (b.isEmpty) return null; // optional
 
-
-      // Check if pharmacy ID exists
-      if (pharmacyId == null) {
-        throw Exception('غير مسجل دخول. يرجى تسجيل الدخول أولاً');
-      }
-
-      // Check if barcode already exists in Firebase
-      final querySnapshot = await FirebaseFirestore.instance
-          .collection('pharmacies')
-          .doc(pharmacyId)
-          .collection('medicines')
-          .where('barcode', isEqualTo: barcode)
-          .limit(1)
-          .get();
-
-      if (querySnapshot.docs.isNotEmpty) {
-        throw Exception('الباركود "$barcode" مستخدم بالفعل لصنف آخر');
-      }
-
-      return barcode;
-    } catch (e) {
-      rethrow;
+    if (pharmacyId == null) {
+      throw Exception('غير مسجل دخول. يرجى تسجيل الدخول أولاً');
     }
-  }
 
+    final querySnapshot = await FirebaseFirestore.instance
+        .collection('pharmacies')
+        .doc(pharmacyId)
+        .collection('medicines')
+        .where('barcode', isEqualTo: b)
+        .limit(5)
+        .get();
+
+    // ✅ لو تعديل: تجاهل نفس الدواء
+    final conflict = querySnapshot.docs.any((d) => d.id != ignoreDocId);
+
+    if (conflict) {
+      throw Exception('الباركود "$b" مستخدم بالفعل لصنف آخر');
+    }
+
+    return b;
+  }
   // Validate all required fields
   Map<String, String> validateRequiredFields() {
     final errors = <String, String>{};
@@ -710,67 +806,58 @@ class AddMedicineController extends GetxController {
   // Add medicine to inventory with proper error handling
   Future<void> addMedicine() async {
     try {
-      // Start loading
       isAddingMedicine.value = true;
 
-      // Validate all required fields
+      // ✅ Validate all required fields
       final fieldErrors = validateRequiredFields();
       if (fieldErrors.isNotEmpty) {
-        final errorMessage = fieldErrors.entries
-            .map((e) => '• ${e.value}')
-            .join('\n');
+        final errorMessage = fieldErrors.entries.map((e) => '• ${e.value}').join('\n');
         throw Exception('يوجد أخطاء في البيانات:\n$errorMessage');
       }
 
-      // Validate barcode
-      String? barcode;
-      if (barcodeController.text.trim().isNotEmpty) {
-        barcode = await _validateBarcode(barcodeController.text.trim());
-      }
-
-      // Check pharmacy ID
       if (pharmacyId == null) {
         throw Exception('غير مسجل دخول. يرجى تسجيل الدخول أولاً');
       }
 
-      // Convert data
-      int quantity = int.parse(quantityController.text);
-      double? purchasePrice;
-      if (purchasePriceController.text.isNotEmpty) {
-        purchasePrice = double.tryParse(purchasePriceController.text);
+      // ✅ Validate barcode (Add mode)
+      String? barcode;
+      final b = barcodeController.text.trim();
+      if (b.isNotEmpty) {
+        barcode = await _validateBarcode(b, ignoreDocId: null);
       }
 
-      double sellingPrice = double.parse(sellingPriceController.text);
+      // ✅ Convert data
+      final int quantity = int.parse(quantityController.text.trim());
 
-      int? unitsPerPackage;
-      if (unitsPerPackageController.text.isNotEmpty) {
-        unitsPerPackage = int.tryParse(unitsPerPackageController.text);
-      }
+      final double? purchasePrice = purchasePriceController.text.trim().isNotEmpty
+          ? double.tryParse(purchasePriceController.text.trim())
+          : null;
 
-      int? minStockLevel;
-      if (minStockController.text.isNotEmpty) {
-        minStockLevel = int.tryParse(minStockController.text);
-      }
+      final double sellingPrice = double.parse(sellingPriceController.text.trim());
+
+      final int? unitsPerPackage = unitsPerPackageController.text.trim().isNotEmpty
+          ? int.tryParse(unitsPerPackageController.text.trim())
+          : null;
+
+      final int? minStockLevel = minStockController.text.trim().isNotEmpty
+          ? int.tryParse(minStockController.text.trim())
+          : null;
 
       String? scientificName = scientificNameController.text.trim();
-      if (scientificName.isEmpty) {
-        scientificName = null;
-      }
+      if (scientificName.isEmpty) scientificName = null;
 
-      // تحديد المورد
+      // ✅ Supplier
       String? supplier;
       String? supplierIdForUpdate;
 
       if (selectedSupplierId.value.isNotEmpty) {
-        // استخدام المورد المختار من القائمة
         supplier = selectedSupplierName.value;
         supplierIdForUpdate = selectedSupplierId.value;
       } else if (supplierController.text.trim().isNotEmpty) {
-        // استخدام المورد المدخل يدوياً
         supplier = supplierController.text.trim();
       }
 
-      // Upload image if exists
+      // ✅ Image
       String? imageUrl;
       if (medicineImage.value != null) {
         imageUrl = await uploadImageToFirebase();
@@ -787,16 +874,15 @@ class AddMedicineController extends GetxController {
         imageUrl = medicineImageUrl.value;
       }
 
-      // Generate medicine ID
+      // ✅ Generate docId
       final String medicineId = DateTime.now().millisecondsSinceEpoch.toString();
 
-      // Create medicine object
       final newMedicine = Medicine(
         id: medicineId,
-        name: nameController.text,
+        name: nameController.text.trim(),
         scientificName: scientificName,
         quantity: quantity,
-        description: descriptionController.text.isEmpty ? null : descriptionController.text,
+        description: descriptionController.text.trim().isEmpty ? null : descriptionController.text.trim(),
         category: selectedCategory.value,
         purchasePrice: purchasePrice,
         sellingPrice: sellingPrice,
@@ -812,13 +898,11 @@ class AddMedicineController extends GetxController {
         lastUpdated: DateTime.now(),
       );
 
-      // Add to inventory
       await inventoryController.addMedicine(newMedicine);
 
-      // ⬇️⬇️⬇️ **إضافة الدواء إلى قائمة الأدوية للمورد (إذا كان هناك مورد)** ⬇️⬇️⬇️
+      // ✅ Update supplier medications list
       if (supplierIdForUpdate != null && supplierIdForUpdate.isNotEmpty) {
         try {
-          // تحديث قائمة الأدوية في المورد
           await FirebaseFirestore.instance
               .collection('pharmacies')
               .doc(pharmacyId)
@@ -829,9 +913,6 @@ class AddMedicineController extends GetxController {
             'updatedAt': FieldValue.serverTimestamp(),
           });
 
-          print('✅ تم تحديث المورد ${selectedSupplierName.value} بإضافة الدواء $medicineId');
-
-          // يمكنك إضافة رسالة نجاح إضافية
           Get.snackbar(
             'تم تحديث المورد',
             'تم إضافة الدواء إلى قائمة أدوية المورد ${selectedSupplierName.value}',
@@ -840,10 +921,7 @@ class AddMedicineController extends GetxController {
             duration: const Duration(seconds: 2),
             snackPosition: SnackPosition.BOTTOM,
           );
-
         } catch (e) {
-          print('⚠️ تحذير: لم يتم تحديث قائمة أدوية المورد: $e');
-          // لا توقف العملية إذا فشل تحديث المورد
           Get.snackbar(
             'تنبيه',
             'تم إضافة الدواء ولكن لم يتم تحديث المورد',
@@ -855,23 +933,17 @@ class AddMedicineController extends GetxController {
         }
       }
 
-      // Show success message
       Get.snackbar(
         'تمت الإضافة بنجاح ✓',
-        'تم إضافة الدواء "${nameController.text}" إلى المخزون\nالكمية: $quantity\nسعر البيع: $sellingPrice ر.س${supplier != null ? '\nالمورد: $supplier' : ''}',
+        'تم إضافة الدواء "${nameController.text.trim()}" إلى المخزون\nالكمية: $quantity\nسعر البيع: $sellingPrice${supplier != null ? '\nالمورد: $supplier' : ''}',
         backgroundColor: Colors.green,
         colorText: Colors.white,
         duration: const Duration(seconds: 4),
         snackPosition: SnackPosition.TOP,
       );
 
-      // Clear form
-      clearForm();
-
+      resetForm();
     } catch (e) {
-      print('Error adding medicine: $e');
-
-      // Show detailed error message
       Get.snackbar(
         'خطأ في إضافة الدواء',
         e.toString(),
@@ -880,7 +952,6 @@ class AddMedicineController extends GetxController {
         duration: const Duration(seconds: 5),
         snackPosition: SnackPosition.TOP,
       );
-
       rethrow;
     } finally {
       isAddingMedicine.value = false;
@@ -902,7 +973,8 @@ class AddMedicineController extends GetxController {
       // ✅ نفس التحقق
       final fieldErrors = validateRequiredFields();
       if (fieldErrors.isNotEmpty) {
-        final errorMessage = fieldErrors.entries.map((e) => '• ${e.value}').join('\n');
+        final errorMessage =
+        fieldErrors.entries.map((e) => '• ${e.value}').join('\n');
         throw Exception('يوجد أخطاء في البيانات:\n$errorMessage');
       }
 
@@ -910,35 +982,35 @@ class AddMedicineController extends GetxController {
         throw Exception('معرف الدواء غير موجود للتحديث');
       }
 
-      // ✅ barcode: في التعديل لازم نتأكد ما يصطدمش مع دواء آخر
+      // ✅ barcode: في التعديل
       String? barcode;
       final b = barcodeController.text.trim();
-      if (b.isNotEmpty) {
-        // تحقق: نفس الباركود مسموح لو هو نفس الدواء
-        final q = await FirebaseFirestore.instance
-            .collection('pharmacies')
-            .doc(pharmacyId)
-            .collection('medicines')
-            .where('barcode', isEqualTo: b)
-            .limit(1)
-            .get();
 
-        if (q.docs.isNotEmpty && q.docs.first.id != editingMedicineId) {
-          throw Exception('الباركود "$b" مستخدم بالفعل لصنف آخر');
+      if (b.isNotEmpty) {
+        // ✅ لو ما تغيرش الباركود → سماح مباشر
+        if (_originalBarcode != null && b == _originalBarcode) {
+          barcode = b;
+        } else {
+          // ✅ لو تغير → تحقق من التكرار وتجاهل نفس doc
+          barcode = await _validateBarcode(b, ignoreDocId: editingMedicineId);
         }
-        barcode = b;
       }
 
-      int quantity = int.parse(quantityController.text);
-      double? purchasePrice =
-      purchasePriceController.text.isNotEmpty ? double.tryParse(purchasePriceController.text) : null;
-      double sellingPrice = double.parse(sellingPriceController.text);
+      final int quantity = int.parse(quantityController.text.trim());
 
-      int? unitsPerPackage =
-      unitsPerPackageController.text.isNotEmpty ? int.tryParse(unitsPerPackageController.text) : null;
+      final double? purchasePrice = purchasePriceController.text.trim().isNotEmpty
+          ? double.tryParse(purchasePriceController.text.trim())
+          : null;
 
-      int? minStockLevel =
-      minStockController.text.isNotEmpty ? int.tryParse(minStockController.text) : null;
+      final double sellingPrice = double.parse(sellingPriceController.text.trim());
+
+      final int? unitsPerPackage = unitsPerPackageController.text.trim().isNotEmpty
+          ? int.tryParse(unitsPerPackageController.text.trim())
+          : null;
+
+      final int? minStockLevel = minStockController.text.trim().isNotEmpty
+          ? int.tryParse(minStockController.text.trim())
+          : null;
 
       String? scientificName = scientificNameController.text.trim();
       if (scientificName.isEmpty) scientificName = null;
@@ -963,7 +1035,9 @@ class AddMedicineController extends GetxController {
         name: nameController.text.trim(),
         scientificName: scientificName,
         quantity: quantity,
-        description: descriptionController.text.trim().isEmpty ? null : descriptionController.text.trim(),
+        description: descriptionController.text.trim().isEmpty
+            ? null
+            : descriptionController.text.trim(),
         category: selectedCategory.value,
         purchasePrice: purchasePrice,
         sellingPrice: sellingPrice,
@@ -990,9 +1064,8 @@ class AddMedicineController extends GetxController {
         snackPosition: SnackPosition.TOP,
       );
 
-      clearForm();
-      Get.back(); // اقفل الديالوج بعد التحديث
-
+      resetForm();
+      Get.back();
     } catch (e) {
       Get.snackbar(
         'خطأ في التحديث',
@@ -1007,7 +1080,6 @@ class AddMedicineController extends GetxController {
       isAddingMedicine.value = false;
     }
   }
-
 
   // Validate form for UI feedback
   Map<String, String?> validateFormForUI() {

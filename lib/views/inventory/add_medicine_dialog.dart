@@ -13,20 +13,42 @@ import 'widgets/additional_info_section.dart';
 import 'widgets/action_buttons.dart';
 import 'add_category_dialog.dart';
 
-class AddMedicineDialog extends StatelessWidget {
-  final Medicine? medicine; // 👈 مهم جداً
-
+class AddMedicineDialog extends StatefulWidget {
+  final Medicine? medicine;
   const AddMedicineDialog({super.key, this.medicine});
 
   @override
-  Widget build(BuildContext context) {
-    final controller = Get.put(AddMedicineController());
+  State<AddMedicineDialog> createState() => _AddMedicineDialogState();
+}
 
-    /// 👇 تهيئة وضع إضافة / تعديل مرة واحدة فقط
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      controller.init(medicine);
+class _AddMedicineDialogState extends State<AddMedicineDialog> {
+  late final AddMedicineController controller;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // ✅ أنشئ controller عبر GetX باش onInit يشتغل
+    controller = Get.put(AddMedicineController(), permanent: false);
+
+    // ✅ حضّر البيانات (Add/Edit)
+// ✅ حضّر البيانات (Add/Edit) بعد أول فريم + نستنى async
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await controller.init(widget.medicine);
     });
 
+  }
+
+  @override
+  void dispose() {
+    // ✅ خليه GetX يحذف الكونترولر ويشغل onClose بروحه
+    if (Get.isRegistered<AddMedicineController>()) {
+      Get.delete<AddMedicineController>();
+    }
+    super.dispose();
+  }
+  @override
+  Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final w = size.width;
     final h = size.height;
@@ -37,24 +59,22 @@ class AddMedicineDialog extends StatelessWidget {
     final bool oneColumn = w < 950;
     final bool twoColumns = w >= 950 && w < 1300;
 
-    Widget sectionCard(Widget child) {
-      return Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade200),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: child,
-      );
-    }
+    Widget sectionCard(Widget child) => Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: child,
+    );
 
     final col1 = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -85,36 +105,18 @@ class AddMedicineDialog extends StatelessWidget {
 
     Widget buildBody() {
       if (oneColumn) {
-        return Column(
-          children: [
-            col1,
-            const SizedBox(height: 16),
-            col2,
-            const SizedBox(height: 16),
-            col3,
-          ],
-        );
+        return Column(children: [col1, const SizedBox(height: 16), col2, const SizedBox(height: 16), col3]);
       }
-
       if (twoColumns) {
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(child: col1),
             const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                children: [
-                  col2,
-                  const SizedBox(height: 16),
-                  col3,
-                ],
-              ),
-            ),
+            Expanded(child: Column(children: [col2, const SizedBox(height: 16), col3])),
           ],
         );
       }
-
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -129,10 +131,7 @@ class AddMedicineDialog extends StatelessWidget {
 
     return Dialog(
       elevation: 10,
-      insetPadding: EdgeInsets.symmetric(
-        horizontal: w < 900 ? 12 : 24,
-        vertical: h < 800 ? 12 : 24,
-      ),
+      insetPadding: EdgeInsets.symmetric(horizontal: w < 900 ? 12 : 24, vertical: h < 800 ? 12 : 24),
       backgroundColor: Colors.transparent,
       child: Container(
         width: dialogWidth,
@@ -145,25 +144,12 @@ class AddMedicineDialog extends StatelessWidget {
             end: Alignment.bottomRight,
             colors: [Colors.blue.shade50, Colors.white, Colors.blue.shade50],
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.18),
-              blurRadius: 18,
-              offset: const Offset(0, 10),
-            ),
-          ],
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 18, offset: const Offset(0, 10))],
         ),
         child: Column(
           children: [
-            /// 👇 العنوان يتغير حسب الوضع
-            Obx(() => DialogHeader(
-              title: controller.isEditMode.value
-                  ? 'تحديث دواء'
-                  : 'إضافة دواء',
-            )),
-
+            Obx(() => DialogHeader(title: controller.isEditMode.value ? 'تحديث دواء' : 'إضافة دواء')),
             const SizedBox(height: 14),
-
             Expanded(
               child: Form(
                 child: Scrollbar(
@@ -175,7 +161,6 @@ class AddMedicineDialog extends StatelessWidget {
                 ),
               ),
             ),
-
             const SizedBox(height: 14),
             ActionButtons(controller: controller),
           ],

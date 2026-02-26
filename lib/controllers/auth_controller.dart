@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:pharmacy_desktop/controllers/settings_controller.dart';
+import 'package:pharmacy_desktop/controllers/shift_controller.dart';
 import 'package:pharmacy_desktop/services/firestore_service.dart';
 import 'package:pharmacy_desktop/services/local_storage_service.dart';
 import '../internal_login_page.dart';
@@ -130,11 +131,17 @@ class AuthController extends GetxController {
         // ✅ تحميل بيانات الصيدلية (المالك)
         await loadPharmacyData(uid);
 
+        // ✅ هنا بالضبط: سجل ShiftController بعد نجاح الدخول
+        if (!Get.isRegistered<ShiftController>()) {
+          Get.put(ShiftController(), permanent: true);
+        }
+
         // ✅ المالك يدخل Home مباشرة
-        logoutInternal(); // تأكد ما فيش موظف عالق
-        isPermissionsLoaded.value = true; // المالك صلاحيات كاملة حسب can()
+        logoutInternal();
+        isPermissionsLoaded.value = true;
         Get.offAll(() => const HomePage());
         break;
+
 
       case 'pending':
         Get.offAll(() => const WaitingApprovalPage());
