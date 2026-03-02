@@ -1,4 +1,3 @@
-// controllers/shift_controller.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -16,38 +15,34 @@ class ShiftController extends GetxController {
   final isLoading = false.obs;
   final isMutating = false.obs;
 
-  // -----------------------
-  // Helpers / Paths
-  // -----------------------
-  String get pharmacyId {
-    try {
-      return Get.find<AuthController>().pharmacyId;
-    } catch (_) {
-      return '';
-    }
-  }
+  // ===================== Helpers =====================
+  AuthController get _auth => Get.find<AuthController>();
+  String get pharmacyId => _auth.pharmacyId;
+
+  String get actorId => (_auth.actorInfo['id'] ?? '').toString();
+  String get actorType => (_auth.actorInfo['type'] ?? '').toString(); // 'owner' | 'employee'
+
+  String get actorKey => '$actorType:$actorId';
+
+  bool get isOwner => actorType == 'owner';
+
+  // ✅ Permissions (حسب تسمية الصلاحيات اللي تبيها)
+  bool get canViewShift => _auth.can('shifts.history.view') || isOwner;        // يشوف سجل وردياته
+  bool get canViewAll => _auth.can('shifts.view_all') || isOwner;      // يشوف الكل
+
+  bool get canOpenShift => _auth.can('shifts.open') || isOwner;
+  bool get canCloseShift => _auth.can('shifts.close') || isOwner;
+
+  bool get canCloseAny => _auth.can('shifts.close_any') || isOwner;
 
   CollectionReference<Map<String, dynamic>> get _shiftsCol {
-    final id = pharmacyId;
-    if (id.isEmpty) throw Exception('pharmacyId فارغ');
-    return _firestore.collection('pharmacies').doc(id).collection('shifts');
+    if (pharmacyId.isEmpty) throw Exception('pharmacyId فارغ');
+    return _firestore.collection('pharmacies').doc(pharmacyId).collection('shifts');
   }
 
-  DocumentReference<Map<String, dynamic>> get _shiftStateDoc {
-    final id = pharmacyId;
-    if (id.isEmpty) throw Exception('pharmacyId فارغ');
-    return _firestore.collection('pharmacies').doc(id).collection('meta').doc('shiftState');
-  }
-
-  Future<void> _ensureShiftStateExists() async {
-    final snap = await _shiftStateDoc.get();
-    if (!snap.exists) {
-      await _shiftStateDoc.set({
-        'activeShiftId': null,
-        'status': 'none',
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    }
+  DocumentReference<Map<String, dynamic>> _shiftStateDocFor(String aKey) {
+    if (pharmacyId.isEmpty) throw Exception('pharmacyId فارغ');
+    return _firestore.collection('pharmacies').doc(pharmacyId).collection('shift_states').doc(aKey);
   }
 
   double _toDouble(dynamic v) {
@@ -67,31 +62,55 @@ class ShiftController extends GetxController {
     });
   }
 
-  // -----------------------
-  // Load
-  // -----------------------
+  Future<void> _ensureStateExists(String aKey) async {
+    final doc = _shiftStateDocFor(aKey);
+    final snap = await doc.get();
+    if (!snap.exists) {
+      await doc.set({
+        'actorKey': aKey,
+        'activeShiftId': null,
+        'status': 'none',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+  }
+
+  // ===================== Load =====================
   Future<void> loadShifts({int limit = 50}) async {
-    final pid = pharmacyId;
-    if (pid.isEmpty) return;
+    if (pharmacyId.isEmpty) return;
+
+    if (!canViewShift) {
+      shifts.clear();
+      activeShift.value = null;
+      return;
+    }
 
     try {
       isLoading.value = true;
 
-      await _ensureShiftStateExists();
-      await _loadActiveShiftFromState();
+      await _ensureStateExists(actorKey);
+      await _loadMyActiveShiftFromState();
 
-      final qs = await _shiftsCol.orderBy('openedAt', descending: true).limit(limit).get();
+      Query<Map<String, dynamic>> q =
+      _shiftsCol.orderBy('openedAt', descending: true).limit(limit);
+
+      // ✅ الافتراضي: يشوف شفتاته فقط
+      if (!canViewAll) {
+        q = q.where('openedByKey', isEqualTo: actorKey);
+      }
+
+      final qs = await q.get();
       shifts.assignAll(qs.docs.map((d) => Shift.fromDoc(d)).toList());
     } catch (e, st) {
       debugPrint('❌ loadShifts: $e\n$st');
-      _snack('خطأ', 'فشل تحميل الورديات');
     } finally {
       isLoading.value = false;
     }
   }
 
-  Future<void> _loadActiveShiftFromState() async {
-    final stateSnap = await _shiftStateDoc.get();
+  Future<void> _loadMyActiveShiftFromState() async {
+    final stateDoc = _shiftStateDocFor(actorKey);
+    final stateSnap = await stateDoc.get();
     final state = stateSnap.data() ?? {};
     final activeId = (state['activeShiftId'] ?? '').toString();
 
@@ -102,13 +121,11 @@ class ShiftController extends GetxController {
 
     final shiftSnap = await _shiftsCol.doc(activeId).get();
     if (!shiftSnap.exists) {
-      // تنظيف state لو id غلط
-      await _shiftStateDoc.set({
+      await stateDoc.set({
         'activeShiftId': null,
         'status': 'none',
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-
       activeShift.value = null;
       return;
     }
@@ -116,16 +133,40 @@ class ShiftController extends GetxController {
     activeShift.value = Shift.fromDoc(shiftSnap);
   }
 
-  // -----------------------
-  // Open (NO TRANSACTION)
-  // -----------------------
-  Future<void> openShift({
-    required double openingCash,
-    String? notes,
-  }) async {
-    final pid = pharmacyId;
-    if (pid.isEmpty) {
+  // ===================== Details (مع حماية) =====================
+  Future<Shift?> getShiftDetailsById(String shiftId) async {
+    if (pharmacyId.isEmpty) return null;
+
+    if (!canViewShift) {
+      return null;
+    }
+
+    try {
+      final doc = await _shiftsCol.doc(shiftId).get();
+      if (!doc.exists) return null;
+
+      final shift = Shift.fromDoc(doc);
+
+      // ✅ لو ما عنده show.shifts.all ممنوع يشوف غيره
+      if (!canViewAll && shift.openedByKey.isNotEmpty && shift.openedByKey != actorKey) {
+        return null;
+      }
+
+      return shift;
+    } catch (e, st) {
+      debugPrint('❌ getShiftDetailsById: $e\n$st');
+      return null;
+    }
+  }
+
+  // ===================== Open Shift (my) =====================
+  Future<void> openShift({required double openingCash, String? notes}) async {
+    if (pharmacyId.isEmpty) {
       _snack('خطأ', 'لم يتم تحديد الصيدلية');
+      return;
+    }
+    if (!canOpenShift) {
+      _snack('غير مسموح', 'لا تملك صلاحية فتح وردية');
       return;
     }
     if (openingCash < 0) {
@@ -136,55 +177,48 @@ class ShiftController extends GetxController {
     try {
       isMutating.value = true;
 
-      await _ensureShiftStateExists();
+      await _ensureStateExists(actorKey);
 
-      // ✅ منع فتح وردية ثانية
-      final stateSnap = await _shiftStateDoc.get();
-      final state = stateSnap.data() ?? {};
+      final stateDoc = _shiftStateDocFor(actorKey);
+      final state = (await stateDoc.get()).data() ?? {};
       final existingActiveId = (state['activeShiftId'] ?? '').toString();
+
       if (existingActiveId.isNotEmpty) {
-        _snack('غير مسموح', 'يوجد وردية مفتوحة بالفعل');
-        await _loadActiveShiftFromState();
+        _snack('غير مسموح', 'لديك وردية مفتوحة بالفعل');
+        await _loadMyActiveShiftFromState();
         return;
       }
 
-      final auth = Get.find<AuthController>();
-      final actor = auth.actorInfo;
+      final actor = _auth.actorInfo;
+      final displayName = (actor['name'] ?? actor['username'] ?? actorType).toString();
 
       final shiftRef = _shiftsCol.doc();
       final batch = _firestore.batch();
 
       batch.set(shiftRef, {
-        'pharmacyId': pid,
+        'pharmacyId': pharmacyId,
         'status': 'open',
         'openedAt': FieldValue.serverTimestamp(),
         'openedBy': actor,
-
+        'openedByKey': actorKey,
+        'openedById': actorId,
+        'openedByType': actorType,
+        'openedByName': displayName,
         'openingCash': openingCash,
-
-        // totals
         'cashTotal': 0.0,
         'cardTotal': 0.0,
-
-        // ✅ Insurance smart totals
         'insuranceBilledTotal': 0.0,
-        'insuranceCollectedTotal': 0.0,
-        'insurancePendingTotal': 0.0,
-
         'salesCount': 0,
         'refundsCount': 0,
-
-        // drawer check
         'closingCash': null,
         'expectedDrawerCash': null,
         'drawerDiff': null,
-
         'notes': (notes?.trim().isEmpty ?? true) ? null : notes!.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      // ✅ سجل الوردية النشطة
-      batch.set(_shiftStateDoc, {
+      batch.set(stateDoc, {
+        'actorKey': actorKey,
         'activeShiftId': shiftRef.id,
         'status': 'open',
         'openedAt': FieldValue.serverTimestamp(),
@@ -204,107 +238,38 @@ class ShiftController extends GetxController {
     }
   }
 
-  // -----------------------
-  // Close (NO TRANSACTION)
-  // -----------------------
-  Future<void> closeShift({
-    required double closingCash,
-    String? notes,
-  }) async {
+  // ===================== Close Shift (my) =====================
+  Future<void> closeShift({required double closingCash, String? notes}) async {
     if (closingCash < 0) {
       _snack('تحقق', 'الكاش داخل الدرج لا يمكن أن يكون سالب');
+      return;
+    }
+    if (!canCloseShift) {
+      _snack('غير مسموح', 'لا تملك صلاحية إغلاق وردية');
       return;
     }
 
     try {
       isMutating.value = true;
 
-      await _ensureShiftStateExists();
+      await _ensureStateExists(actorKey);
 
-      final stateSnap = await _shiftStateDoc.get();
-      final state = stateSnap.data() ?? {};
+      final stateDoc = _shiftStateDocFor(actorKey);
+      final state = (await stateDoc.get()).data() ?? {};
       final activeId = (state['activeShiftId'] ?? '').toString();
 
       if (activeId.isEmpty) {
         _snack('غير موجود', 'لا توجد وردية نشطة لإغلاقها');
-        await _loadActiveShiftFromState();
+        await _loadMyActiveShiftFromState();
         return;
       }
 
-      final ref = _shiftsCol.doc(activeId);
-      final snap = await ref.get();
-      if (!snap.exists) {
-        await _shiftStateDoc.set({
-          'activeShiftId': null,
-          'status': 'none',
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-
-        _snack('خطأ', 'الوردية غير موجودة');
-        await loadShifts();
-        return;
-      }
-
-      final data = snap.data() ?? {};
-      final status = (data['status'] ?? '').toString();
-      if (status != 'open') {
-        await _shiftStateDoc.set({
-          'activeShiftId': null,
-          'status': 'none',
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-
-        _snack('تنبيه', 'الوردية مغلقة مسبقاً');
-        await loadShifts();
-        return;
-      }
-
-      final auth = Get.find<AuthController>();
-      final actor = auth.actorInfo;
-
-      final openingCash = _toDouble(data['openingCash']);
-      final cashTotal = _toDouble(data['cashTotal']);
-      final expectedDrawerCash = openingCash + cashTotal;
-      final drawerDiff = closingCash - expectedDrawerCash;
-
-      final existingNotes = data['notes']?.toString();
-      final newNotes = (notes?.trim().isEmpty ?? true) ? existingNotes : notes!.trim();
-
-      final batch = _firestore.batch();
-
-      batch.update(ref, {
-        'status': 'closed',
-        'closedAt': FieldValue.serverTimestamp(),
-        'closedBy': actor,
-
-        'closingCash': closingCash,
-        'expectedDrawerCash': expectedDrawerCash,
-        'drawerDiff': drawerDiff,
-
-        'notes': newNotes,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      // ✅ تصفير state
-      batch.set(_shiftStateDoc, {
-        'activeShiftId': null,
-        'status': 'none',
-        'closedAt': FieldValue.serverTimestamp(),
-        'closedBy': actor,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      await batch.commit();
-
-      await loadShifts();
-
-      if (drawerDiff.abs() < 0.0001) {
-        _snack('تم', 'تم إغلاق الوردية (الكاش مطابق ✅)');
-      } else if (drawerDiff > 0) {
-        _snack('تنبيه', 'زيادة في الدرج: ${drawerDiff.toStringAsFixed(2)} د.ل');
-      } else {
-        _snack('تنبيه', 'عجز في الدرج: ${drawerDiff.abs().toStringAsFixed(2)} د.ل');
-      }
+      await _closeShiftById(
+        shiftId: activeId,
+        stateDoc: stateDoc,
+        closingCash: closingCash,
+        notes: notes,
+      );
     } catch (e, st) {
       debugPrint('❌ closeShift: $e\n$st');
       _snack('خطأ', 'فشل إغلاق الوردية');
@@ -313,27 +278,143 @@ class ShiftController extends GetxController {
     }
   }
 
-  // -----------------------
-  // Guards
-  // -----------------------
-  void ensureActiveShiftOrThrow() {
-    final s = activeShift.value;
-    if (s == null || !s.isOpen) {
-      throw Exception('لا توجد وردية نشطة');
+  // ✅ admin/owner/permission: close_any
+  Future<void> closeShiftByActorKey({
+    required String targetActorKey,
+    required double closingCash,
+    String? notes,
+  }) async {
+    if (!canCloseAny) {
+      _snack('غير مسموح', 'لا تملك صلاحية إغلاق شفتات الآخرين');
+      return;
+    }
+    if (closingCash < 0) {
+      _snack('تحقق', 'الكاش داخل الدرج لا يمكن أن يكون سالب');
+      return;
+    }
+
+    try {
+      isMutating.value = true;
+
+      await _ensureStateExists(targetActorKey);
+
+      final stateDoc = _shiftStateDocFor(targetActorKey);
+      final state = (await stateDoc.get()).data() ?? {};
+      final activeId = (state['activeShiftId'] ?? '').toString();
+
+      if (activeId.isEmpty) {
+        _snack('غير موجود', 'لا توجد وردية نشطة لهذا المستخدم');
+        return;
+      }
+
+      await _closeShiftById(
+        shiftId: activeId,
+        stateDoc: stateDoc,
+        closingCash: closingCash,
+        notes: notes,
+      );
+    } finally {
+      isMutating.value = false;
     }
   }
 
-  // -----------------------
-  // Sales → update shift totals (NO TRANSACTION)
-  // -----------------------
+  Future<void> _closeShiftById({
+    required String shiftId,
+    required DocumentReference<Map<String, dynamic>> stateDoc,
+    required double closingCash,
+    String? notes,
+  }) async {
+    final ref = _shiftsCol.doc(shiftId);
+    final snap = await ref.get();
+
+    if (!snap.exists) {
+      await stateDoc.set({
+        'activeShiftId': null,
+        'status': 'none',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      _snack('خطأ', 'الوردية غير موجودة');
+      await loadShifts();
+      return;
+    }
+
+    final data = snap.data() ?? {};
+    final status = (data['status'] ?? '').toString();
+    if (status != 'open') {
+      await stateDoc.set({
+        'activeShiftId': null,
+        'status': 'none',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      _snack('تنبيه', 'الوردية مغلقة مسبقاً');
+      await loadShifts();
+      return;
+    }
+
+    final actor = _auth.actorInfo;
+    final openingCash = _toDouble(data['openingCash']);
+    final cashTotal = _toDouble(data['cashTotal']);
+
+    final expectedDrawerCash = openingCash + cashTotal;
+    final drawerDiff = closingCash - expectedDrawerCash;
+
+    final noteTrim = (notes ?? '').trim();
+    if (drawerDiff.abs() >= 0.01 && noteTrim.isEmpty) {
+      return;
+    }
+
+    final existingNotes = data['notes']?.toString();
+    final newNotes = noteTrim.isEmpty ? existingNotes : noteTrim;
+
+    final batch = _firestore.batch();
+
+    batch.update(ref, {
+      'status': 'closed',
+      'closedAt': FieldValue.serverTimestamp(),
+      'closedBy': actor,
+      'closedByKey': actorKey,
+      'closedById': actorId,
+      'closedByType': actorType,
+      'closedByName': (actor['name'] ?? actor['username'] ?? actorType).toString(),
+      'closingCash': closingCash,
+      'expectedDrawerCash': expectedDrawerCash,
+      'drawerDiff': drawerDiff,
+      'notes': newNotes,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    batch.set(stateDoc, {
+      'activeShiftId': null,
+      'status': 'none',
+      'closedAt': FieldValue.serverTimestamp(),
+      'closedBy': actor,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await batch.commit();
+    await loadShifts();
+  }
+
+  // ===================== Guards =====================
+  bool get hasOpenShift => activeShift.value != null && activeShift.value!.isOpen;
+
+  String activeShiftIdOrThrow() {
+    final s = activeShift.value;
+    if (s == null || !s.isOpen) throw Exception('لا توجد وردية نشطة');
+    return s.id;
+  }
+
+  void ensureActiveShiftOrThrow() => activeShiftIdOrThrow();
+
+  // ===================== Update totals from Sale =====================
   Future<void> registerSaleOnShift({
     required double total,
     required PaymentMethod method,
     required bool isRefund,
   }) async {
-    await _ensureShiftStateExists();
+    await _ensureStateExists(actorKey);
 
-    final state = (await _shiftStateDoc.get()).data() ?? {};
+    final state = (await _shiftStateDocFor(actorKey).get()).data() ?? {};
     final activeId = (state['activeShiftId'] ?? '').toString();
     if (activeId.isEmpty) return;
 
@@ -354,78 +435,15 @@ class ShiftController extends GetxController {
         updates['cardTotal'] = FieldValue.increment(incTotal);
         break;
       case PaymentMethod.insurance:
-      // ✅ التأمين: فواتير + مستحق
         updates['insuranceBilledTotal'] = FieldValue.increment(incTotal);
-        updates['insurancePendingTotal'] = FieldValue.increment(incTotal);
         break;
     }
 
     try {
       await ref.update(updates);
-      await _loadActiveShiftFromState();
+      await _loadMyActiveShiftFromState();
     } catch (e, st) {
       debugPrint('❌ registerSaleOnShift: $e\n$st');
-    }
-  }
-
-  // -----------------------
-  // Collect insurance (NO TRANSACTION)
-  // -----------------------
-  Future<void> collectInsuranceOnShift({
-    required double amount,
-    required PaymentMethod method, // cash or card only
-    String? note,
-  }) async {
-    if (amount <= 0) {
-      _snack('تحقق', 'أدخل مبلغ صحيح');
-      return;
-    }
-    if (method == PaymentMethod.insurance) {
-      _snack('تحقق', 'تحصيل التأمين لازم يكون كاش أو بطاقة');
-      return;
-    }
-
-    await _ensureShiftStateExists();
-
-    final state = (await _shiftStateDoc.get()).data() ?? {};
-    final activeId = (state['activeShiftId'] ?? '').toString();
-    if (activeId.isEmpty) {
-      _snack('تنبيه', 'لا توجد وردية نشطة');
-      return;
-    }
-
-    final ref = _shiftsCol.doc(activeId);
-
-    try {
-      // ✅ قراءة pending مرة واحدة
-      final snap = await ref.get();
-      if (!snap.exists) return;
-
-      final data = snap.data() ?? {};
-      final pending = _toDouble(data['insurancePendingTotal']);
-      final take = amount > pending ? pending : amount;
-
-      if (take <= 0) {
-        _snack('تنبيه', 'لا يوجد مستحقات تأمين للتحصيل');
-        return;
-      }
-
-      final field = method == PaymentMethod.cash ? 'cashTotal' : 'cardTotal';
-
-      // ✅ Update واحد بدون transaction
-      await ref.update({
-        field: FieldValue.increment(take),
-        'insuranceCollectedTotal': FieldValue.increment(take),
-        'insurancePendingTotal': FieldValue.increment(-take),
-        'updatedAt': FieldValue.serverTimestamp(),
-        if (!(note?.trim().isEmpty ?? true)) 'notes': note!.trim(),
-      });
-
-      await _loadActiveShiftFromState();
-      _snack('تم', 'تم تحصيل التأمين بنجاح');
-    } catch (e, st) {
-      debugPrint('❌ collectInsuranceOnShift: $e\n$st');
-      _snack('خطأ', 'فشل تحصيل التأمين');
     }
   }
 }

@@ -29,24 +29,16 @@ String? _asString(dynamic v) {
 DateTime _parseDateTime(dynamic v, {DateTime? fallback}) {
   if (v == null) return fallback ?? DateTime.now();
 
-  // Firestore Timestamp
   if (v is Timestamp) return v.toDate();
 
-  // Stored ISO string
   if (v is String) {
     final dt = DateTime.tryParse(v);
     return dt ?? (fallback ?? DateTime.now());
   }
 
-  // millisecondsSinceEpoch
-  if (v is int) {
-    return DateTime.fromMillisecondsSinceEpoch(v);
-  }
-  if (v is num) {
-    return DateTime.fromMillisecondsSinceEpoch(v.toInt());
-  }
+  if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+  if (v is num) return DateTime.fromMillisecondsSinceEpoch(v.toInt());
 
-  // Map-like timestamp (rare)
   if (v is Map) {
     final seconds = v['_seconds'] ?? v['seconds'];
     if (seconds is int) {
@@ -57,17 +49,17 @@ DateTime _parseDateTime(dynamic v, {DateTime? fallback}) {
   return fallback ?? DateTime.now();
 }
 
-String _enumName(Object e) => e.toString().split('.').last;
-
 /// =========================
 /// Enums
 /// =========================
 enum InvoiceStatus { pending, completed, cancelled }
 
+/// ✅ PaymentMethod هنا معناها "طريقة دفع الزبون" فقط
+/// insurance موجود فقط للتوافق مع الداتا القديمة (Legacy)
 enum PaymentMethod {
   cash('نقدي'),
   card('بطاقة'),
-  insurance('تأمين');
+  insurance('تأمين'); // legacy only
 
   final String arabicName;
   const PaymentMethod(this.arabicName);
@@ -87,7 +79,8 @@ enum PaymentMethod {
   }
 }
 
-InvoiceStatus _statusFromString(dynamic value, {InvoiceStatus fallback = InvoiceStatus.pending}) {
+InvoiceStatus _statusFromString(dynamic value,
+    {InvoiceStatus fallback = InvoiceStatus.pending}) {
   final v = (value ?? '').toString().toLowerCase().trim();
   switch (v) {
     case 'pending':
@@ -126,7 +119,7 @@ class SaleItem {
   /// خصم بمبلغ ثابت
   final double? discountAmount;
 
-   SaleItem({
+  const SaleItem({
     required this.medicineId,
     required this.name,
     this.scientificName,
@@ -136,39 +129,8 @@ class SaleItem {
     required this.sellAsPiece,
     this.discountPercentage,
     this.discountAmount,
-  }) {
-    _validate();
-  }
+  });
 
-  void _validate() {
-    if (medicineId.trim().isEmpty) {
-      throw ArgumentError('medicineId is required');
-    }
-    if (name.trim().isEmpty) {
-      throw ArgumentError('name is required');
-    }
-    if (unitPrice.isNaN || unitPrice.isInfinite || unitPrice < 0) {
-      throw ArgumentError('unitPrice must be >= 0');
-    }
-    if (quantity <= 0) {
-      throw ArgumentError('quantity must be > 0');
-    }
-    if (discountPercentage != null &&
-        (discountPercentage! < 0 || discountPercentage! > 100)) {
-      throw ArgumentError('discountPercentage must be between 0 and 100');
-    }
-    if (discountAmount != null && discountAmount! < 0) {
-      throw ArgumentError('discountAmount cannot be negative');
-    }
-    // لا تسمح بخصمين معًا
-    if (discountAmount != null && discountPercentage != null) {
-      throw ArgumentError('Use either discountAmount OR discountPercentage, not both');
-    }
-  }
-
-  // =========================
-  // Calculations
-  // =========================
   double get subtotal => unitPrice * quantity;
 
   double get discountValue {
@@ -208,14 +170,13 @@ class SaleItem {
       unitPrice: unitPrice ?? this.unitPrice,
       quantity: quantity ?? this.quantity,
       sellAsPiece: sellAsPiece ?? this.sellAsPiece,
-      discountPercentage: clearDiscount ? null : (discountPercentage ?? this.discountPercentage),
-      discountAmount: clearDiscount ? null : (discountAmount ?? this.discountAmount),
+      discountPercentage:
+      clearDiscount ? null : (discountPercentage ?? this.discountPercentage),
+      discountAmount:
+      clearDiscount ? null : (discountAmount ?? this.discountAmount),
     );
   }
 
-  // =========================
-  // Serialization
-  // =========================
   Map<String, dynamic> toMap() {
     return {
       'medicineId': medicineId,
@@ -234,14 +195,13 @@ class SaleItem {
     final unitPrice = _asDouble(map['unitPrice']);
     final quantity = _asInt(map['quantity'], fallback: 1);
 
-    // خصم: لا تسمح باثنين
     final dp = map['discountPercentage'];
     final da = map['discountAmount'];
     final discountPercentage = dp != null ? _asDouble(dp) : null;
     final discountAmount = da != null ? _asDouble(da) : null;
 
-    // إذا الاثنين موجودين، نعطي الأولوية للمبلغ ونلغي النسبة
-    final normalizedDiscountPercentage = (discountAmount != null) ? null : discountPercentage;
+    final normalizedDiscountPercentage =
+    (discountAmount != null) ? null : discountPercentage;
 
     return SaleItem(
       medicineId: (map['medicineId'] ?? '').toString(),
@@ -260,10 +220,9 @@ class SaleItem {
 /// =========================
 /// Sale (Invoice)
 /// =========================
+/// ✅ التأمين هنا يمثل "جزء على الشركة" في insuranceDiscount
+/// ✅ total هنا يمثل "اللي يدفعه الزبون فعلاً"
 class Sale {
-  /// NOTE: لا نعتمد على تخزين id داخل الدوكومنت.
-  /// في Firebase: id = doc.id
-  /// في Local: نخزنه عادي.
   String id;
 
   final String invoiceNumber;
@@ -272,6 +231,14 @@ class Sale {
   final String? employeeId;
   final String? employeeName;
 
+  final String? shiftId;
+
+  final Map<String, dynamic>? performedBy;
+  final String? performedById;
+  final String? performedByName;
+
+  final String? deviceId;
+
   final List<SaleItem> items;
 
   final double subtotal;
@@ -279,13 +246,16 @@ class Sale {
   /// خصم فاتورة (مبلغ ثابت)
   final double? discount;
 
-  /// خصم تأمين (مبلغ ثابت)
+  /// ✅ insuranceDiscount = مبلغ على الشركة (Company billed)
   final double? insuranceDiscount;
   final String? insuranceCompanyId;
   final String? insuranceCompanyName;
 
+  /// ✅ total = مبلغ الزبون بعد الخصومات وبعد جزء الشركة
   final double total;
 
+  /// ✅ طريقة دفع الزبون فقط (cash/card)
+  /// insurance legacy فقط
   final PaymentMethod paymentMethod;
   final String? paymentDetails;
 
@@ -308,6 +278,11 @@ class Sale {
     required this.pharmacyId,
     this.employeeId,
     this.employeeName,
+    this.shiftId,
+    this.performedBy,
+    this.performedById,
+    this.performedByName,
+    this.deviceId,
     required this.items,
     required this.subtotal,
     this.discount,
@@ -328,7 +303,6 @@ class Sale {
     this.completedAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
-  /// إنشاء فاتورة “جديدة” افتراضيًا
   factory Sale.empty({
     required String pharmacyId,
     required String? employeeId,
@@ -358,18 +332,35 @@ class Sale {
     final itemsSubtotal = items.fold(0.0, (sum, item) => sum + item.total);
 
     final invoiceDiscount = (discount ?? 0.0).clamp(0.0, itemsSubtotal);
-    final remainingAfterInvoiceDiscount = (itemsSubtotal - invoiceDiscount).clamp(0.0, double.infinity);
+    final remainingAfterInvoiceDiscount =
+    (itemsSubtotal - invoiceDiscount).clamp(0.0, double.infinity);
 
-    final insurance = (insuranceDiscount ?? 0.0).clamp(0.0, remainingAfterInvoiceDiscount);
+    final companyBilled =
+    (insuranceDiscount ?? 0.0).clamp(0.0, remainingAfterInvoiceDiscount);
 
-    final computedTotal = (itemsSubtotal - invoiceDiscount - insurance).clamp(0.0, double.infinity);
+    final computedCustomerTotal =
+    (remainingAfterInvoiceDiscount - companyBilled).clamp(0.0, double.infinity);
 
     return copyWith(
       subtotal: itemsSubtotal,
-      total: computedTotal,
-      // نخلي discounts كما هي (لكن محمية بالـclamp هنا)
+      total: computedCustomerTotal,
     );
   }
+
+  /// =========================
+  /// Convenience getters
+  /// =========================
+  bool get hasInsurance =>
+      (insuranceCompanyId ?? '').trim().isNotEmpty && (insuranceDiscount ?? 0) > 0;
+
+  double get companyBilledAmount =>
+      hasInsurance ? (insuranceDiscount ?? 0.0).clamp(0.0, double.infinity) : 0.0;
+
+  double get customerPaidAmount => total.clamp(0.0, double.infinity);
+
+  /// ✅ طريقة دفع الزبون (مع Back-compat)
+  PaymentMethod get customerPaymentMethod =>
+      paymentMethod == PaymentMethod.insurance ? PaymentMethod.cash : paymentMethod;
 
   /// =========================
   /// CopyWith (Deep)
@@ -380,6 +371,11 @@ class Sale {
     String? pharmacyId,
     String? employeeId,
     String? employeeName,
+    String? shiftId,
+    Map<String, dynamic>? performedBy,
+    String? performedById,
+    String? performedByName,
+    String? deviceId,
     List<SaleItem>? items,
     double? subtotal,
     double? discount,
@@ -405,7 +401,12 @@ class Sale {
       pharmacyId: pharmacyId ?? this.pharmacyId,
       employeeId: employeeId ?? this.employeeId,
       employeeName: employeeName ?? this.employeeName,
-      items: items ?? List<SaleItem>.from(this.items), // SaleItem immutable، فالنسخ آمن
+      shiftId: shiftId ?? this.shiftId,
+      performedBy: performedBy ?? this.performedBy,
+      performedById: performedById ?? this.performedById,
+      performedByName: performedByName ?? this.performedByName,
+      deviceId: deviceId ?? this.deviceId,
+      items: items ?? List<SaleItem>.from(this.items),
       subtotal: subtotal ?? this.subtotal,
       discount: discount ?? this.discount,
       insuranceDiscount: insuranceDiscount ?? this.insuranceDiscount,
@@ -426,7 +427,6 @@ class Sale {
     );
   }
 
-  /// Helpers لتعديل العناصر بشكل آمن (بدون mutation)
   Sale addItem(SaleItem item) => copyWith(items: [...items, item]).recalculate();
 
   Sale updateItem(int index, SaleItem newItem) {
@@ -443,18 +443,20 @@ class Sale {
   }
 
   /// =========================
-  /// Serialization
+  /// Serialization (Firebase)
   /// =========================
-
-  /// Firebase map
   Map<String, dynamic> toMap() {
     final computed = recalculate();
     return {
-      // لا نخزن id لتجنب التضارب، doc.id هو المصدر
       'invoiceNumber': computed.invoiceNumber,
       'pharmacyId': computed.pharmacyId,
       'employeeId': computed.employeeId,
       'employeeName': computed.employeeName,
+      'shiftId': computed.shiftId,
+      'performedBy': computed.performedBy,
+      'performedById': computed.performedById,
+      'performedByName': computed.performedByName,
+      'deviceId': computed.deviceId,
       'items': computed.items.map((e) => e.toMap()).toList(),
       'subtotal': computed.subtotal,
       'discount': computed.discount,
@@ -487,7 +489,6 @@ class Sale {
         .toList()
         : <SaleItem>[];
 
-    // للفواتير القديمة: لو status غير موجود، اعتبرها completed
     final status = map.containsKey('status')
         ? _statusFromString(map['status'])
         : InvoiceStatus.completed;
@@ -497,7 +498,6 @@ class Sale {
     final saleDate = _parseDateTime(map['saleDate']);
     final createdAt = _parseDateTime(map['createdAt'], fallback: saleDate);
 
-    // completedAt confirm
     DateTime? completedAt;
     if (map['completedAt'] != null) {
       completedAt = _parseDateTime(map['completedAt']);
@@ -505,16 +505,29 @@ class Sale {
       completedAt = saleDate;
     }
 
+    Map<String, dynamic>? performedBy;
+    if (map['performedBy'] is Map) {
+      performedBy = Map<String, dynamic>.from(map['performedBy']);
+    }
+
     final sale = Sale(
-      id: (map['id'] ?? '').toString(), // optional legacy field
+      id: (map['id'] ?? '').toString(),
       invoiceNumber: (map['invoiceNumber'] ?? '').toString(),
       pharmacyId: (map['pharmacyId'] ?? '').toString(),
       employeeId: _asString(map['employeeId']),
       employeeName: _asString(map['employeeName']),
+      shiftId: _asString(map['shiftId']),
+      performedBy: performedBy,
+      performedById: _asString(map['performedById']) ?? _asString(performedBy?['id']),
+      performedByName: _asString(map['performedByName']) ??
+          _asString(performedBy?['name']) ??
+          _asString(performedBy?['username']),
+      deviceId: _asString(map['deviceId']),
       items: itemsList,
       subtotal: _asDouble(map['subtotal']),
       discount: map['discount'] == null ? null : _asDouble(map['discount']),
-      insuranceDiscount: map['insuranceDiscount'] == null ? null : _asDouble(map['insuranceDiscount']),
+      insuranceDiscount:
+      map['insuranceDiscount'] == null ? null : _asDouble(map['insuranceDiscount']),
       insuranceCompanyId: _asString(map['insuranceCompanyId']),
       insuranceCompanyName: _asString(map['insuranceCompanyName']),
       total: _asDouble(map['total']),
@@ -531,11 +544,12 @@ class Sale {
       completedAt: completedAt,
     );
 
-    // دائما رجّع نسخة محسوبة (مهم لو subtotal/total قديم غلط)
     return sale.recalculate();
   }
 
+  /// =========================
   /// Local (SharedPreferences / JSON safe)
+  /// =========================
   Map<String, dynamic> toLocalMap() {
     final computed = recalculate();
     return {
@@ -544,6 +558,11 @@ class Sale {
       'pharmacyId': computed.pharmacyId,
       'employeeId': computed.employeeId,
       'employeeName': computed.employeeName,
+      'shiftId': computed.shiftId,
+      'performedBy': computed.performedBy,
+      'performedById': computed.performedById,
+      'performedByName': computed.performedByName,
+      'deviceId': computed.deviceId,
       'items': computed.items.map((e) => e.toMap()).toList(),
       'subtotal': computed.subtotal,
       'discount': computed.discount,
@@ -586,16 +605,29 @@ class Sale {
       completedAt = saleDate;
     }
 
+    Map<String, dynamic>? performedBy;
+    if (map['performedBy'] is Map) {
+      performedBy = Map<String, dynamic>.from(map['performedBy']);
+    }
+
     final sale = Sale(
       id: (map['id'] ?? '').toString(),
       invoiceNumber: (map['invoiceNumber'] ?? '').toString(),
       pharmacyId: (map['pharmacyId'] ?? '').toString(),
       employeeId: _asString(map['employeeId']),
       employeeName: _asString(map['employeeName']),
+      shiftId: _asString(map['shiftId']),
+      performedBy: performedBy,
+      performedById: _asString(map['performedById']) ?? _asString(performedBy?['id']),
+      performedByName: _asString(map['performedByName']) ??
+          _asString(performedBy?['name']) ??
+          _asString(performedBy?['username']),
+      deviceId: _asString(map['deviceId']),
       items: itemsList,
       subtotal: _asDouble(map['subtotal']),
       discount: map['discount'] == null ? null : _asDouble(map['discount']),
-      insuranceDiscount: map['insuranceDiscount'] == null ? null : _asDouble(map['insuranceDiscount']),
+      insuranceDiscount:
+      map['insuranceDiscount'] == null ? null : _asDouble(map['insuranceDiscount']),
       insuranceCompanyId: _asString(map['insuranceCompanyId']),
       insuranceCompanyName: _asString(map['insuranceCompanyName']),
       total: _asDouble(map['total']),
@@ -615,23 +647,19 @@ class Sale {
     return sale.recalculate();
   }
 
-  /// =========================
-  /// Invoice Number Generator
-  /// =========================
   static String generateInvoiceNumber() {
     final now = DateTime.now();
     final y = now.year.toString().substring(2);
     final m = now.month.toString().padLeft(2, '0');
     final d = now.day.toString().padLeft(2, '0');
 
-    // أقل احتمال تصادم من milliseconds
-    final rand = (now.microsecondsSinceEpoch % 1000000).toString().padLeft(6, '0');
+    final rand =
+    (now.microsecondsSinceEpoch % 1000000).toString().padLeft(6, '0');
     return 'INV-$y$m$d-$rand';
   }
 
-  /// Summary (بدون عملة داخل المودل)
   String get invoiceSummary =>
-      'فاتورة #$invoiceNumber - ${items.length} أصناف - الإجمالي: ${total.toStringAsFixed(2)}';
+      'فاتورة #$invoiceNumber - ${items.length} أصناف - إجمالي الزبون: ${total.toStringAsFixed(2)}';
 
-  String get paymentStatus => paymentMethod.arabicName;
+  String get paymentStatus => customerPaymentMethod.arabicName;
 }

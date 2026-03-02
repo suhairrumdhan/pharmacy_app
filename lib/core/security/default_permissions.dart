@@ -1,15 +1,34 @@
+// default_permissions.dart  (أو نفس ملف الصلاحيات عندك)
+
 abstract class DefaultPermissions {
   const DefaultPermissions();
 
+  // =========================
+  // ✅ صلاحيات ADMIN
+  // =========================
   static const Map<String, bool> adminPermissions = {
     // Dashboard
     'dashboard.view': true,
     'dashboard.analytics.view': true,
     'dashboard.reports.view': true,
+
+    // Shifts (✅ ميزات جديدة)
     'shifts.view': true,
     'shifts.open': true,
     'shifts.close': true,
-    'purchases.view':true,
+    'shifts.history.view': true,         // عرض سجل الورديات
+    'shifts.history.open': true,         // فتح تفاصيل وردية قديمة
+    'shifts.history.export': true,       // تصدير الورديات
+    'shifts.reopen': true,               // إعادة فتح وردية (لو موجودة عندك)
+    'shifts.edit_totals': true,          // تعديل إجماليات/تصحيح (لو موجود)
+    'shifts.audit.view': true,           // عرض سجلات التدقيق للورديات
+    'shifts.daily_closing.view': true,   // عرض إقفالات اليوم
+    'shifts.daily_closing.create': true, // إنشاء/إقفال يوم (closeMyDay)
+    'shifts.cashbox.adjust': true,       // تسوية صندوق/كاش بوكس (لو عندك)
+    'shifts.view_all': true,
+    'shifts.close_any': true,
+    'purchases.view': true,
+
     // Sales
     'sales.view': true,
     'sales.create': true,
@@ -18,6 +37,8 @@ abstract class DefaultPermissions {
     'sales.refund': true,
     'sales.override_price': true,
     'sales.view_history': true,
+
+    // Sales History (Dialog)
     'sales.history.view': true,
     'sales.history.export': true,
     'sales.history.open': true,
@@ -26,6 +47,7 @@ abstract class DefaultPermissions {
     'sales.history.filter.date': true,
     'sales.history.filter.payment': true,
     'sales.history.filter.insurance': true,
+
     // Inventory
     'inventory.view': true,
     'inventory.create': true,
@@ -50,23 +72,42 @@ abstract class DefaultPermissions {
     'employees.delete': true,
     'roles.manage': true,
 
+    // Settings
     'settings.view': true,
-    'settings.update': true,            // تعديل المعلومات الأساسية
-    'settings.edit_image': true,        // رفع الصورة
-    'settings.delete_image': true,      // حذف الصورة
-    'settings.update_online': true,     // تعديل حالة الاونلاين
+    'settings.update': true,
+    'settings.edit_image': true,
+    'settings.delete_image': true,
+    'settings.update_online': true,
     'settings.update_24h': true,
-
   };
+
+  // =========================
+  // ✅ صلاحيات PHARMACIST
+  // =========================
   static const Map<String, bool> pharmacistPermissions = {
     // Dashboard
     'dashboard.view': true,
     'dashboard.analytics.view': false,
     'dashboard.reports.view': false,
+
+    // Shifts (✅ ميزات جديدة)
     'shifts.view': true,
     'shifts.open': true,
     'shifts.close': true,
-    'purchases.view':true,
+    'shifts.history.view': true,
+    'shifts.history.open': true,
+    'shifts.history.export': true,
+    'shifts.reopen': false,
+    'shifts.edit_totals': false,
+    'shifts.audit.view': false,
+    'shifts.daily_closing.view': true,
+    'shifts.daily_closing.create': true,
+    'shifts.cashbox.adjust': false,
+    'shifts.view_all': false,
+    'shifts.close_any': false,
+
+    'purchases.view': true,
+
     // Sales
     'sales.view': true,
     'sales.create': true,
@@ -75,14 +116,17 @@ abstract class DefaultPermissions {
     'sales.refund': true,
     'sales.override_price': false,
     'sales.view_history': true,
+
+    // Sales History (Dialog)
     'sales.history.view': true,
     'sales.history.export': true,
     'sales.history.open': true,
-    'sales.history.delete': false, // نخليها false افتراضياً
+    'sales.history.delete': false,
     'sales.history.filter.employee': false,
     'sales.history.filter.date': true,
     'sales.history.filter.payment': true,
     'sales.history.filter.insurance': true,
+
     // Inventory
     'inventory.view': true,
     'inventory.create': true,
@@ -109,21 +153,41 @@ abstract class DefaultPermissions {
 
     // Settings
     'settings.view': true,
-    'settings.update': true,            // تعديل المعلومات الأساسية
-    'settings.edit_image': true,        // رفع الصورة
-    'settings.delete_image': true,      // حذف الصورة
-    'settings.update_online': true,     // تعديل حالة الاونلاين
+    'settings.update': true,
+    'settings.edit_image': true,
+    'settings.delete_image': true,
+    'settings.update_online': true,
     'settings.update_24h': true,
   };
+
+  // =========================
+  // ✅ صلاحيات CASHIER
+  // =========================
   static const Map<String, bool> cashierPermissions = {
     // Dashboard
     'dashboard.view': true,
     'dashboard.analytics.view': false,
     'dashboard.reports.view': false,
+
+    // Shifts (✅ ميزات جديدة)
     'shifts.view': true,
     'shifts.open': true,
     'shifts.close': true,
-    'purchases.view':true,
+    'shifts.history.view': false,
+    'shifts.history.open': false,
+    'shifts.history.export': false,
+    'shifts.reopen': false,
+    'shifts.edit_totals': false,
+    'shifts.audit.view': false,
+    'shifts.daily_closing.view': false,
+    'shifts.daily_closing.create': false,
+    'shifts.cashbox.adjust': false,
+// داخل cashierPermissions
+    'shifts.view_all': false,
+    'shifts.close_any': false,
+
+    'purchases.view': true,
+
     // Sales
     'sales.view': true,
     'sales.create': true,
@@ -132,7 +196,9 @@ abstract class DefaultPermissions {
     'sales.refund': false,
     'sales.override_price': false,
     'sales.view_history': false,
-    'sales.history.view': true,     // أو false إذا تبي تمنع عليه الديالوج
+
+    // Sales History (Dialog)
+    'sales.history.view': true, // أو false إذا تبي تمنع الديالوج
     'sales.history.export': false,
     'sales.history.open': true,
     'sales.history.delete': false,
@@ -140,6 +206,7 @@ abstract class DefaultPermissions {
     'sales.history.filter.date': true,
     'sales.history.filter.payment': true,
     'sales.history.filter.insurance': true,
+
     // Inventory
     'inventory.view': true,
     'inventory.create': false,
@@ -164,30 +231,32 @@ abstract class DefaultPermissions {
     'employees.delete': false,
     'roles.manage': false,
 
+    // Settings
     'settings.view': true,
-    'settings.update': true,            // تعديل المعلومات الأساسية
-    'settings.edit_image': true,        // رفع الصورة
-    'settings.delete_image': true,      // حذف الصورة
-    'settings.update_online': true,     // تعديل حالة الاونلاين
+    'settings.update': true,
+    'settings.edit_image': true,
+    'settings.delete_image': true,
+    'settings.update_online': true,
     'settings.update_24h': true,
   };
+
   static const List<Map<String, dynamic>> defaultRoles = [
-  {
-    'id': 'admin',
-    'name': 'Administrator',
-    'isSystem': true,
-  },
-  {
-    'id': 'pharmacist',
-    'name': 'Pharmacist',
-    'isSystem': true,
-  },
-  {
-    'id': 'cashier',
-    'name': 'Cashier',
-    'isSystem': true,
-  },
-];
+    {
+      'id': 'admin',
+      'name': 'Administrator',
+      'isSystem': true,
+    },
+    {
+      'id': 'pharmacist',
+      'name': 'Pharmacist',
+      'isSystem': true,
+    },
+    {
+      'id': 'cashier',
+      'name': 'Cashier',
+      'isSystem': true,
+    },
+  ];
 }
 
 class DefaultPermissionsHelper {
@@ -238,15 +307,33 @@ class DefaultPermissionsHelper {
   }
 }
 
-// القائمة الكاملة للصلاحيات (بالإنجليزية)
+// =========================
+// ✅ القائمة الكاملة للصلاحيات
+// =========================
 const List<String> ALL_PERMISSIONS = [
   // Dashboard
   'dashboard.view',
   'dashboard.analytics.view',
   'dashboard.reports.view',
+
+  // Shifts (✅ ميزات جديدة)
   'shifts.view',
   'shifts.open',
   'shifts.close',
+  'shifts.history.view',
+  'shifts.history.open',
+  'shifts.history.export',
+  'shifts.reopen',
+  'shifts.edit_totals',
+  'shifts.audit.view',
+  'shifts.daily_closing.view',
+  'shifts.daily_closing.create',
+  'shifts.cashbox.adjust',
+  'shifts.view_all',
+  'shifts.close_any',
+
+  'purchases.view',
+
   // Sales
   'sales.view',
   'sales.create',
@@ -255,7 +342,8 @@ const List<String> ALL_PERMISSIONS = [
   'sales.refund',
   'sales.override_price',
   'sales.view_history',
-// Sales History (Dialog)
+
+  // Sales History (Dialog)
   'sales.history.view',
   'sales.history.export',
   'sales.history.open',
@@ -264,6 +352,7 @@ const List<String> ALL_PERMISSIONS = [
   'sales.history.filter.date',
   'sales.history.filter.payment',
   'sales.history.filter.insurance',
+
   // Inventory
   'inventory.view',
   'inventory.create',
@@ -297,15 +386,32 @@ const List<String> ALL_PERMISSIONS = [
   'settings.update_24h',
 ];
 
-// Map لتحويل أسماء الصلاحيات من الإنجليزية إلى العربية
+// =========================
+// ✅ ترجمة الصلاحيات
+// =========================
 final Map<String, String> permissionTranslations = {
   // Dashboard
   'dashboard.view': 'عرض لوحة التحكم',
   'dashboard.analytics.view': 'عرض التحليلات',
   'dashboard.reports.view': 'عرض التقارير',
+
+  // Shifts (✅ ميزات جديدة)
   'shifts.view': 'عرض الورديات',
   'shifts.open': 'فتح وردية',
   'shifts.close': 'إغلاق وردية',
+  'shifts.history.view': 'عرض سجل الورديات',
+  'shifts.history.open': 'فتح تفاصيل وردية',
+  'shifts.history.export': 'تصدير سجل الورديات',
+  'shifts.reopen': 'إعادة فتح وردية',
+  'shifts.edit_totals': 'تعديل إجماليات الوردية',
+  'shifts.audit.view': 'عرض تدقيق الورديات',
+  'shifts.daily_closing.view': 'عرض إقفالات اليوم',
+  'shifts.daily_closing.create': 'إنشاء/إقفال يوم',
+  'shifts.cashbox.adjust': 'تسوية صندوق الوردية',
+  'shifts.view_all' : 'عرض جميع الورديات',
+  'shifts.close_any' :'اغلاق أي وردية نشطة',
+
+  'purchases.view': 'عرض المشتريات',
 
   // Sales
   'sales.view': 'عرض المبيعات',
@@ -315,7 +421,8 @@ final Map<String, String> permissionTranslations = {
   'sales.refund': 'إرجاع المبيعات',
   'sales.override_price': 'تجاوز السعر',
   'sales.view_history': 'عرض تاريخ المبيعات',
-// Sales History (Dialog)
+
+  // Sales History (Dialog)
   'sales.history.view': 'عرض تاريخ الفواتير',
   'sales.history.export': 'تصدير تاريخ الفواتير',
   'sales.history.open': 'فتح فاتورة من التاريخ',
@@ -324,6 +431,7 @@ final Map<String, String> permissionTranslations = {
   'sales.history.filter.date': 'فلترة حسب التاريخ',
   'sales.history.filter.payment': 'فلترة حسب طريقة الدفع',
   'sales.history.filter.insurance': 'فلترة حسب شركة التأمين',
+
   // Inventory
   'inventory.view': 'عرض المخزون',
   'inventory.create': 'إضافة منتجات',
@@ -357,12 +465,33 @@ final Map<String, String> permissionTranslations = {
   'settings.update_24h': 'تحديث حالة العمل 24 ساعة',
 };
 
-// Map لتجميع الصلاحيات حسب الفئة (للعرض في مجموعات)
+// =========================
+// ✅ تجميع الصلاحيات حسب الفئة (للعرض في UI)
+// =========================
 final Map<String, List<String>> permissionGroups = {
   'لوحة التحكم': [
     'dashboard.view',
     'dashboard.analytics.view',
     'dashboard.reports.view',
+  ],
+  'الورديات': [
+    'shifts.view',
+    'shifts.open',
+    'shifts.close',
+    'shifts.history.view',
+    'shifts.history.open',
+    'shifts.history.export',
+    'shifts.reopen',
+    'shifts.edit_totals',
+    'shifts.audit.view',
+    'shifts.daily_closing.view',
+    'shifts.daily_closing.create',
+    'shifts.cashbox.adjust',
+    'shifts.view_all',
+    'shifts.close_any',
+  ],
+  'المشتريات': [
+    'purchases.view',
   ],
   'المبيعات': [
     'sales.view',

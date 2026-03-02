@@ -33,20 +33,10 @@ class _SearchCardState extends State<SearchCard> {
     super.initState();
     _textController = TextEditingController();
 
-    // التركيز التلقائي بعد أول بناء
+    // ✅ فوكس افتراضي بعد أول بناء (لكن باحترام allowAutoFocusSearch)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.salesController.searchFocusNode.requestFocus();
-    });
-
-    // 🔒 ضمان بقاء التركيز دائمًا على حقل البحث
-    widget.salesController.searchFocusNode.addListener(() {
-      if (!widget.salesController.searchFocusNode.hasFocus && mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            widget.salesController.searchFocusNode.requestFocus();
-          }
-        });
-      }
+      if (!mounted) return;
+      widget.salesController.focusSearchIfAllowed();
     });
 
     // مزامنة النص مع searchQuery (بأمان)
@@ -56,75 +46,33 @@ class _SearchCardState extends State<SearchCard> {
         if (!mounted) return;
         if (_textController.text != query) {
           _textController.text = query;
+          _textController.selection = TextSelection.fromPosition(
+            TextPosition(offset: _textController.text.length),
+          );
+        }
+        // ✅ لو الفراغ رجّع الفوكس (لكن بشرط السماح)
+        if (query.isEmpty) {
+          widget.salesController.focusSearchIfAllowed();
         }
       },
     );
   }
 
 
-
   void _performSearch(String query) {
-    // إذا كان البحث نفسه السابق، لا تكرر
     if (query == _lastSearchQuery) return;
     _lastSearchQuery = query;
-
-    // إلغاء البحث السابق
     if (_debounceTimer?.isActive ?? false) _debounceTimer?.cancel();
-
-    // بحث فوري لكن مع debounce بسيط
     _debounceTimer = Timer(const Duration(milliseconds: 200), () {
       widget.salesController.search(query);
     });
   }
-
-  Future<void> _executeSearch(String query) async {
-    // إذا كان باركود (8 أرقام أو أكثر)
-    if (RegExp(r'^[0-9]{8,}$').hasMatch(query)) {
-      await widget.salesController.handleSmartSearch(query);
-    } else {
-      // بحث عادي فوري
-      await widget.salesController.searchMedicines(query);
-    }
-  }
-
   void _clearSearch() {
-    // طباعة للتحقق
-    print('🧹 SearchCard: تنظيف البحث يدوياً');
-
-    // تنظيف من الـ Controller أولاً
     widget.salesController.searchQuery.value = '';
     widget.salesController.searchResults.clear();
-
-    // ثم تنظيف الحقل المحلي
     _textController.clear();
-
     _lastSearchQuery = '';
-
-    // إعادة التركيز على الحقل
-    widget.salesController.searchFocusNode.requestFocus();
-  }
-  Future<void> _handleBarcodeScan() async {
-    try {
-      // مسح البحث القديم أولاً
-      _clearSearch();
-
-      // فتح الماسح الضوئي
-      final barcode = await showDialog<String?>(
-        context: context,
-        builder: (_) => BarcodeScannerDialog(salesController: widget.salesController),
-        barrierDismissible: false,
-      );
-
-      if (barcode != null && barcode.isNotEmpty) {
-        // البحث تلقائياً عن الباركود
-        _textController.text = barcode;
-        widget.salesController.searchQuery.value = barcode;
-        await _executeSearch(barcode);
-      }
-    } finally {
-      // العودة للتركيز على حقل البحث
-      widget.salesController.searchFocusNode.requestFocus();
-    }
+    widget.salesController.focusSearchIfAllowed();
   }
 
   void _handleSearchSubmitted(String value) {
@@ -137,14 +85,8 @@ class _SearchCardState extends State<SearchCard> {
       }
     }
 
-    // ضمان إعادة التركيز
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        widget.salesController.searchFocusNode.requestFocus();
-      }
-    });
+    widget.salesController.focusSearchIfAllowed();
   }
-
   @override
   void dispose() {
     _debounceTimer?.cancel();
@@ -152,8 +94,6 @@ class _SearchCardState extends State<SearchCard> {
     _textController.dispose();
     super.dispose();
   }
-
-
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -223,6 +163,14 @@ class _SearchCardState extends State<SearchCard> {
                           )
                               : null,
                         ),
+                        onTap: () {
+                          // ✅ أول ما المستخدم يضغط البحث نرجع السماح للفوكس الإجباري
+                          widget.salesController.resumeAutoFocus();
+                        },
+                        onEditingComplete: () {
+                          // ✅ بعد ما يكمل الكتابة نخلي البحث يحتفظ بالفوكس لو مسموح
+                          widget.salesController.focusSearchIfAllowed();
+                        },
                         style: const TextStyle(fontSize: 14),
                         onChanged: (value) {
                           _performSearch(value);

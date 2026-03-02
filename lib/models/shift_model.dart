@@ -7,31 +7,39 @@ class Shift {
   final String pharmacyId;
 
   final ShiftStatus status;
-
   final DateTime? openedAt;
   final DateTime? closedAt;
 
   final Map<String, dynamic>? openedBy;
   final Map<String, dynamic>? closedBy;
 
+  // ✅ basics (للفلترة/العرض)
+  final String openedById;
+  final String openedByName;
+
+  // ✅ NEW (محكم للنظام الجديد)
+  final String openedByType; // owner/employee
+  final String openedByKey;  // owner:<uid> OR employee:<docId>
+
+  final String closedById;
+  final String closedByName;
+  final String closedByType;
+  final String closedByKey;
+
   final double openingCash;
   final double closingCash;
 
-  // Totals (مبيعات)
   final double cashTotal;
   final double cardTotal;
 
-  // ✅ Insurance smart totals
-  final double insuranceBilledTotal;     // فواتير تأمين
-  final double insuranceCollectedTotal;  // محصّل من التأمين
-  final double insurancePendingTotal;    // متبقي على التأمين
+  // ✅ التأمين (فواتير على الشركة - مش داخل الدرج)
+  final double insuranceBilledTotal;
 
   final int salesCount;
   final int refundsCount;
 
-  // Drawer check
-  final double expectedDrawerCash; // openingCash + cashTotal
-  final double drawerDiff;         // closingCash - expectedDrawerCash
+  final double expectedDrawerCash;
+  final double drawerDiff;
 
   final String? notes;
 
@@ -43,13 +51,22 @@ class Shift {
     this.closedAt,
     this.openedBy,
     this.closedBy,
+
+    this.openedById = '',
+    this.openedByName = '',
+    this.openedByType = '',
+    this.openedByKey = '',
+
+    this.closedById = '',
+    this.closedByName = '',
+    this.closedByType = '',
+    this.closedByKey = '',
+
     this.openingCash = 0,
     this.closingCash = 0,
     this.cashTotal = 0,
     this.cardTotal = 0,
     this.insuranceBilledTotal = 0,
-    this.insuranceCollectedTotal = 0,
-    this.insurancePendingTotal = 0,
     this.salesCount = 0,
     this.refundsCount = 0,
     this.expectedDrawerCash = 0,
@@ -59,67 +76,104 @@ class Shift {
 
   bool get isOpen => status == ShiftStatus.open;
 
-  // ✅ الإجمالي الحقيقي للـ POS (كاش + بطاقة + فواتير التأمين)
   double get grandTotal => cashTotal + cardTotal + insuranceBilledTotal;
+
+  static double _toD(dynamic v) {
+    if (v == null) return 0.0;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString()) ?? 0.0;
+  }
+
+  static int _toI(dynamic v) {
+    if (v == null) return 0;
+    if (v is num) return v.toInt();
+    return int.tryParse(v.toString()) ?? 0;
+  }
+
+  static DateTime? _ts(dynamic v) => v is Timestamp ? v.toDate() : null;
+
+  static ShiftStatus _status(dynamic v) {
+    final s = (v ?? '').toString();
+    return s == 'open' ? ShiftStatus.open : ShiftStatus.closed;
+  }
+
+  /// ✅ يحاول يبني actorKey من type + id لو key مش موجود
+  static String _buildActorKey({required String type, required String id}) {
+    if (type.trim().isEmpty || id.trim().isEmpty) return '';
+    return '$type:$id';
+  }
 
   factory Shift.fromDoc(DocumentSnapshot doc) {
     final data = (doc.data() as Map<String, dynamic>?) ?? {};
 
-    ShiftStatus parseStatus(dynamic v) {
-      final s = (v ?? '').toString();
-      return (s == 'open') ? ShiftStatus.open : ShiftStatus.closed;
-    }
+    Map<String, dynamic>? openedBy;
+    if (data['openedBy'] is Map) openedBy = Map<String, dynamic>.from(data['openedBy']);
 
-    DateTime? tsToDate(dynamic v) => v is Timestamp ? v.toDate() : null;
+    Map<String, dynamic>? closedBy;
+    if (data['closedBy'] is Map) closedBy = Map<String, dynamic>.from(data['closedBy']);
 
-    double toD(dynamic v) {
-      if (v == null) return 0.0;
-      if (v is num) return v.toDouble();
-      return double.tryParse(v.toString()) ?? 0.0;
-    }
+    final opening = _toD(data['openingCash']);
+    final cash = _toD(data['cashTotal']);
 
-    int toI(dynamic v) {
-      if (v == null) return 0;
-      if (v is num) return v.toInt();
-      return int.tryParse(v.toString()) ?? 0;
-    }
+    final expected = data['expectedDrawerCash'] == null
+        ? (opening + cash)
+        : _toD(data['expectedDrawerCash']);
 
-    final opening = toD(data['openingCash']);
-    final cash = toD(data['cashTotal']);
+    final closing = _toD(data['closingCash']);
+    final diff = data['drawerDiff'] == null
+        ? (closing - expected)
+        : _toD(data['drawerDiff']);
 
-    // drawer calc (قديمة وجديدة)
-    final expectedRaw = data['expectedDrawerCash'];
-    final expectedFixed = expectedRaw == null ? (opening + cash) : toD(expectedRaw);
+    // =========================
+    // ✅ Opened By (Back-compat)
+    // =========================
+    final openedById = (data['openedById'] ?? openedBy?['id'] ?? '').toString();
+    final openedByName = (data['openedByName'] ?? openedBy?['name'] ?? openedBy?['username'] ?? '').toString();
 
-    final closing = toD(data['closingCash']);
-    final diffRaw = data['drawerDiff'];
-    final diffFixed = diffRaw == null ? (closing - expectedFixed) : toD(diffRaw);
+    final openedByType = (data['openedByType'] ?? openedBy?['type'] ?? '').toString();
+    final openedByKey = (data['openedByKey'] ?? '').toString().isNotEmpty
+        ? (data['openedByKey'] ?? '').toString()
+        : _buildActorKey(type: openedByType, id: openedById);
 
-    // insurance smart calc
-    final billed = toD(data['insuranceBilledTotal'] ?? data['insuranceTotal']); // دعم قديم
-    final collected = toD(data['insuranceCollectedTotal']);
-    final pendingRaw = data['insurancePendingTotal'];
-    final pending = pendingRaw == null ? (billed - collected) : toD(pendingRaw);
+    // =========================
+    // ✅ Closed By (Back-compat)
+    // =========================
+    final closedById = (data['closedById'] ?? closedBy?['id'] ?? '').toString();
+    final closedByName = (data['closedByName'] ?? closedBy?['name'] ?? closedBy?['username'] ?? '').toString();
+    final closedByType = (data['closedByType'] ?? closedBy?['type'] ?? '').toString();
+
+    final closedByKey = (data['closedByKey'] ?? '').toString().isNotEmpty
+        ? (data['closedByKey'] ?? '').toString()
+        : _buildActorKey(type: closedByType, id: closedById);
 
     return Shift(
       id: doc.id,
       pharmacyId: (data['pharmacyId'] ?? '').toString(),
-      status: parseStatus(data['status']),
-      openedAt: tsToDate(data['openedAt']),
-      closedAt: tsToDate(data['closedAt']),
-      openedBy: (data['openedBy'] is Map) ? Map<String, dynamic>.from(data['openedBy']) : null,
-      closedBy: (data['closedBy'] is Map) ? Map<String, dynamic>.from(data['closedBy']) : null,
+      status: _status(data['status']),
+      openedAt: _ts(data['openedAt']),
+      closedAt: _ts(data['closedAt']),
+      openedBy: openedBy,
+      closedBy: closedBy,
+
+      openedById: openedById,
+      openedByName: openedByName,
+      openedByType: openedByType,
+      openedByKey: openedByKey,
+
+      closedById: closedById,
+      closedByName: closedByName,
+      closedByType: closedByType,
+      closedByKey: closedByKey,
+
       openingCash: opening,
       closingCash: closing,
       cashTotal: cash,
-      cardTotal: toD(data['cardTotal']),
-      insuranceBilledTotal: billed,
-      insuranceCollectedTotal: collected,
-      insurancePendingTotal: pending,
-      salesCount: toI(data['salesCount']),
-      refundsCount: toI(data['refundsCount']),
-      expectedDrawerCash: expectedFixed,
-      drawerDiff: diffFixed,
+      cardTotal: _toD(data['cardTotal']),
+      insuranceBilledTotal: _toD(data['insuranceBilledTotal']),
+      salesCount: _toI(data['salesCount']),
+      refundsCount: _toI(data['refundsCount']),
+      expectedDrawerCash: expected,
+      drawerDiff: diff,
       notes: data['notes']?.toString(),
     );
   }

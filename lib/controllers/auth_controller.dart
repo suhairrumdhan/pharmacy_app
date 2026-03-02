@@ -321,14 +321,34 @@ class AuthController extends GetxController {
     }
   }
 
+  // bool can(String permission) {
+  //   if (permission.isEmpty) return false;
+  //
+  //   // ✅ المالك (FirebaseAuth) بدون موظف داخلي = صلاحيات كاملة
+  //   if (currentEmployee.value == null) return true;
+  //
+  //   final employee = currentEmployee.value!;
+  //   if (employee['roleId'] == 'admin') return true; // لو عندك دور admin لموظف لاحقاً
+  //
+  //   if (employeeOverrides.containsKey(permission)) {
+  //     return employeeOverrides[permission] == true;
+  //   }
+  //   if (rolePermissions.containsKey(permission)) {
+  //     return rolePermissions[permission] == true;
+  //   }
+  //   return false;
+  // }
   bool can(String permission) {
     if (permission.isEmpty) return false;
 
-    // ✅ المالك (FirebaseAuth) بدون موظف داخلي = صلاحيات كاملة
-    if (currentEmployee.value == null) return true;
+    // ✅ فقط الـ owner الحقيقي (actorType == owner) عنده صلاحيات كاملة
+    final actorType = (actorInfo['type'] ?? '').toString();
+    if (currentEmployee.value == null) {
+      return actorType == 'owner';
+    }
 
     final employee = currentEmployee.value!;
-    if (employee['roleId'] == 'admin') return true; // لو عندك دور admin لموظف لاحقاً
+    if (employee['roleId'] == 'admin') return true;
 
     if (employeeOverrides.containsKey(permission)) {
       return employeeOverrides[permission] == true;
@@ -338,7 +358,6 @@ class AuthController extends GetxController {
     }
     return false;
   }
-
 
 
   Future<void> logoutOwnerSecure() async {
