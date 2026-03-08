@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
 import '../../../controllers/sales_controller.dart';
-import '../dialogs/receipt_options_dialog.dart';
 import '../utils/dialog_utils.dart';
 
 class CheckoutButton extends StatefulWidget {
@@ -25,14 +24,20 @@ class _CheckoutButtonState extends State<CheckoutButton> {
     setState(() => _isProcessing = true);
 
     try {
-      // ✅ يحفظ + يحدّث الشيفت + يرجع الفاتورة المحفوظة
-      final savedSale = await widget.salesController.completeSaleAndPrint();
+      final isRefund = widget.salesController.refundMode.value;
+
+      if (isRefund) {
+        await widget.salesController.completeRefundAndPrint();
+      } else {
+        await widget.salesController.completeSaleAndPrint();
+      }
+
       if (!mounted) return;
     } catch (e) {
       if (!mounted) return;
       DialogUtils.showSafeSnackbar(
         title: 'خطأ',
-        message: 'حدث خطأ غير متوقع: $e',
+        message: e.toString(),
       );
     } finally {
       if (mounted) {
@@ -46,17 +51,38 @@ class _CheckoutButtonState extends State<CheckoutButton> {
     return Obx(() {
       final sale = widget.salesController.currentSale.value;
       final isLoading = widget.salesController.isLoading.value;
+      final isRefund = widget.salesController.refundMode.value;
 
       final isDisabled = sale.items.isEmpty || isLoading || _isProcessing;
+
+      final buttonColor = isDisabled
+          ? Colors.grey[400]
+          : isRefund
+          ? Colors.orange[700]
+          : Colors.green[700];
+
+      final shadowColor = isDisabled
+          ? Colors.grey.withOpacity(0.10)
+          : isRefund
+          ? Colors.orange.withOpacity(0.20)
+          : Colors.green.withOpacity(0.20);
+
+      final buttonText = sale.items.isEmpty
+          ? 'أضف منتجات أولاً'
+          : isRefund
+          ? 'تنفيذ الترجيع وطباعة الإيصال'
+          : 'إنهاء البيع وطباعة الفاتورة';
+
+      final buttonIcon = isRefund
+          ? Iconsax.arrow_left_2
+          : Iconsax.receipt_discount;
 
       return Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: isDisabled
-                  ? Colors.grey.withOpacity(0.1)
-                  : Colors.green.withOpacity(0.2),
+              color: shadowColor,
               blurRadius: 8,
               offset: const Offset(0, 4),
             ),
@@ -65,13 +91,16 @@ class _CheckoutButtonState extends State<CheckoutButton> {
         child: ElevatedButton(
           onPressed: isDisabled ? null : _processCheckout,
           style: ElevatedButton.styleFrom(
-            backgroundColor: isDisabled ? Colors.grey[400] : Colors.green[700],
+            backgroundColor: buttonColor,
             foregroundColor: Colors.white,
             minimumSize: const Size(double.infinity, 56),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 16,
+            ),
             elevation: 0,
             shadowColor: Colors.transparent,
           ),
@@ -88,14 +117,12 @@ class _CheckoutButtonState extends State<CheckoutButton> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                Iconsax.receipt_discount,
+                buttonIcon,
                 size: 20,
               ),
               const SizedBox(width: 12),
               Text(
-                sale.items.isEmpty
-                    ? 'أضف منتجات أولاً'
-                    : 'إنهاء البيع وطباعة الفاتورة',
+                buttonText,
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,

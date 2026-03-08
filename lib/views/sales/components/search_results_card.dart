@@ -144,7 +144,7 @@ class SearchResultsCard extends StatelessWidget {
           children: [
             Icon(
               icon,
-              size: 64,
+              size:40,
               color: Colors.grey[300],
             ),
             const SizedBox(height: 16),

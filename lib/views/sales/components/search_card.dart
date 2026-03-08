@@ -75,14 +75,39 @@ class _SearchCardState extends State<SearchCard> {
     widget.salesController.focusSearchIfAllowed();
   }
 
-  void _handleSearchSubmitted(String value) {
-    if (value.isNotEmpty) {
-      final results = widget.salesController.searchResults;
+  Future<void> _handleSearchSubmitted(String value) async {
+    if (value.isEmpty) {
+      widget.salesController.focusSearchIfAllowed();
+      return;
+    }
 
-      if (results.length == 1 && !widget.salesController.isBarcodeInput(value)) {
-        widget.salesController.addMedicineToSale(results.first);
-        _clearSearch();
+    final results = widget.salesController.searchResults;
+
+    // لو نتيجة واحدة (مش باركود) نخلي Enter يضيف مباشرة
+    if (results.length == 1 && !widget.salesController.isBarcodeInput(value)) {
+      final med = results.first;
+
+      // ✅ Refund mode لازم فاتورة أصل
+      if (widget.salesController.refundMode.value &&
+          widget.salesController.originalSale.value == null) {
+        Get.rawSnackbar(
+          title: 'مطلوب',
+          message: 'حمّل الفاتورة الأصلية أولاً قبل إضافة أصناف للترجيع',
+          snackPosition: SnackPosition.BOTTOM,
+          duration: const Duration(seconds: 2),
+        );
+        widget.salesController.focusSearchIfAllowed();
+        return;
       }
+
+      // ✅ بيع/ترجيع
+      if (widget.salesController.refundMode.value) {
+        await widget.salesController.addMedicineToRefund(med);
+      } else {
+        widget.salesController.addMedicineToSale(med);
+      }
+
+      _clearSearch();
     }
 
     widget.salesController.focusSearchIfAllowed();

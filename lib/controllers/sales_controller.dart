@@ -68,6 +68,15 @@ class SalesController extends GetxController {
   bool _employeeDataInitialized = false;
   bool _insuranceCompaniesLoaded = false;
 
+  final RxBool refundMode = false.obs;
+
+  final TextEditingController refundInvoiceController = TextEditingController();
+  final Rxn<Sale> originalSale = Rxn<Sale>();
+
+  final RxDouble refundCashOut = 0.0.obs;
+  final RxDouble refundCardOut = 0.0.obs;
+
+
   // =============================
   // Firebase refs
   // =============================
@@ -218,10 +227,12 @@ class SalesController extends GetxController {
     customerNameController.dispose();
     customerPhoneController.dispose();
     notesController.dispose();
+    refundInvoiceController.dispose();
 
     _initialized = false;
     _employeeDataInitialized = false;
     _insuranceCompaniesLoaded = false;
+
     super.onClose();
   }
 
@@ -1546,8 +1557,16 @@ class SalesController extends GetxController {
 
   Future<void> handleSmartSearch(String query) async {
     final results = await searchMedicinesWithSuggestions(query);
+
     if (isBarcodeInput(query) && results.length == 1) {
-      addMedicineToSale(results.first);
+      final med = results.first;
+
+      if (refundMode.value) {
+        await addMedicineToRefund(med);
+      } else {
+        addMedicineToSale(med);
+      }
+
       _clearSearchAfterAdd();
     }
   }
@@ -1561,10 +1580,16 @@ class SalesController extends GetxController {
     isLoading.value = true;
     try {
       final inventoryController = Get.find<InventoryController>();
-      final allMedicines = inventoryController.medicines;
+
+      // ✅ مصدر البيانات حسب الوضع
+      final List<Medicine> baseList =
+      (refundMode.value && originalSale.value != null)
+          ? _getOriginalInvoiceMedicinesOnly()
+          : inventoryController.medicines;
 
       final q = query.toLowerCase();
-      final results = allMedicines.where((medicine) {
+
+      final results = baseList.where((medicine) {
         final nameMatch = medicine.name.toLowerCase().contains(q);
         final sciMatch = medicine.scientificName.toLowerCase().contains(q);
         final barcodeMatch = (medicine.barcode ?? '').toLowerCase().contains(q);
@@ -1576,9 +1601,24 @@ class SalesController extends GetxController {
       isLoading.value = false;
     }
   }
+  List<Medicine> _getOriginalInvoiceMedicinesOnly() {
+    final orig = originalSale.value;
+    if (orig == null) return [];
+
+    final inv = Get.find<InventoryController>();
+    final ids = orig.items.map((e) => e.medicineId).toSet();
+
+    final meds = <Medicine>[];
+    for (final id in ids) {
+      final m = inv.getMedicineById(id);
+      if (m != null) meds.add(m);
+    }
+    return meds;
+  }
 
   Future<List<Medicine>> searchMedicinesWithSuggestions(String query) async {
     if (query.isEmpty) {
+      // ✅ في الترجيع نخلي النتائج تفضى عادي (نقدر لاحقًا نعرض أصناف الفاتورة تلقائي)
       searchResults.clear();
       return [];
     }
@@ -1586,11 +1626,16 @@ class SalesController extends GetxController {
     isLoading.value = true;
     try {
       final inventoryController = Get.find<InventoryController>();
-      final allMedicines = inventoryController.medicines;
+
+      // ✅ مصدر البيانات: كل المخزون أو فقط أصناف الفاتورة الأصلية
+      final List<Medicine> baseList =
+      (refundMode.value && originalSale.value != null)
+          ? _getOriginalInvoiceMedicinesOnly()
+          : inventoryController.medicines;
 
       final q = query.toLowerCase();
 
-      final results = allMedicines.where((medicine) {
+      final results = baseList.where((medicine) {
         final name = medicine.name.toLowerCase();
         final sci = medicine.scientificName.toLowerCase();
         final barcode = (medicine.barcode ?? '').toLowerCase();
@@ -1609,6 +1654,7 @@ class SalesController extends GetxController {
             a.scientificName.toLowerCase().startsWith(q);
         final bStarts = b.name.toLowerCase().startsWith(q) ||
             b.scientificName.toLowerCase().startsWith(q);
+
         if (aStarts && !bStarts) return -1;
         if (!aStarts && bStarts) return 1;
         return a.name.compareTo(b.name);
@@ -1620,7 +1666,6 @@ class SalesController extends GetxController {
       isLoading.value = false;
     }
   }
-
   Future<void> searchByBarcode(String barcode) async {
     if (barcode.isEmpty) return;
 
@@ -1631,7 +1676,14 @@ class SalesController extends GetxController {
 
       if (medicine != null) {
         searchResults.assignAll([medicine]);
-        addMedicineToSale(medicine);
+
+        if (refundMode.value) {
+          await addMedicineToRefund(medicine);
+        } else {
+          addMedicineToSale(medicine);
+        }
+
+        _clearSearchAfterAdd();
       } else {
         Get.snackbar('غير موجود', 'لم يتم العثور على منتج بهذا الباركود');
         searchResults.clear();
@@ -1640,22 +1692,25 @@ class SalesController extends GetxController {
       isLoading.value = false;
     }
   }
-
   Future<void> search(String query) async {
     searchQuery.value = query;
 
     if (query.isEmpty) {
       searchResults.clear();
+
+      // ✅ اختيارية: في وضع الترجيع نعرض أصناف الفاتورة بدون كتابة
+      if (refundMode.value && originalSale.value != null) {
+        searchResults.assignAll(_getOriginalInvoiceMedicinesOnly());
+      }
       return;
     }
 
     if (isBarcodeInput(query)) {
       await handleSmartSearch(query);
     } else {
-      await searchMedicines(query);
+      await searchMedicinesWithSuggestions(query); // ✅ بدل searchMedicines
     }
   }
-
   // =============================
   // Reset sale
   // =============================
@@ -1716,6 +1771,279 @@ class SalesController extends GetxController {
     searchQuery.value = '';
     searchResults.clear();
     _focusSearchField();
+  }
+
+  Future<void> toggleRefundMode() async {
+    refundMode.value = !refundMode.value;
+
+    if (!refundMode.value) {
+      originalSale.value = null;
+      refundInvoiceController.clear();
+      refundCashOut.value = 0;
+      refundCardOut.value = 0;
+      manualDiscount.value = 0;
+      selectedInsuranceCompany.value = null;
+      resetSale(); // يرجع لوضع البيع
+      return;
+    }
+
+    // ✅ دخول الترجيع
+    await loadRecentCompletedInvoices(limit: 80);
+
+    final s = Sale.empty(
+      pharmacyId: pharmacyId,
+      employeeId: _currentDbEmployeeId,
+      employeeName: currentSale.value.employeeName,
+    ).copyWith(
+      invoiceNumber: 'REF-${Sale.generateInvoiceNumber().replaceFirst('INV-', '')}',
+      type: SaleType.refund,
+      discount: 0,
+      insuranceDiscount: 0,
+      insuranceCompanyId: null,
+      insuranceCompanyName: null,
+      paymentMethod: PaymentMethod.cash,
+    ).recalculate();
+
+    currentSale.value = s;
+    searchResults.clear();
+    searchQuery.value = '';
+    _saveCurrentInvoice();
+  }
+
+  Future<void> loadOriginalInvoiceForRefund() async {
+    final invNo = refundInvoiceController.text.trim();
+    if (invNo.isEmpty) {
+      _safeSnackbar('تنبيه', 'أدخل رقم الفاتورة الأصلية');
+      return;
+    }
+
+    final sale = await getSaleByInvoiceNumber(invNo);
+    if (sale == null || sale.isDeleted || sale.status != InvoiceStatus.completed) {
+      _safeSnackbar('غير موجود', 'لم يتم العثور على فاتورة مكتملة بهذا الرقم');
+      return;
+    }
+
+    // ما نسمحش بترجيع فاتورة ترجيع
+    if (sale.type == SaleType.refund) {
+      _safeSnackbar('غير مسموح', 'لا يمكن تحميل فاتورة ترجيع كأصل');
+      return;
+    }
+    // ✅ اعرض أصناف الفاتورة مباشرة في نتائج البحث
+    searchResults.assignAll(_getOriginalInvoiceMedicinesOnly());
+    searchQuery.value = '';
+
+    originalSale.value = sale;
+    _safeSnackbar('تم', 'تم تحميل الفاتورة الأصلية ✅');
+  }
+
+  Future<Map<String, int>> _getAlreadyRefundedQtyByMedicine(String refSaleId) async {
+    final qs = await salesCollection
+        .where('type', isEqualTo: 'refund')
+        .where('refSaleId', isEqualTo: refSaleId)
+        .where('isDeleted', isEqualTo: false)
+        .get();
+
+    final Map<String, int> refunded = {};
+    for (final d in qs.docs) {
+      final data = d.data() as Map<String, dynamic>;
+      final r = Sale.fromMap({'id': d.id, ...data});
+      for (final it in r.items) {
+        refunded[it.medicineId] = (refunded[it.medicineId] ?? 0) + it.quantity;
+      }
+    }
+    return refunded;
+  }
+  Future<void> addMedicineToRefund(Medicine medicine, {int quantity = 1, bool sellAsPiece = false}) async {
+    final orig = originalSale.value;
+    if (orig == null) {
+      _safeSnackbar('مطلوب', 'حمّلي الفاتورة الأصلية أولاً');
+      return;
+    }
+
+    // لازم الدواء موجود في الفاتورة الأصلية (نفس sellAsPiece)
+    final soldItem = orig.items.firstWhereOrNull(
+          (it) => it.medicineId == medicine.id && it.sellAsPiece == sellAsPiece,
+    );
+
+    if (soldItem == null) {
+      _safeSnackbar('غير مسموح', 'هذا الصنف غير موجود في الفاتورة الأصلية');
+      return;
+    }
+
+    // نحسب المتاح
+    final refundedMap = await _getAlreadyRefundedQtyByMedicine(orig.id);
+    final already = refundedMap[medicine.id] ?? 0;
+    final available = soldItem.quantity - already;
+
+    if (available <= 0) {
+      _safeSnackbar('غير مسموح', 'تم ترجيع هذا الصنف بالكامل مسبقاً');
+      return;
+    }
+
+    if (quantity > available) {
+      _safeSnackbar('تنبيه', 'المتاح للترجيع: $available فقط');
+      return;
+    }
+
+    // نضيف للسلة بسعر نفس الأصل (مهم)
+    final unitPrice = soldItem.unitPrice;
+
+    final sale = currentSale.value;
+    final existingIndex = sale.items.indexWhere(
+          (it) => it.medicineId == medicine.id && it.sellAsPiece == sellAsPiece,
+    );
+
+    Sale updated;
+    if (existingIndex >= 0) {
+      final cur = sale.items[existingIndex];
+      updated = sale.updateItem(existingIndex, cur.copyWith(quantity: cur.quantity + quantity));
+    } else {
+      updated = sale.addItem(SaleItem(
+        medicineId: medicine.id,
+        name: medicine.name,
+        scientificName: medicine.scientificName,
+        barcode: medicine.barcode,
+        unitPrice: unitPrice,
+        quantity: quantity,
+        sellAsPiece: sellAsPiece,
+      ));
+    }
+
+    currentSale.value = updated.recalculate();
+    _saveCurrentInvoice();
+    _clearSearchAfterAdd();
+  }
+  double get refundTotal => currentSale.value.recalculate().subtotal;
+  Future<Sale?> completeRefundAndPrint() async {
+    final shiftCtrl = Get.find<ShiftController>();
+    final auth = Get.find<AuthController>();
+
+    shiftCtrl.ensureActiveShiftOrThrow();
+    final shiftId = shiftCtrl.activeShift.value!.id;
+
+    final orig = originalSale.value;
+    if (orig == null) throw Exception('حمّلي الفاتورة الأصلية أولاً');
+
+    final r = currentSale.value;
+    if (r.items.isEmpty) throw Exception('سلة الترجيع فارغة');
+
+    final total = r.recalculate().subtotal;
+    final out = (refundCashOut.value + refundCardOut.value);
+
+    if ((out - total).abs() > 0.01) {
+      throw Exception('لازم cashOut + cardOut يساوي قيمة الترجيع');
+    }
+
+    final now = DateTime.now();
+    final actor = auth.actorInfo;
+
+    final payloadSale = r.copyWith(
+      type: SaleType.refund,
+      refSaleId: orig.id,
+      refInvoiceNumber: orig.invoiceNumber,
+      shiftId: shiftId,
+      performedBy: actor,
+      performedById: (actor['id'] ?? '').toString(),
+      performedByName: (actor['name'] ?? actor['username'] ?? '').toString(),
+      status: InvoiceStatus.completed,
+      isSaved: true,
+      isDeleted: false,
+      saleDate: now,
+      completedAt: now,
+      // money out:
+      cashOut: refundCashOut.value,
+      cardOut: refundCardOut.value,
+      // نظف التأمين والخصم:
+      insuranceDiscount: 0,
+      insuranceCompanyId: null,
+      insuranceCompanyName: null,
+      discount: 0,
+      // paymentMethod هنا ممكن نخليه cash لو cashOut>0 وإلا card (اختياري)
+      paymentMethod: refundCardOut.value > 0 ? PaymentMethod.card : PaymentMethod.cash,
+      total: 0, // لا تعامليها كزبون يدفع
+      subtotal: total,
+    ).recalculate();
+
+    final doc = salesCollection.doc();
+    await doc.set(payloadSale.copyWith(id: doc.id).toMap(), SetOptions(merge: true));
+
+    // ✅ رجّع المخزون
+    await _restoreInventoryStockForRefund(payloadSale);
+
+    // ✅ سجّل على الشفت: هذا “نقص” في الكاش/البطاقة
+    if (refundCashOut.value > 0) {
+      await shiftCtrl.registerSaleOnShift(
+        total: refundCashOut.value,
+        method: PaymentMethod.cash,
+        isRefund: true,
+      );
+    }
+    if (refundCardOut.value > 0) {
+      await shiftCtrl.registerSaleOnShift(
+        total: refundCardOut.value,
+        method: PaymentMethod.card,
+        isRefund: true,
+      );
+    }
+
+    // (اختياري) audit log
+    await _firestore.collection('pharmacies').doc(pharmacyId).collection('audit_logs').add({
+      'action': 'create_refund',
+      'targetId': doc.id,
+      'refInvoiceNumber': orig.invoiceNumber,
+      'refundInvoiceNumber': payloadSale.invoiceNumber,
+      'cashOut': refundCashOut.value,
+      'cardOut': refundCardOut.value,
+      'itemsCount': payloadSale.items.length,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    // Reset UI
+    toggleRefundMode(); // يطلع من الوضع
+    return payloadSale.copyWith(id: doc.id);
+  }
+  Future<void> _restoreInventoryStockForRefund(Sale refund) async {
+    final inventoryController = Get.find<InventoryController>();
+
+    for (final item in refund.items) {
+      final medicine = inventoryController.getMedicineById(item.medicineId);
+      if (medicine == null) continue;
+
+      int pkg = medicine.quantity;
+      int pcs = medicine.pieceQuantity ?? 0;
+      final units = medicine.unitsPerPackage ?? 0;
+
+      if (item.sellAsPiece) {
+        if (units <= 0) throw Exception('unitsPerPackage غير محدد للدواء ${medicine.name}');
+        final totalPieces = pcs + (pkg * units);
+        final newTotal = totalPieces + item.quantity;
+
+        pkg = newTotal ~/ units;
+        pcs = newTotal % units;
+      } else {
+        pkg = pkg + item.quantity;
+      }
+
+      await inventoryController.updateStock(
+        id: medicine.id,
+        newPackageQty: pkg,
+        newPieceQty: pcs,
+      );
+    }
+  }
+  final RxList<String> completedInvoiceSuggestions = <String>[].obs;
+
+  Future<void> loadRecentCompletedInvoices({int limit = 50}) async {
+    final qs = await salesCollection
+        .where('isDeleted', isEqualTo: false)
+        .where('status', isEqualTo: 'completed')
+        .orderBy('saleDate', descending: true)
+        .limit(limit)
+        .get();
+
+    completedInvoiceSuggestions.assignAll(
+      qs.docs.map((d) => (d.data() as Map<String, dynamic>)['invoiceNumber'].toString()).toList(),
+    );
   }
 
   // =============================

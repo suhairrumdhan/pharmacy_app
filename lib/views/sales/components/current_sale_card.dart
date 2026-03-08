@@ -137,17 +137,25 @@ class _CurrentSaleCardState extends State<CurrentSaleCard> {
   Widget build(BuildContext context) {
     final salesController = widget.salesController;
 
+
     return Obx(() {
       final currentSale = salesController.currentSale.value;
       final activeInvoices = salesController.activeInvoices; // ✅ pending فقط
       final items = currentSale.items;
-
+      final isRefund = salesController.refundMode.value;
+      final originalSale = salesController.originalSale.value;
       _cleanupTabKeys(activeInvoices);
 
       // لون الهيدر بناءً على حالة الفاتورة
       Color headerColor = Colors.blue[50]!;
       Color iconColor = Colors.blue[700]!;
       String statusText = 'قيد التنفيذ';
+
+      if (salesController.refundMode.value) {
+        headerColor = Colors.orange[50]!;
+        iconColor = Colors.orange[700]!;
+        statusText = 'فاتورة ترجيع';
+      }
 
       if (currentSale.isSaved) {
         headerColor = Colors.green[50]!;
@@ -207,9 +215,11 @@ class _CurrentSaleCardState extends State<CurrentSaleCard> {
                             children: [
                               Row(
                                 children: [
-                                  Flexible(
+                                  Expanded(
                                     child: Text(
-                                      'فاتورة #${currentSale.invoiceNumber}',
+                                      isRefund
+                                          ? 'فاتورة ترجيع #${currentSale.invoiceNumber}'
+                                          : 'فاتورة #${currentSale.invoiceNumber}',
                                       style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold,
@@ -241,7 +251,33 @@ class _CurrentSaleCardState extends State<CurrentSaleCard> {
                                   ],
                                 ],
                               ),
-                              const SizedBox(height: 2),
+
+                              if (isRefund && originalSale != null) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Iconsax.link_1,
+                                      size: 14,
+                                      color: Colors.orange[700],
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'مرتبطة بالفاتورة #${originalSale.invoiceNumber}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.orange[800],
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+
+                              const SizedBox(height: 4),
                               Text(
                                 '${items.length} أصناف • $statusText',
                                 style: TextStyle(
@@ -252,7 +288,6 @@ class _CurrentSaleCardState extends State<CurrentSaleCard> {
                             ],
                           ),
                         ),
-
                         // ✅ زر التاريخ في الصف الأول (تصميم مرتب)
                         OutlinedButton.icon(
                           onPressed: () {
@@ -669,21 +704,33 @@ Widget _pendingInvoicesTabsBar({
             : null,
         icon: Icon(Iconsax.arrow_right_2, size: 18, color: Colors.grey[700]),
       ),
-
       const SizedBox(width: 8),
+      // ✅ زر فاتورة جديدة ثابت (دايمًا ظاهر وسهل)
 
       // ✅ زر فاتورة جديدة ثابت (دايمًا ظاهر وسهل)
       ElevatedButton.icon(
-        onPressed: onCreateNewInvoice,
-        icon: const Icon(Iconsax.add, size: 18),
-        label: const Text(
+        onPressed: salesController.refundMode.value ? null : onCreateNewInvoice,
+        icon: Icon(
+          Iconsax.add,
+          size: 18,
+          color: salesController.refundMode.value ? Colors.grey : Colors.white,
+        ),
+        label: Text(
           'فاتورة جديدة',
-          style: TextStyle(fontWeight: FontWeight.w500,fontSize: 16),
+          style: TextStyle(
+            fontWeight: FontWeight.w500,
+            fontSize: 16,
+            color: salesController.refundMode.value ? Colors.grey : Colors.white,
+          ),
         ),
         style: ElevatedButton.styleFrom(
           elevation: 0,
-          backgroundColor: Colors.blue[700],
-          foregroundColor: Colors.white,
+          backgroundColor: salesController.refundMode.value
+              ? Colors.grey[300]
+              : Colors.blue[700],
+          foregroundColor: salesController.refundMode.value
+              ? Colors.grey
+              : Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),

@@ -44,13 +44,6 @@ class SalesPage extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text('لا يمكن تنفيذ المبيعات بدون فتح وردية.', style: TextStyle(color: Colors.grey[700])),
                 const SizedBox(height: 14),
-                ElevatedButton.icon(
-                  onPressed: () => Get.find<AuthController>().can('shifts.view')
-                      ? Get.find<ShiftController>().loadShifts()
-                      : null,
-                  icon: const Icon(Iconsax.arrow_right_3),
-                  label: const Text('اذهب للورديات'),
-                ),
               ],
             ),
           ),

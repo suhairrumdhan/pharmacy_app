@@ -108,7 +108,7 @@ class _PaymentCardState extends State<PaymentCard> {
           padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 16 + viewInsets),
           child: Obx(() {
             final sale = salesController.currentSale.value;
-
+            final isRefund = salesController.refundMode.value;
             final hasInsurance =
                 (salesController.selectedInsuranceCompany.value != null) &&
                     (sale.insuranceCompanyId != null && sale.insuranceCompanyId!.trim().isNotEmpty) &&
@@ -147,7 +147,9 @@ class _PaymentCardState extends State<PaymentCard> {
                   const SizedBox(height: 12),
 
                   // طرق دفع الزبون
-                  Row(
+                  if (!isRefund)
+
+                    Row(
                     children: [
                       _buildPaymentMethodChip(
                         '💵 نقدي',
@@ -164,7 +166,67 @@ class _PaymentCardState extends State<PaymentCard> {
                   ),
 
                   const SizedBox(height: 14),
+                  if (isRefund) ...[
+                    const SizedBox(height: 10),
 
+                    Text(
+                      'تفاصيل الترجيع',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.orange[800],
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    _refundField(
+                      label: '💵 كاش خارج',
+                      onChanged: (v) {
+                        salesController.refundCashOut.value =
+                            double.tryParse(v.replaceAll(',', '.')) ?? 0;
+                      },
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    _refundField(
+                      label: '💳 بطاقة خارج',
+                      onChanged: (v) {
+                        salesController.refundCardOut.value =
+                            double.tryParse(v.replaceAll(',', '.')) ?? 0;
+                      },
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    Obx(() {
+                      final total = salesController.refundTotal;
+                      final out = salesController.refundCashOut.value +
+                          salesController.refundCardOut.value;
+
+                      return Row(
+                        children: [
+                          Icon(Iconsax.info_circle, size: 16, color: Colors.orange[700]),
+                          const SizedBox(width: 6),
+                          Text(
+                            'إجمالي الترجيع: ${_lyd(total)}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.orange[700],
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            'المدفوع: ${_lyd(out)}',
+                            style: TextStyle(color: Colors.grey[700]),
+                          ),
+                        ],
+                      );
+                    }),
+
+                    const SizedBox(height: 14),
+                  ],
                   // تفاصيل التأمين (لو موجود)
                   if (hasInsurance) ...[
                     _buildSplitInfo(
@@ -180,7 +242,7 @@ class _PaymentCardState extends State<PaymentCard> {
                   // كاش: المبلغ المستلم default = إجمالي الزبون
                   // وإذا تغيّر → يحسب خصم فواتير تلقائي
                   // =========================
-                  if (currentMethod == PaymentMethod.cash) ...[
+                  if (!isRefund && currentMethod == PaymentMethod.cash) ...[
                     Text('المبلغ المستلم (من الزبون)', style: TextStyle(fontSize: 14, color: Colors.grey[700])),
                     const SizedBox(height: 8),
                     Container(
@@ -289,7 +351,9 @@ class _PaymentCardState extends State<PaymentCard> {
                   // =========================
                   // التأمين (اختياري)
                   // =========================
-                  _buildInsuranceSection(hasInsurance: hasInsurance),
+
+                  if (!isRefund)
+                    _buildInsuranceSection(hasInsurance: hasInsurance),
 
                   const SizedBox(height: 16),
 
@@ -559,7 +623,28 @@ class _PaymentCardState extends State<PaymentCard> {
       ),
     );
   }
-
+  Widget _refundField({
+    required String label,
+    required Function(String) onChanged,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.orange[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange[200]!),
+      ),
+      child: TextField(
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        onChanged: onChanged,
+        decoration: InputDecoration(
+          hintText: label,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          suffixText: 'د.ل',
+        ),
+      ),
+    );
+  }
   Widget _buildCustomerField(
       String hint,
       TextEditingController controller, {

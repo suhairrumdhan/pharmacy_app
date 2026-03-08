@@ -53,7 +53,14 @@ DateTime _parseDateTime(dynamic v, {DateTime? fallback}) {
 /// Enums
 /// =========================
 enum InvoiceStatus { pending, completed, cancelled }
+enum SaleType { sale, refund }
 
+
+SaleType _saleTypeFromString(dynamic v, {SaleType fallback = SaleType.sale}) {
+  final s = (v ?? '').toString().toLowerCase().trim();
+  if (s == 'refund') return SaleType.refund;
+  return SaleType.sale;
+}
 /// ✅ PaymentMethod هنا معناها "طريقة دفع الزبون" فقط
 /// insurance موجود فقط للتوافق مع الداتا القديمة (Legacy)
 enum PaymentMethod {
@@ -272,6 +279,14 @@ class Sale {
   final bool isSaved;
   final DateTime? completedAt;
 
+  final SaleType type;             // sale / refund
+  final String? refSaleId;         // doc id of original sale (refund only)
+  final String? refInvoiceNumber;  // invoiceNumber of original sale (refund only)
+
+// Money out (refund payout)
+  final double cashOut;            // returned cash
+  final double cardOut;
+
   Sale({
     this.id = '',
     required this.invoiceNumber,
@@ -301,6 +316,11 @@ class Sale {
     this.status = InvoiceStatus.pending,
     this.isSaved = false,
     this.completedAt,
+    this.type = SaleType.sale,
+    this.refSaleId,
+    this.refInvoiceNumber,
+    this.cashOut = 0.0,
+    this.cardOut = 0.0,
   }) : createdAt = createdAt ?? DateTime.now();
 
   factory Sale.empty({
@@ -322,6 +342,11 @@ class Sale {
       createdAt: now,
       status: InvoiceStatus.pending,
       isSaved: false,
+      type: SaleType.sale,  // افتراضي: عملية بيع
+      refSaleId: null,
+      refInvoiceNumber: null,
+      cashOut: 0.0,
+      cardOut: 0.0,
     );
   }
 
@@ -394,6 +419,11 @@ class Sale {
     InvoiceStatus? status,
     bool? isSaved,
     DateTime? completedAt,
+    SaleType? type,
+    String? refSaleId,
+    String? refInvoiceNumber,
+    double? cashOut,
+    double? cardOut,            // returned to card
   }) {
     return Sale(
       id: id ?? this.id,
@@ -424,6 +454,11 @@ class Sale {
       status: status ?? this.status,
       isSaved: isSaved ?? this.isSaved,
       completedAt: completedAt ?? this.completedAt,
+      type: type ?? this.type,
+      refSaleId: refSaleId ?? this.refSaleId,
+      refInvoiceNumber: refInvoiceNumber ?? this.refInvoiceNumber,
+      cashOut: cashOut ?? this.cashOut,
+      cardOut: cardOut ?? this.cardOut,
     );
   }
 
@@ -477,6 +512,11 @@ class Sale {
       'status': computed.status.name,
       'isSaved': computed.isSaved,
       'isDeleted': computed.isDeleted,
+      'type': type.name,
+      'refSaleId': refSaleId,
+      'refInvoiceNumber': refInvoiceNumber,
+      'cashOut': cashOut,
+      'cardOut': cardOut,
     };
   }
 
@@ -541,8 +581,13 @@ class Sale {
       isDeleted: map['isDeleted'] == true,
       status: status,
       isSaved: isSaved,
-      completedAt: completedAt,
+      completedAt: completedAt,type: _saleTypeFromString(map['type']),
+      refSaleId: _asString(map['refSaleId']),
+      refInvoiceNumber: _asString(map['refInvoiceNumber']),
+      cashOut: _asDouble(map['cashOut']),
+      cardOut: _asDouble(map['cardOut']),
     );
+
 
     return sale.recalculate();
   }
@@ -581,6 +626,11 @@ class Sale {
       'status': computed.status.name,
       'isSaved': computed.isSaved,
       'isDeleted': computed.isDeleted,
+      'type': computed.type.name,
+      'refSaleId': computed.refSaleId,
+      'refInvoiceNumber': computed.refInvoiceNumber,
+      'cashOut': computed.cashOut,
+      'cardOut': computed.cardOut,
     };
   }
 
@@ -642,6 +692,11 @@ class Sale {
       status: status,
       isSaved: map['isSaved'] == true,
       completedAt: completedAt,
+      type: _saleTypeFromString(map['type']),
+      refSaleId: _asString(map['refSaleId']),
+      refInvoiceNumber: _asString(map['refInvoiceNumber']),
+      cashOut: _asDouble(map['cashOut']),
+      cardOut: _asDouble(map['cardOut']),
     );
 
     return sale.recalculate();
