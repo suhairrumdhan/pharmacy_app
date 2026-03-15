@@ -12,15 +12,26 @@ class FinanceController extends GetxController {
   late AuthController _authCtrl;
   late PurchaseController _purchaseCtrl;
 
+  // === متغيرات الحالة ===
   final RxBool isLoading = false.obs;
   final Rx<FinanceOverview> overview = FinanceOverview.empty().obs;
+
+  // === تغيير مهم: استخدام RxList مباشرة من Firebase ===
   final RxList<ExpenseItem> expenses = <ExpenseItem>[].obs;
+
+  // === متغيرات البحث والتصفية ===
+  final searchController = TextEditingController();
+  final RxList<ExpenseItem> filteredExpenses = <ExpenseItem>[].obs;
 
   final RxInt selectedYear = DateTime.now().year.obs;
   final RxInt selectedMonth = DateTime.now().month.obs;
 
+  // === Stream للاستماع للتغييرات في الوقت الفعلي ===
+  Stream<QuerySnapshot>? _expensesStream;
+
   String get _pharmacyId => _authCtrl.pharmacyId;
 
+  // === Collections References ===
   CollectionReference<Map<String, dynamic>> get _salesCollection =>
       _firestore.collection('pharmacies').doc(_pharmacyId).collection('sales');
 
@@ -39,27 +50,60 @@ class FinanceController extends GetxController {
     _authCtrl = Get.find<AuthController>();
     _purchaseCtrl = Get.find<PurchaseController>();
 
+    // مراقبة التغييرات في قائمة المصروفات
+    ever(expenses, (_) => filterExpenses(searchController.text));
+
     ever(_authCtrl.pharmacyData, (_) {
       if (_pharmacyId.isNotEmpty) {
+        _setupExpensesListener(); // إعداد المستمع للمصروفات
         loadFinanceData();
       }
     });
 
     if (_pharmacyId.isNotEmpty) {
+      _setupExpensesListener();
       loadFinanceData();
     }
   }
 
+  @override
+  void onClose() {
+    searchController.dispose();
+    super.onClose();
+  }
+
+  // === مستمع للتغييرات في المصروفات (Real-time updates) ===
+  void _setupExpensesListener() {
+    _expensesStream = _expensesCollection
+        .orderBy('date', descending: true)
+        .snapshots();
+
+    _expensesStream?.listen((snapshot) {
+      final data = snapshot.docs
+          .map((doc) => ExpenseItem.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+          .toList();
+
+      expenses.assignAll(data);
+      filterExpenses(searchController.text);
+    }, onError: (error) {
+      debugPrint('Error listening to expenses: $error');
+    });
+  }
+
+  // === وظيفة تحميل البيانات الرئيسية ===
   Future<void> loadFinanceData() async {
     if (_pharmacyId.isEmpty) return;
 
     try {
       isLoading.value = true;
 
+      // تحميل بيانات المشتريات
       await _purchaseCtrl.loadInvoices();
-      await _loadExpenses();
 
+      // جلب بيانات المبيعات
       final salesSnapshot = await _salesCollection.get();
+
+      // جلب بيانات الموظفين والرواتب
       final employeesSnapshot = await _employeesCollection.get();
       final salaryPaymentsSnapshot = await _salaryPaymentsCollection.get();
 
@@ -71,10 +115,10 @@ class FinanceController extends GetxController {
       final currentMonth = DateTime(now.year, now.month);
       final currentYear = now.year;
 
+      // حساب المبيعات
       double salesMonth = 0;
       double salesYear = 0;
       double receivables = 0;
-
       double cashIn = 0;
       double bankIn = 0;
 
@@ -102,12 +146,13 @@ class FinanceController extends GetxController {
         }
       }
 
+      // حساب المصروفات (الآن من البيانات الحقيقية)
       double expensesMonth = 0;
       double expensesYear = 0;
       double cashOut = 0;
       double bankOut = 0;
 
-      for (final exp in expenses) {
+      for (final exp in expenses) { // expenses الآن من Firebase
         if (exp.date.year == currentYear) {
           expensesYear += exp.amount;
         }
@@ -123,10 +168,12 @@ class FinanceController extends GetxController {
         }
       }
 
+      // بيانات المشتريات من PurchaseController
       final purchasesMonth = _purchaseCtrl.totalPurchasesThisMonth.value;
       final purchasesYear = _purchaseCtrl.totalPurchasesThisYear.value;
       final dueSuppliers = _purchaseCtrl.totalDue.value;
 
+      // حساب الرواتب
       final payroll = _buildPayrollSummary(
         employeeDocs: employeeDocs,
         salaryPaymentDocs: salaryPaymentDocs,
@@ -136,16 +183,19 @@ class FinanceController extends GetxController {
 
       cashOut += payroll.paidSalariesThisMonth;
 
+      // حساب الأرباح
       final netProfitMonth = salesMonth - purchasesMonth - expensesMonth - payroll.totalMonthlySalaries;
       final netProfitYear = salesYear - purchasesYear - expensesYear;
 
+      // بناء الاتجاه الشهري
       final trend = _buildMonthlyTrend(
         salesDocs: salesDocs,
         purchaseInvoices: _purchaseCtrl.invoices.toList(),
-        expensesList: expenses.toList(),
+        expensesList: expenses.toList(), // من Firebase
         year: selectedYear.value,
       );
 
+      // تحديث الـ Overview
       overview.value = FinanceOverview(
         totalSalesMonth: salesMonth,
         totalSalesYear: salesYear,
@@ -177,12 +227,9 @@ class FinanceController extends GetxController {
     }
   }
 
-  Future<void> _loadExpenses() async {
-    final snapshot = await _expensesCollection.orderBy('date', descending: true).get();
-    final data = snapshot.docs.map((e) => ExpenseItem.fromMap(e.data(), e.id)).toList();
-    expenses.assignAll(data);
-  }
+  // === وظائف المصروفات (CRUD Operations) ===
 
+  // إضافة مصروف جديد
   Future<void> addExpense({
     required String title,
     required String category,
@@ -192,39 +239,236 @@ class FinanceController extends GetxController {
     String? notes,
   }) async {
     try {
-      final item = ExpenseItem(
-        id: '',
-        title: title,
-        category: category,
-        amount: amount,
-        date: date,
-        paymentMethod: paymentMethod,
-        notes: notes,
-      );
-
       await _expensesCollection.add({
-        ...item.toMap(),
+        'title': title,
+        'category': category,
+        'amount': amount,
+        'date': Timestamp.fromDate(date),
+        'paymentMethod': paymentMethod,
+        'notes': notes,
         'createdAt': FieldValue.serverTimestamp(),
+        'createdBy': _authCtrl.userId,
       });
-
-      await loadFinanceData();
 
       Get.snackbar(
         'نجاح',
         'تمت إضافة المصروف بنجاح',
         backgroundColor: Colors.green,
         colorText: Colors.white,
+        duration: const Duration(seconds: 2),
       );
     } catch (e) {
       Get.snackbar(
         'خطأ',
-        'تعذر إضافة المصروف',
+        'تعذر إضافة المصروف: ${e.toString()}',
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
     }
   }
 
+  // تحديث مصروف
+  Future<void> updateExpense({
+    required String expenseId,
+    required String title,
+    required String category,
+    required double amount,
+    required DateTime date,
+    required String paymentMethod,
+    String? notes,
+  }) async {
+    try {
+      await _expensesCollection.doc(expenseId).update({
+        'title': title,
+        'category': category,
+        'amount': amount,
+        'date': Timestamp.fromDate(date),
+        'paymentMethod': paymentMethod,
+        'notes': notes,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': _authCtrl.userId,
+      });
+
+      Get.snackbar(
+        'نجاح',
+        'تم تحديث المصروف بنجاح',
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+      );
+    } catch (e) {
+      Get.snackbar(
+        'خطأ',
+        'تعذر تحديث المصروف',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
+  }
+
+  // حذف مصروف
+  Future<void> deleteExpense(String expenseId) async {
+    try {
+      await _expensesCollection.doc(expenseId).delete();
+
+      Get.snackbar(
+        'نجاح',
+        'تم حذف المصروف بنجاح',
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+      );
+    } catch (e) {
+      Get.snackbar(
+        'خطأ',
+        'تعذر حذف المصروف',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
+  }
+
+  // === وظائف البحث والتصفية ===
+  void filterExpenses(String query) {
+    if (query.isEmpty) {
+      filteredExpenses.value = List.from(expenses);
+    } else {
+      final searchLower = query.toLowerCase();
+      filteredExpenses.value = expenses.where((expense) {
+        return expense.title.toLowerCase().contains(searchLower) ||
+            expense.category.toLowerCase().contains(searchLower) ||
+            expense.paymentMethod.toLowerCase().contains(searchLower) ||
+            (expense.notes?.toLowerCase().contains(searchLower) ?? false);
+      }).toList();
+    }
+  }
+
+  double getFilteredExpensesTotal() {
+    return filteredExpenses.fold(0.0, (sum, expense) => sum + expense.amount);
+  }
+
+  double getTotalExpenses() {
+    return expenses.fold(0.0, (sum, expense) => sum + expense.amount);
+  }
+
+  double getTotalExpensesForMonth(int month, int year) {
+    return expenses
+        .where((e) => e.date.month == month && e.date.year == year)
+        .fold(0.0, (sum, e) => sum + e.amount);
+  }
+
+  double getTotalExpensesForYear(int year) {
+    return expenses
+        .where((e) => e.date.year == year)
+        .fold(0.0, (sum, e) => sum + e.amount);
+  }
+
+  // === وظائف تحليل البيانات ===
+  List<Map<String, dynamic>> getTopExpenseCategories(int limit) {
+    final Map<String, double> categoryTotals = {};
+
+    for (final expense in expenses) {
+      categoryTotals[expense.category] =
+          (categoryTotals[expense.category] ?? 0) + expense.amount;
+    }
+
+    final sortedEntries = categoryTotals.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    return sortedEntries.take(limit).map((entry) {
+      return {
+        'name': entry.key,
+        'total': entry.value,
+        'percentage': (entry.value / getTotalExpenses()) * 100,
+      };
+    }).toList();
+  }
+
+  Map<String, double> getExpensesByPaymentMethod() {
+    final Map<String, double> result = {};
+
+    for (final expense in expenses) {
+      result[expense.paymentMethod] =
+          (result[expense.paymentMethod] ?? 0) + expense.amount;
+    }
+
+    return result;
+  }
+
+  Map<int, double> getMonthlyExpensesForYear(int year) {
+    final Map<int, double> result = {};
+
+    for (int i = 1; i <= 12; i++) {
+      result[i] = 0;
+    }
+
+    for (final expense in expenses) {
+      if (expense.date.year == year) {
+        result[expense.date.month] =
+            (result[expense.date.month] ?? 0) + expense.amount;
+      }
+    }
+
+    return result;
+  }
+
+  // === وظائف تصدير التقارير ===
+  Map<String, dynamic> generateMonthlyReport(int month, int year) {
+    final monthlyExpenses = expenses
+        .where((e) => e.date.month == month && e.date.year == year)
+        .toList();
+
+    final totalExpenses = monthlyExpenses.fold(0.0, (sum, e) => sum + e.amount);
+    final byCategory = <String, double>{};
+
+    for (final expense in monthlyExpenses) {
+      byCategory[expense.category] =
+          (byCategory[expense.category] ?? 0) + expense.amount;
+    }
+
+    return {
+      'month': month,
+      'year': year,
+      'totalExpenses': totalExpenses,
+      'expensesCount': monthlyExpenses.length,
+      'byCategory': byCategory,
+      'expenses': monthlyExpenses.map((e) => e.toMap()).toList(),
+    };
+  }
+
+  Map<String, dynamic> generateYearlyReport(int year) {
+    final yearlyExpenses = expenses.where((e) => e.date.year == year).toList();
+    final monthlyData = getMonthlyExpensesForYear(year);
+
+    return {
+      'year': year,
+      'totalExpenses': getTotalExpensesForYear(year),
+      'expensesCount': yearlyExpenses.length,
+      'monthlyData': monthlyData,
+      'topCategories': getTopExpenseCategories(5),
+      'byPaymentMethod': getExpensesByPaymentMethod(),
+    };
+  }
+
+  Future<void> exportReportAsPDF(int year) async {
+    // TODO: تنفيذ تصدير PDF
+    Get.snackbar(
+      'تصدير التقرير',
+      'جاري تجهيز تقرير PDF لعام $year...',
+      backgroundColor: Colors.blue,
+      colorText: Colors.white,
+    );
+  }
+
+  Future<void> exportReportAsExcel(int year) async {
+    // TODO: تنفيذ تصدير Excel
+    Get.snackbar(
+      'تصدير التقرير',
+      'جاري تجهيز تقرير Excel لعام $year...',
+      backgroundColor: Colors.blue,
+      colorText: Colors.white,
+    );
+  }
+
+  // === وظائف المساعدة ===
   PayrollSummary _buildPayrollSummary({
     required List<Map<String, dynamic>> employeeDocs,
     required List<Map<String, dynamic>> salaryPaymentDocs,
@@ -323,6 +567,10 @@ class FinanceController extends GetxController {
   void changeYear(int year) {
     selectedYear.value = year;
     loadFinanceData();
+  }
+
+  void changeMonth(int month) {
+    selectedMonth.value = month;
   }
 
   double _toDouble(dynamic value) {

@@ -1,11 +1,6 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
-
-# Force Visual Studio 2026
-set(CMAKE_GENERATOR "Visual Studio 18 2026" CACHE INTERNAL "" FORCE)
-set(CMAKE_GENERATOR_PLATFORM "x64" CACHE INTERNAL "" FORCE)
-
-project(pharmacy_app LANGUAGES CXX)
+project(pharmacy_desktop LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
