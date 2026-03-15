@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
+import 'package:pharmacy_desktop/views/purchases/purchases_page.dart';
 import 'package:pharmacy_desktop/views/shifts/shifts_page.dart';
 
 import '../controllers/auth_controller.dart';
@@ -12,27 +13,12 @@ import 'inventory/inventory_page.dart';
 import 'orders/orders_page.dart';
 import 'sales/sales_page.dart';
 import 'settings/settings_page.dart';
-import 'accounts_page.dart';
 import 'suppliers_page.dart';
 import 'insurance_companies_page.dart';
 import 'finance_page.dart';
 //import 'shifts/shifts_page.dart';
 
-/// ✅ صفحات جديدة (Placeholder) - تقدر تنقلها لملفات منفصلة لاحقاً
-class PurchasesPage extends StatelessWidget {
-  const PurchasesPage({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Text(
-        'المشتريات (قريباً)\nأوامر شراء • استلام • فواتير موردين',
-        textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 18),
-      ),
-    );
-  }
-}
-
+/// ✅ صفحات جديدة (Placeholder) - تقدر تنقلها لملفات منفصلة لاحقا
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -77,7 +63,6 @@ class _HomePageState extends State<HomePage> {
     'المشتريات',
     'الموردين',
     'شركات التأمين',
-    'الحسابات',
     'الشؤون المالية',
     'المراسلات',
     'الإعدادات',
@@ -90,13 +75,12 @@ class _HomePageState extends State<HomePage> {
     {'widget': SalesPage(), 'permission': 'sales.view', 'titleIndex': 2},
     {'widget': ShiftsPage(), 'permission': 'shifts.view', 'titleIndex': 3},
     {'widget': InventoryPage(), 'permission': 'inventory.view', 'titleIndex': 4},
-    {'widget': const PurchasesPage(), 'permission': 'purchases.view', 'titleIndex': 5},
+    {'widget': PurchasesPage(), 'permission': 'purchases.view', 'titleIndex': 5},
     {'widget': SuppliersPage(), 'permission': 'suppliers.view', 'titleIndex': 6},
     {'widget': InsuranceCompaniesPage(), 'permission': 'insurance.view', 'titleIndex': 7},
-    {'widget': AccountsPage(), 'permission': 'accounts.view', 'titleIndex': 8},
-    {'widget': FinancePage(), 'permission': 'finance.view', 'titleIndex': 9},
-    {'widget': ChatPage(), 'permission': 'messages.view', 'titleIndex': 10},
-    {'widget': SettingsPage(), 'permission': 'settings.view', 'titleIndex': 11},
+    {'widget': FinancePage(), 'permission': 'finance.view', 'titleIndex': 8},
+    {'widget': ChatPage(), 'permission': 'messages.view', 'titleIndex': 9},
+    {'widget': SettingsPage(), 'permission': 'settings.view', 'titleIndex': 10},
   ];
 
   final List<Map<String, dynamic>> allSidebarItems = [
@@ -108,7 +92,6 @@ class _HomePageState extends State<HomePage> {
     {'item': SidebarItem(icon: Iconsax.shopping_bag, label: "المشتريات", activeIcon: Iconsax.shopping_bag), 'permission': 'purchases.view'},
     {'item': SidebarItem(icon: Iconsax.truck, label: "الموردين", activeIcon: Iconsax.truck), 'permission': 'suppliers.view'},
     {'item': SidebarItem(icon: Iconsax.shield_tick, label: "شركات التأمين", activeIcon: Iconsax.shield_tick), 'permission': 'insurance.view'},
-    {'item': SidebarItem(icon: Iconsax.wallet, label: "الحسابات", activeIcon: Iconsax.wallet), 'permission': 'accounts.view'},
     {'item': SidebarItem(icon: Iconsax.dollar_circle, label: "الشؤون المالية", activeIcon: Iconsax.dollar_circle), 'permission': 'finance.view'},
     {'item': SidebarItem(icon: Iconsax.message, label: "المراسلات", activeIcon: Iconsax.message), 'permission': 'messages.view'},
     {'item': SidebarItem(icon: Iconsax.setting_2, label: "الإعدادات", activeIcon: Iconsax.setting_2), 'permission': 'settings.view'},
