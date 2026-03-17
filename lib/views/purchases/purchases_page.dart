@@ -1016,12 +1016,15 @@ class PurchasesPage extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: ElevatedButton.icon(
+                  // في _buildInvoiceCard - تعديل onPressed
+
                   onPressed: invoice.remaining <= 0
                       ? null
                       : () {
                     Get.dialog(_MakePaymentDialog(
                       invoice: invoice,
-                      onSubmit: (amount) => controller.makePayment(invoice.id, amount),
+                      onSubmit: (amount, paymentMethod) =>
+                          controller.makePayment(invoice.id, amount, paymentMethod), // تعديل هنا
                     ));
                   },
                   icon: const Icon(Iconsax.wallet_add_1, size: 16),
@@ -1313,9 +1316,11 @@ class _StatData {
 }
 
 // الكلاسات المساعدة كما هي بدون تغيير
+// في نهاية ملف PurchasesPage.dart - تحديث _MakePaymentDialog
+
 class _MakePaymentDialog extends StatefulWidget {
   final PurchaseInvoice invoice;
-  final Future<void> Function(double amount) onSubmit;
+  final Future<void> Function(double amount, String paymentMethod) onSubmit; // تعديل هنا
 
   const _MakePaymentDialog({
     required this.invoice,
@@ -1328,7 +1333,10 @@ class _MakePaymentDialog extends StatefulWidget {
 
 class _MakePaymentDialogState extends State<_MakePaymentDialog> {
   final TextEditingController amountCtrl = TextEditingController();
+  String selectedPaymentMethod = 'كاش'; // القيمة الافتراضية
   bool loading = false;
+
+  final List<String> paymentMethods = ['كاش', 'بطاقة', 'تحويل بنكي', 'شيك'];
 
   @override
   void dispose() {
@@ -1363,6 +1371,28 @@ class _MakePaymentDialogState extends State<_MakePaymentDialog> {
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             ),
           ),
+          const SizedBox(height: 14),
+          DropdownButtonFormField<String>(
+            value: selectedPaymentMethod,
+            decoration: InputDecoration(
+              labelText: 'طريقة الدفع',
+              prefixIcon: const Icon(Iconsax.wallet),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            items: paymentMethods.map((method) {
+              return DropdownMenuItem(
+                value: method,
+                child: Text(method),
+              );
+            }).toList(),
+            onChanged: (value) {
+              if (value != null) {
+                setState(() {
+                  selectedPaymentMethod = value;
+                });
+              }
+            },
+          ),
         ],
       ),
       actions: [
@@ -1385,7 +1415,8 @@ class _MakePaymentDialogState extends State<_MakePaymentDialog> {
             }
 
             setState(() => loading = true);
-            await widget.onSubmit(amount);
+            // تمرير طريقة الدفع مع المبلغ
+            await widget.onSubmit(amount, selectedPaymentMethod);
             if (mounted) {
               setState(() => loading = false);
               Get.back();

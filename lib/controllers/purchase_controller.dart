@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import '../models/purchase_model.dart';
 import '../models/inventory_model.dart';
 import 'auth_controller.dart';
+import 'finance_controller.dart';
 import 'inventory_controller.dart';
 import 'supplier_controller.dart';
 
@@ -477,7 +478,9 @@ class PurchaseController extends GetxController {
   /// =======================================================
   /// Payments
   /// =======================================================
-  Future<void> makePayment(String invoiceId, double amount) async {
+// في purchase_controller.dart - داخل class PurchaseController
+
+  Future<void> makePayment(String invoiceId, double amount, String paymentMethod) async {
     if (!canMakePayment) {
       Get.snackbar('تنبيه', 'ليس لديك صلاحية تسديد دفعات');
       return;
@@ -517,16 +520,47 @@ class PurchaseController extends GetxController {
         paymentStatus: newStatus,
       );
 
+      // تحديث في Firebase
       await _invoicesCollection.doc(invoiceId).update({
         'paid': newPaid,
         'paymentStatus': newStatus.name,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      // تحديث محلي
       invoices[index] = updatedInvoice;
       _applyFilters();
       _calculateFinancialMetrics();
       _generatePurchaseAlerts();
+
+      // ================ 🔴 إضافة المصروف هنا ================
+      try {
+        final financeCtrl = Get.find<FinanceController>();
+
+        // إنشاء عنوان مناسب للدفعة
+        String paymentTitle;
+        if (newStatus == PaymentStatus.paid) {
+          paymentTitle = 'تسديد كامل فاتورة مشتريات #${invoice.invoiceNumber}';
+        } else {
+          paymentTitle = 'دفعة ${_getPaymentNumber(invoice)} من فاتورة مشتريات #${invoice.invoiceNumber}';
+        }
+
+        // في جزء إضافة المصروف:
+        await financeCtrl.addExpense(
+          title: paymentTitle,
+          category: 'مشتريات',
+          amount: amount,
+          date: DateTime.now(),
+          paymentMethod: paymentMethod, // استخدام طريقة الدفع المختارة
+          notes: 'فاتورة: ${invoice.invoiceNumber} - المورد: ${invoice.supplierName}',
+        );;
+
+        debugPrint('✅ تم إضافة المصروف بنجاح للدفعة: $amount');
+      } catch (e) {
+        // لا نوقف العملية إذا فشل إضافة المصروف
+        debugPrint('⚠️ فشل إضافة المصروف للدفعة: $e');
+      }
+      // ======================================================
 
       Get.snackbar(
         'نجاح',
@@ -534,6 +568,7 @@ class PurchaseController extends GetxController {
         backgroundColor: Colors.green,
         colorText: Colors.white,
       );
+
     } catch (e) {
       Get.snackbar(
         'خطأ',
@@ -544,6 +579,14 @@ class PurchaseController extends GetxController {
     }
   }
 
+// دالة مساعدة لحساب رقم الدفعة
+  String _getPaymentNumber(PurchaseInvoice invoice) {
+    // هنا يمكنك تخزين عدد الدفعات في الـ invoice نفسه
+    // لكن كمثال بسيط:
+    if (invoice.paid <= 0) return 'الأولى';
+    if (invoice.paid < invoice.total) return 'الثانية';
+    return 'الأولى';
+  }
   /// =======================================================
   /// Delete
   /// مبدئيًا حذف الفاتورة لا يعكس المخزون
