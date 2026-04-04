@@ -20,6 +20,7 @@ class _AddEditInsuranceDialogState extends State<AddEditInsuranceDialog> {
   final InsuranceCompanyController controller = Get.find<InsuranceCompanyController>();
 
   late TextEditingController _nameController;
+  late TextEditingController _codeController;
   late TextEditingController _phoneController;
   late TextEditingController _addressController;
   late TextEditingController _contactPersonController;
@@ -38,6 +39,7 @@ class _AddEditInsuranceDialogState extends State<AddEditInsuranceDialog> {
     super.initState();
 
     _nameController = TextEditingController(text: widget.company?.name ?? '');
+    _codeController = TextEditingController(text: widget.company?.code ?? '');
     _phoneController = TextEditingController(text: widget.company?.phone ?? '');
     _addressController = TextEditingController(text: widget.company?.address ?? '');
     _contactPersonController = TextEditingController(text: widget.company?.contactPerson ?? '');
@@ -56,6 +58,7 @@ class _AddEditInsuranceDialogState extends State<AddEditInsuranceDialog> {
   @override
   void dispose() {
     _nameController.dispose();
+    _codeController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
     _contactPersonController.dispose();
@@ -107,6 +110,7 @@ class _AddEditInsuranceDialogState extends State<AddEditInsuranceDialog> {
     final company = InsuranceCompany(
       id: widget.company?.id ?? '',
       name: _nameController.text.trim(),
+      code: _codeController.text.trim().toUpperCase(),
       contactPerson: _contactPersonController.text.trim(),
       phone: _phoneController.text.trim(),
       address: _addressController.text.trim(),
@@ -237,6 +241,32 @@ class _AddEditInsuranceDialogState extends State<AddEditInsuranceDialog> {
                                     if (value == null || value.isEmpty) {
                                       return 'يرجى إدخال اسم الشركة';
                                     }
+                                    return null;
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: _buildTextField(
+                                  controller: _codeController,
+                                  label: 'الكود الموحد *',
+                                  icon: Iconsax.code,
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return 'يرجى إدخال الكود الموحد';
+                                    }
+
+                                    final code = value.trim().toUpperCase();
+                                    final regex = RegExp(r'^[A-Z0-9]+$');
+
+                                    if (!regex.hasMatch(code)) {
+                                      return 'الكود يجب أن يحتوي على حروف إنجليزية كبيرة وأرقام فقط';
+                                    }
+
+                                    if (code.length < 4) {
+                                      return 'الكود قصير جدًا';
+                                    }
+
                                     return null;
                                   },
                                 ),

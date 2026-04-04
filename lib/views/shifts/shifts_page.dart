@@ -208,13 +208,6 @@ class _ShiftsPageState extends State<ShiftsPage> {
                       ] else ...[
                         _ShiftKpisRow(shift: active),
                         const SizedBox(height: 12),
-                        Expanded(
-                          child: _InfoBanner(
-                            icon: Icons.lightbulb_outline_rounded,
-                            text: 'التأمين يُحسب على الشركة (insurance) وليس ضمن كاش الدرج.',
-                            tone: BannerTone.info,
-                          ),
-                        ),
                       ],
                     ],
                   ),

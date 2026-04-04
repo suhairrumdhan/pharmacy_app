@@ -67,8 +67,11 @@ class SettingsPage extends StatelessWidget {
                   children: [
                     buildEmployeesCard(),
                     const SizedBox(height: 10),
-                    if (!(settings.is24Hours ))
-                      buildBusinessHoursCard(context, settings.businessHours),
+                    if (!(settings.is24Hours))
+                    BusinessHoursCard(
+                    key: ValueKey(settings.businessHours.hashCode),
+                    hours: settings.businessHours,
+                    ),
                     if (!(settings.is24Hours ))
                       const SizedBox(height: 18),
                   ],

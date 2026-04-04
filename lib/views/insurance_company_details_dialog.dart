@@ -178,7 +178,12 @@ class InsuranceCompanyDetailsDialog extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 20),
-
+          _buildInfoRow(
+            icon: Iconsax.code,
+            title: 'الكود الموحد',
+            value: company.code,
+          ),
+          const SizedBox(height: 16),
           // العنوان
           if (company.address.isNotEmpty) ...[
             _buildInfoRow(
@@ -195,16 +200,13 @@ class InsuranceCompanyDetailsDialog extends StatelessWidget {
             title: 'تاريخ الإنشاء',
             value: _formatDate(company.createdAt),
           ),
-
           // تاريخ التحديث
-          if (company.updatedAt != null) ...[
             const SizedBox(height: 16),
             _buildInfoRow(
               icon: Iconsax.calendar_edit,
               title: 'آخر تحديث',
               value: _formatDate(company.updatedAt!),
             ),
-          ],
         ],
       ),
     );

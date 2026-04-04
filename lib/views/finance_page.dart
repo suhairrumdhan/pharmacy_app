@@ -641,120 +641,6 @@ class FinancePage extends GetView<FinanceController> {
     );
   }
 
-
-  Widget _buildExpensesTable(List<ExpenseItem> expenses, BuildContext context) {
-    if (MediaQuery.of(context).size.width < 600) {
-      return ListView.separated(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: expenses.length > 5 ? 5 : expenses.length,
-        separatorBuilder: (_, __) => const Divider(),
-        itemBuilder: (context, index) {
-          final e = expenses[index];
-          return ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: getCategoryColor(e.category).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                Icons.receipt_rounded,
-                color: getCategoryColor(e.category),
-                size: 20,
-              ),
-            ),
-            title: Text(
-              e.title,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            subtitle: Text(
-              '${e.category} • ${e.paymentMethod}',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            ),
-            trailing: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  formatMoney(e.amount),
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                ),
-                Text(
-                  '${e.date.year}-${e.date.month.toString().padLeft(2, '0')}-${e.date.day.toString().padLeft(2, '0')}',
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                ),
-              ],
-            ),
-          );
-        },
-      );
-    } else {
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(Colors.grey.shade50),
-          columnSpacing: 20,
-          horizontalMargin: 8,
-          showCheckboxColumn: false,
-          columns: const [
-            DataColumn(label: Text('العنوان')),
-            DataColumn(label: Text('الفئة')),
-            DataColumn(label: Text('المبلغ')),
-            DataColumn(label: Text('التاريخ')),
-            DataColumn(label: Text('طريقة الدفع')),
-          ],
-          rows: expenses.take(8).map((e) {
-            return DataRow(
-              cells: [
-                DataCell(
-                  Text(
-                    e.title,
-                    style: const TextStyle(fontWeight: FontWeight.w500),
-                  ),
-                ),
-                DataCell(
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: getCategoryColor(e.category).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      e.category,
-                      style: TextStyle(
-                        color: getCategoryColor(e.category),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ),
-                DataCell(
-                  Text(
-                    formatMoney(e.amount),
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                DataCell(
-                  Text(
-                    '${e.date.year}-${e.date.month.toString().padLeft(2, '0')}-${e.date.day.toString().padLeft(2, '0')}',
-                    style: TextStyle(color: Colors.grey.shade700),
-                  ),
-                ),
-                DataCell(
-                  Text(e.paymentMethod),
-                ),
-              ],
-            );
-          }).toList(),
-        ),
-      );
-    }
-  }
-
 // ========== UTILITY FUNCTIONS ==========
 
   String formatMoney(double value) {
@@ -1022,42 +908,6 @@ class _HeaderSection extends StatelessWidget {
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  final String title;
-  final String subtitle;
-
-  const _SectionTitle({
-    required this.title,
-    required this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: TextStyle(color: Colors.grey.shade600),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatCardData {
-  final String title;
-  final IconData icon;
-  final Color color;
-
-  const _StatCardData(this.title, this.icon, this.color);
-}
-
 class _CompactPanel extends StatelessWidget {
   final String title;
   final Widget? child;
@@ -1277,6 +1127,8 @@ class ExpensesPieChart extends StatelessWidget {
     return totals;
   }
 }// دالة مساعدة خارجية للاستخدام في أماكن أخرى
+
+
 class MonthlyFinanceChart extends StatelessWidget {
   final List<MonthlyPoint> monthlyTrend;
 

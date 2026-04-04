@@ -2,21 +2,32 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
 import 'package:pharmacy_desktop/controllers/auth_controller.dart';
-import 'package:pharmacy_desktop/views/home_page.dart';
-import 'package:pharmacy_desktop/internal_login_page.dart';
+
+import '../controllers/chat_controller.dart';
 
 class SidebarItem {
   final IconData icon;
   final String label;
   final IconData? activeIcon;
-  final bool hasNotification;
+
+  /// ✅ عداد عام لأي عنصر في السايدبار
+  final RxInt notificationCount;
 
   SidebarItem({
     required this.icon,
     required this.label,
     this.activeIcon,
-    this.hasNotification = false,
-  });
+    int notificationCount = 0,
+  }) : notificationCount = notificationCount.obs;
+
+  // Optional: Constructor for existing RxInt
+  SidebarItem.withRx({
+    required this.icon,
+    required this.label,
+    this.activeIcon,
+    required RxInt notificationCount,
+  }) : notificationCount = notificationCount;
+
 }
 
 class SidebarWidget extends StatelessWidget {
@@ -64,7 +75,6 @@ class SidebarWidget extends StatelessWidget {
       child: Column(
         children: [
           _buildHeader(authController),
-
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.only(top: 16),
@@ -72,8 +82,6 @@ class SidebarWidget extends StatelessWidget {
               itemBuilder: (context, index) => _buildSidebarItem(index),
             ),
           ),
-
-          // ✅ الفووتر ديناميكي حسب المستخدم
           _buildFooter(authController),
         ],
       ),
@@ -161,6 +169,36 @@ class SidebarWidget extends StatelessWidget {
     );
   }
 
+  Widget _buildNotificationBadge(int count) {
+    return Positioned(
+      right: -4,
+      top: -4,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white, width: 1),
+        ),
+        constraints: const BoxConstraints(
+          minWidth: 16,
+          minHeight: 16,
+        ),
+        child: Text(
+          count > 9 ? '9+' : count.toString(),
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 9,
+            fontWeight: FontWeight.bold,
+            height: 1,
+          ),
+        ),
+      ),
+    );
+  }
+
+
   Widget _buildSidebarItem(int index) {
     final item = sidebarItems[index];
     final isSelected = selectedIndex == index;
@@ -168,36 +206,67 @@ class SidebarWidget extends StatelessWidget {
     final icon = isSelected ? (item.activeIcon ?? item.icon) : item.icon;
     final iconColor = isSelected ? activeTextColor : textColor.withOpacity(0.85);
 
+    // ✅ إذا كان العنصر هو "المراسلات"، استخدم Obx
+    if (item.label == "المراسلات") {
+      return Obx(() {
+        final unreadCount = Get.find<ChatController>().totalUnreadCount.value;
+        return _buildSidebarItemContent(
+          icon: icon,
+          iconColor: iconColor,
+          label: item.label,
+          isSelected: isSelected,
+          notificationCount: unreadCount,
+          onTap: () => onItemSelected(index),
+        );
+      });
+    }
+
+    // للعناصر العادية
+    return _buildSidebarItemContent(
+      icon: icon,
+      iconColor: iconColor,
+      label: item.label,
+      isSelected: isSelected,
+      notificationCount: item.notificationCount.value,
+      onTap: () => onItemSelected(index),
+    );
+  }
+
+// ✅ أضف هذه الدالة الجديدة لتجميع الكود المتكرر
+  Widget _buildSidebarItemContent({
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+    required bool isSelected,
+    required int notificationCount,
+    required VoidCallback onTap,
+  }) {
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: collapsed ? 10 : 16, vertical: 4),
+      padding: EdgeInsets.symmetric(
+        horizontal: collapsed ? 10 : 16,
+        vertical: 4,
+      ),
       child: Material(
         color: isSelected ? activeColor : Colors.transparent,
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
-          onTap: () => onItemSelected(index),
+          onTap: onTap,
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 16, vertical: 16),
+            padding: EdgeInsets.symmetric(
+              horizontal: collapsed ? 0 : 16,
+              vertical: 16,
+            ),
             child: collapsed
                 ? Tooltip(
-              message: item.label,
+              message: label,
               child: Center(
                 child: Stack(
+                  clipBehavior: Clip.none,
                   children: [
                     Icon(icon, color: iconColor, size: 24),
-                    if (item.hasNotification && !isSelected)
-                      Positioned(
-                        right: 0,
-                        top: 0,
-                        child: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        ),
-                      ),
+                    if (notificationCount > 0 && !isSelected)
+                      _buildNotificationBadge(notificationCount),
                   ],
                 ),
               ),
@@ -205,36 +274,32 @@ class SidebarWidget extends StatelessWidget {
                 : Row(
               children: [
                 Stack(
+                  clipBehavior: Clip.none,
                   children: [
                     Icon(icon, color: iconColor, size: 24),
-                    if (item.hasNotification && !isSelected)
-                      Positioned(
-                        right: 0,
-                        top: 0,
-                        child: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        ),
-                      ),
+                    if (notificationCount > 0 && !isSelected)
+                      _buildNotificationBadge(notificationCount),
                   ],
                 ),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Text(
-                    item.label,
+                    label,
                     style: TextStyle(
-                      color: isSelected ? activeTextColor : textColor.withOpacity(0.9),
+                      color: isSelected
+                          ? activeTextColor
+                          : textColor.withOpacity(0.9),
                       fontSize: 16,
                       fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
                     ),
                   ),
                 ),
                 if (isSelected)
-                  Icon(Iconsax.arrow_left_2, color: activeTextColor, size: 20),
+                  Icon(
+                    Iconsax.arrow_left_2,
+                    color: activeTextColor,
+                    size: 20,
+                  ),
               ],
             ),
           ),
@@ -242,7 +307,6 @@ class SidebarWidget extends StatelessWidget {
       ),
     );
   }
-
   Widget _buildFooter(AuthController authController) {
     final bool isEmployee = authController.currentEmployee.value != null;
 
@@ -250,13 +314,12 @@ class SidebarWidget extends StatelessWidget {
       padding: EdgeInsets.all(collapsed ? 12 : 20),
       decoration: BoxDecoration(
         color: backgroundColor.withOpacity(0.9),
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.1))),
+        border: Border(
+          top: BorderSide(color: Colors.white.withOpacity(0.1)),
+        ),
       ),
       child: Column(
         children: [
-          // =========================
-          // ✅ 1) لو المالك داخل فقط
-          // =========================
           if (!isEmployee)
             _footerButton(
               collapsed: collapsed,
@@ -266,16 +329,10 @@ class SidebarWidget extends StatelessWidget {
               bg: Colors.white.withOpacity(0.12),
               border: Colors.white.withOpacity(0.2),
               onTap: () {
-                // فتح دخول الموظفين بدون signOut
                 authController.openInternalLogin();
               },
             ),
-
           if (!isEmployee) SizedBox(height: collapsed ? 8 : 12),
-
-          // =========================
-          // ✅ 2) لو الموظف داخل
-          // =========================
           if (isEmployee) ...[
             _footerButton(
               collapsed: collapsed,
@@ -284,14 +341,10 @@ class SidebarWidget extends StatelessWidget {
               color: Colors.green.shade400,
               bg: Colors.green.withOpacity(0.1),
               border: Colors.green.withOpacity(0.3),
-              onTap: authController.switchUser, // يرجع InternalLoginPage
+              onTap: authController.switchUser,
             ),
             SizedBox(height: collapsed ? 8 : 12),
           ],
-
-          // =========================
-          // ✅ 3) خروج نهائي من النظام (always)
-          // =========================
           _footerButton(
             collapsed: collapsed,
             label: "الخروج من النظام",
@@ -299,7 +352,7 @@ class SidebarWidget extends StatelessWidget {
             color: Colors.red.shade400,
             bg: Colors.red.withOpacity(0.1),
             border: Colors.red.withOpacity(0.3),
-            onTap: authController.logoutOwnerSecure, // re-auth ثم signOut
+            onTap: authController.logoutOwnerSecure,
           ),
         ],
       ),
@@ -328,9 +381,14 @@ class SidebarWidget extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 16, vertical: 14),
+            padding: EdgeInsets.symmetric(
+              horizontal: collapsed ? 0 : 16,
+              vertical: 14,
+            ),
             child: collapsed
-                ? Center(child: Icon(icon, color: color, size: 24))
+                ? Center(
+              child: Icon(icon, color: color, size: 24),
+            )
                 : Row(
               children: [
                 Icon(icon, color: color, size: 24),

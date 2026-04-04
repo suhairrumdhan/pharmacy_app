@@ -5,10 +5,12 @@ import 'package:pharmacy_desktop/views/purchases/purchases_page.dart';
 import 'package:pharmacy_desktop/views/shifts/shifts_page.dart';
 
 import '../controllers/auth_controller.dart';
+import '../controllers/chat_controller.dart';
 import '../widgets/sidebar.dart';
 
 // صفحاتك الحالية
 import 'chat/chat_page.dart';
+import 'dashboard_page.dart';
 import 'inventory/inventory_page.dart';
 import 'orders/orders_page.dart';
 import 'sales/sales_page.dart';
@@ -28,8 +30,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int selectedIndex = 0;
+  final ChatController chatController = Get.find<ChatController>(); // ✅ أضف هذ
   final AuthController authController = Get.find<AuthController>();
-
   late List<Widget> pages;
   late List<SidebarItem> sidebarItems;
 
@@ -70,7 +72,7 @@ class _HomePageState extends State<HomePage> {
 
   /// ✅ الترتيب الجديد (MVP صيدلية قوي)
   final List<Map<String, dynamic>> allPages = [
-    {'widget': const DashboardPage(), 'permission': 'dashboard.view', 'titleIndex': 0},
+    {'widget':  DashboardPage(), 'permission': 'dashboard.view', 'titleIndex': 0},
     {'widget': OrdersPage(), 'permission': 'orders.view', 'titleIndex': 1},
     {'widget': SalesPage(), 'permission': 'sales.view', 'titleIndex': 2},
     {'widget': ShiftsPage(), 'permission': 'shifts.view', 'titleIndex': 3},
@@ -93,7 +95,15 @@ class _HomePageState extends State<HomePage> {
     {'item': SidebarItem(icon: Iconsax.truck, label: "الموردين", activeIcon: Iconsax.truck), 'permission': 'suppliers.view'},
     {'item': SidebarItem(icon: Iconsax.shield_tick, label: "شركات التأمين", activeIcon: Iconsax.shield_tick), 'permission': 'insurance.view'},
     {'item': SidebarItem(icon: Iconsax.dollar_circle, label: "الشؤون المالية", activeIcon: Iconsax.dollar_circle), 'permission': 'finance.view'},
-    {'item': SidebarItem(icon: Iconsax.message, label: "المراسلات", activeIcon: Iconsax.message), 'permission': 'messages.view'},
+    {
+      'item': SidebarItem(
+        icon: Iconsax.message,
+        label: "المراسلات",
+        activeIcon: Iconsax.message,
+        notificationCount: 0, // ✅ خليها 0 مؤقتاً
+      ),
+      'permission': 'messages.view'
+    },
     {'item': SidebarItem(icon: Iconsax.setting_2, label: "الإعدادات", activeIcon: Iconsax.setting_2), 'permission': 'settings.view'},
   ];
 
@@ -120,7 +130,6 @@ class _HomePageState extends State<HomePage> {
       final p = r['page'] as Map<String, dynamic>;
       final titleIndex = p['titleIndex'] as int;
       return PageWrapper(
-        title: pageTitles[titleIndex],
         child: p['widget'] as Widget,
       );
     }).toList();
@@ -193,16 +202,13 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-// ======= باقي الكلاسات كما هي (PageWrapper / Dashboard / NotificationButton) =======
 class PageWrapper extends StatelessWidget {
   final Widget child;
-  final String title;
   final List<Widget>? actions;
 
   const PageWrapper({
     super.key,
     required this.child,
-    required this.title,
     this.actions,
   });
 
@@ -217,16 +223,8 @@ class PageWrapper extends StatelessWidget {
             color: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2C3E50),
-                  ),
-                ),
                 Row(
                   children: [
                     ...?actions,
@@ -240,108 +238,6 @@ class PageWrapper extends StatelessWidget {
           const Divider(height: 1, color: Colors.grey),
 
           Expanded(child: child),
-        ],
-      ),
-    );
-  }
-}
-
-/// ✅ Dashboard responsive
-class DashboardPage extends StatelessWidget {
-  const DashboardPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-    final crossAxisCount = width >= 1400 ? 4 : (width >= 1100 ? 3 : 2);
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20.0),
-      child: Column(
-        children: [
-          GridView.count(
-            crossAxisCount: crossAxisCount,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 20,
-            mainAxisSpacing: 20,
-            children: [
-              _buildStatCard(Icons.medication, "إجمالي الأدوية", "120", const Color(0xFF2E7D32), Icons.trending_up),
-              _buildStatCard(Icons.shopping_cart, "المبيعات اليوم", "1,250", const Color(0xFF1976D2), Icons.trending_up),
-              _buildStatCard(Icons.pending_actions, "طلبات قيد الانتظار", "8", const Color(0xFFF57C00), Icons.schedule),
-              _buildStatCard(Icons.warning, "منخفضة المخزون", "5", const Color(0xFFD32F2F), Icons.inventory_2),
-            ],
-          ),
-          const SizedBox(height: 32),
-          LayoutBuilder(
-            builder: (context, c) {
-              final isNarrow = c.maxWidth < 1100;
-              return isNarrow
-                  ? Column(
-                children: [
-                  _buildQuickChart("المبيعات الأسبوعية", Colors.blue),
-                  const SizedBox(height: 20),
-                  _buildQuickChart("الأدوية الأكثر مبيعاً", Colors.green),
-                ],
-              )
-                  : Row(
-                children: [
-                  Expanded(child: _buildQuickChart("المبيعات الأسبوعية", Colors.blue)),
-                  const SizedBox(width: 20),
-                  Expanded(child: _buildQuickChart("الأدوية الأكثر مبيعاً", Colors.green)),
-                ],
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  static Widget _buildStatCard(IconData icon, String title, String value, Color color, IconData trendIcon) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: color, size: 32),
-          const SizedBox(height: 8),
-          Text(title, style: const TextStyle(color: Colors.black54)),
-          const SizedBox(height: 4),
-          Text(value, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Icon(trendIcon, color: color, size: 16),
-        ],
-      ),
-    );
-  }
-
-  static Widget _buildQuickChart(String title, Color color) {
-    return Container(
-      height: 200,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          Expanded(
-            child: Container(
-              color: color.withOpacity(0.2),
-              child: const Center(child: Text("Chart Placeholder")),
-            ),
-          ),
         ],
       ),
     );

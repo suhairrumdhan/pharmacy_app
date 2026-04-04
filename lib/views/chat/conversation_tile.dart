@@ -21,7 +21,7 @@ class ConversationTile extends StatelessWidget {
         style: const TextStyle(fontWeight: FontWeight.bold),
       ),
       subtitle: Text(
-        conversation.lastMessage,
+        conversation.lastMessagePreview,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: Colors.grey.shade600,
@@ -37,7 +37,7 @@ class ConversationTile extends StatelessWidget {
               color: Colors.grey.shade500,
             ),
           ),
-          if (conversation.unreadCount > 0)
+          if (conversation.unreadForPharmacy > 0)
             Container(
               padding: const EdgeInsets.all(4),
               decoration: const BoxDecoration(
@@ -45,7 +45,7 @@ class ConversationTile extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               child: Text(
-                conversation.unreadCount.toString(),
+                conversation.unreadForPharmacy.toString(),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 12,

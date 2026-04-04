@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class InsuranceCompany {
   String id;
   String name;
+  String code; // الكود الموحد للشركة
   String contactPerson;
   String phone;
   String address;
@@ -18,6 +19,7 @@ class InsuranceCompany {
   InsuranceCompany({
     this.id = '',
     required this.name,
+    required this.code,
     required this.contactPerson,
     required this.phone,
     required this.address,
@@ -52,17 +54,11 @@ class InsuranceCompany {
       return _parseDateTime(value);
     }
 
-    List<String> _parseStringList(dynamic value) {
-      if (value == null) return [];
-      if (value is List) {
-        return value.map((item) => item.toString()).toList();
-      }
-      return [];
-    }
 
     return InsuranceCompany(
       id: id,
       name: map['name']?.toString() ?? '',
+      code: map['code']?.toString() ?? '',
       contactPerson: map['contactPerson']?.toString() ?? '',
       phone: map['phone']?.toString() ?? '',
       address: map['address']?.toString() ?? '',
@@ -79,6 +75,7 @@ class InsuranceCompany {
   Map<String, dynamic> toMap() {
     return {
       'name': name,
+      'code': code.trim().toUpperCase(),
       'contactPerson': contactPerson,
       'phone': phone,
       'address': address,

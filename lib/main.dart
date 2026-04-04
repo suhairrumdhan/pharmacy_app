@@ -3,6 +3,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:pharmacy_desktop/controllers/chat_controller.dart';
+import 'package:pharmacy_desktop/controllers/dashboard_controller.dart';
+import 'package:pharmacy_desktop/controllers/sales_controller.dart';
 import 'controllers/finance_controller.dart';
 import 'firebase_options.dart';
 import 'views/login_page.dart';
@@ -48,8 +51,12 @@ class InitialBinding extends Bindings {
           () => InsuranceCompanyController(),
       fenix: true,
     );
-    Get.lazyPut<FinanceController>(() => FinanceController());
+    Get.lazyPut<FinanceController>(() => FinanceController(),fenix: true);
     Get.lazyPut<SupplierController>(() => SupplierController(), fenix: true);
+    Get.lazyPut<DashboardController>(() => DashboardController(), fenix: true);
+    Get.lazyPut<SalesController>(() => SalesController(), fenix: true);
     Get.lazyPut<PurchaseController>(() => PurchaseController(), fenix: true);
+    Get.lazyPut<ChatController>(() => ChatController(), fenix: true);
+
   }
 }

@@ -17,35 +17,36 @@ class InsuranceCompanyController extends GetxController {
   final RxBool isLoading = false.obs;
   final RxString searchQuery = ''.obs;
 
-  // معلومات الصيدلية
   RxString currentPharmacyId = ''.obs;
   RxString currentUserId = ''.obs;
   RxString currentUserRole = ''.obs;
 
-  // التحقق من الصلاحيات
-  bool _checkUserPermissions(String permission) {
-    try {
-      final authController = Get.find<AuthController>();
-      if (authController.currentEmployee.value == null) {
-        return true; // المالك لديه كل الصلاحيات
-      }
-      return authController.can(permission);
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // الصلاحيات
   static const String PERMISSION_VIEW_INSURANCE = 'view_insurance_companies';
   static const String PERMISSION_ADD_INSURANCE = 'add_insurance_companies';
   static const String PERMISSION_EDIT_INSURANCE = 'edit_insurance_companies';
   static const String PERMISSION_DELETE_INSURANCE = 'delete_insurance_companies';
 
+  bool _checkUserPermissions(String permission) {
+    try {
+      final authController = Get.find<AuthController>();
+      if (authController.currentEmployee.value == null) {
+        return true;
+      }
+      return authController.can(permission);
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   void onInit() {
     super.onInit();
-    _getCurrentUserInfo();
-    fetchInsuranceCompanies();
+    _init();
+  }
+
+  Future<void> _init() async {
+    await _getCurrentUserInfo();
+    await fetchInsuranceCompanies();
   }
 
   Future<void> _getCurrentUserInfo() async {
@@ -56,17 +57,15 @@ class InsuranceCompanyController extends GetxController {
 
         final authController = Get.find<AuthController>();
         currentPharmacyId.value = authController.userId ?? user.uid;
-        currentUserRole.value = authController.currentEmployee.value != null
-            ? 'employee'
-            : 'owner';
+        currentUserRole.value =
+        authController.currentEmployee.value != null ? 'employee' : 'owner';
       }
     } catch (e) {
-      print('❌ Error in _getCurrentUserInfo: $e');
+      debugPrint('❌ Error in _getCurrentUserInfo: $e');
     }
   }
 
-  // المرجع الرئيسي لشركات التأمين
-  CollectionReference get insuranceCompaniesCollection {
+  CollectionReference<Map<String, dynamic>> get insuranceCompaniesCollection {
     if (currentPharmacyId.isEmpty) {
       throw Exception('لم يتم تحديد الصيدلية');
     }
@@ -77,7 +76,6 @@ class InsuranceCompanyController extends GetxController {
         .collection('insurance_companies');
   }
 
-  // جلب جميع شركات التأمين
   Future<void> fetchInsuranceCompanies() async {
     try {
       isLoading.value = true;
@@ -90,30 +88,16 @@ class InsuranceCompanyController extends GetxController {
         }
       }
 
-      final querySnapshot = await insuranceCompaniesCollection
-          .orderBy('name')
-          .get();
+      final querySnapshot = await insuranceCompaniesCollection.orderBy('name').get();
 
-      if (querySnapshot.docs.isEmpty) {
-        companies.clear();
-      } else {
-        final companiesList = <InsuranceCompany>[];
+      final companiesList = querySnapshot.docs.map((doc) {
+        final data = doc.data();
+        return InsuranceCompany.fromMap(data, doc.id);
+      }).toList();
 
-        for (var doc in querySnapshot.docs) {
-          try {
-            final data = doc.data() as Map<String, dynamic>;
-            final company = InsuranceCompany.fromMap(data, doc.id);
-            companiesList.add(company);
-          } catch (e) {
-            print('Error converting document ${doc.id}: $e');
-          }
-        }
-
-        companies.assignAll(companiesList);
-      }
-
+      companies.assignAll(companiesList);
     } catch (e) {
-      print('❌ ERROR in fetchInsuranceCompanies: $e');
+      debugPrint('❌ ERROR in fetchInsuranceCompanies: $e');
       companies.clear();
       Get.snackbar(
         'خطأ',
@@ -126,11 +110,31 @@ class InsuranceCompanyController extends GetxController {
     }
   }
 
-  // إضافة شركة تأمين جديدة
+  Future<bool> isInsuranceCodeExists(String code, {String? excludeId}) async {
+    final normalizedCode = code.trim().toUpperCase();
+
+    final existing = companies.where((c) {
+      if (excludeId != null && c.id == excludeId) return false;
+      return c.code.trim().toUpperCase() == normalizedCode;
+    }).toList();
+
+    return existing.isNotEmpty;
+  }
+
   Future<void> addInsuranceCompany(InsuranceCompany company) async {
     try {
       if (!_checkUserPermissions(PERMISSION_ADD_INSURANCE)) {
         Get.snackbar('خطأ', 'ليس لديك صلاحية لإضافة شركات التأمين');
+        return;
+      }
+
+      if (await isInsuranceCodeExists(company.code)) {
+        Get.snackbar(
+          'تنبيه',
+          'كود شركة التأمين مستخدم مسبقًا، الرجاء إدخال كود مختلف',
+          backgroundColor: Colors.orange,
+          colorText: Colors.white,
+        );
         return;
       }
 
@@ -161,11 +165,20 @@ class InsuranceCompanyController extends GetxController {
     }
   }
 
-  // تحديث بيانات شركة التأمين
   Future<void> updateInsuranceCompany(String id, InsuranceCompany company) async {
     try {
       if (!_checkUserPermissions(PERMISSION_EDIT_INSURANCE)) {
         Get.snackbar('خطأ', 'ليس لديك صلاحية لتعديل شركات التأمين');
+        return;
+      }
+
+      if (await isInsuranceCodeExists(company.code, excludeId: id)) {
+        Get.snackbar(
+          'تنبيه',
+          'كود شركة التأمين مستخدم مسبقًا، الرجاء إدخال كود مختلف',
+          backgroundColor: Colors.orange,
+          colorText: Colors.white,
+        );
         return;
       }
 
@@ -190,7 +203,6 @@ class InsuranceCompanyController extends GetxController {
     }
   }
 
-  // حذف شركة تأمين
   Future<void> deleteInsuranceCompany(String id) async {
     try {
       if (!_checkUserPermissions(PERMISSION_DELETE_INSURANCE)) {
@@ -211,34 +223,35 @@ class InsuranceCompanyController extends GetxController {
     }
   }
 
-  // البحث والتصفية
   List<InsuranceCompany> get filteredCompanies {
     if (!_checkUserPermissions(PERMISSION_VIEW_INSURANCE)) return [];
-    if (searchQuery.isEmpty) return companies;
+    if (searchQuery.value.trim().isEmpty) return companies;
 
-    final query = searchQuery.value.toLowerCase();
+    final query = searchQuery.value.toLowerCase().trim();
+
     return companies.where((company) {
       return company.name.toLowerCase().contains(query) ||
+          company.code.toLowerCase().contains(query) ||
           company.contactPerson.toLowerCase().contains(query) ||
-          company.phone.contains(query);
+          company.phone.toLowerCase().contains(query);
     }).toList();
   }
 
-  // الإحصائيات
   RxMap<String, dynamic> get companyStats {
     final totalCompanies = companies.length;
     final activeCompanies = companies.where((c) => c.status == 'فعال').length;
     final expiredContracts = companies.where((c) => c.isContractExpired).length;
-
+    final expiringSoonContracts =
+        companies.where((c) => c.isContractExpiringSoon).length;
 
     return {
       'totalCompanies': totalCompanies,
       'activeCompanies': activeCompanies,
       'expiredContracts': expiredContracts,
+      'expiringSoonContracts': expiringSoonContracts,
     }.obs;
   }
 
-  // التحقق من الصلاحيات للواجهة
   bool get canViewInsurancePage => _checkUserPermissions(PERMISSION_VIEW_INSURANCE);
   bool canAddInsurance() => _checkUserPermissions(PERMISSION_ADD_INSURANCE);
   bool canEditInsurance() => _checkUserPermissions(PERMISSION_EDIT_INSURANCE);

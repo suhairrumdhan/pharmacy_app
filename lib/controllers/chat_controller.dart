@@ -11,6 +11,10 @@ class ChatController extends GetxController {
   RxList<ChatMessage> currentMessages = <ChatMessage>[].obs;
 
   RxString selectedChatId = ''.obs;
+
+  /// ✅ العداد الكلي Reactive
+  RxInt totalUnreadCount = 0.obs;
+
   String get pharmacyId => _auth.currentUser?.uid ?? '';
 
   @override
@@ -33,25 +37,34 @@ class ChatController extends GetxController {
         .listen((snapshot) {
       print('📨 Received ${snapshot.docs.length} conversations');
 
-      if (snapshot.docs.isEmpty) {
-        print('⚠️ No conversations found! Checking all chats...');
-        // جلب جميع المحادثات للتحقق
-        _firestore.collection("chats").get().then((allChats) {
-          print('📊 All chats in database: ${allChats.docs.length}');
-          allChats.docs.forEach((doc) {
-            final data = doc.data();
-            print('💬 Chat ${doc.id}: pharmacyId=${data['pharmacyId']}, userName=${data['userName']}');
-          });
-        });
-      }
-
       conversations.value = snapshot.docs.map((doc) {
         final data = doc.data();
         print('✅ Loaded chat: ${doc.id} - ${data['userName']}');
         return ChatConversation.fromMap(doc.id, data);
       }).toList();
+
+      /// ✅ تحديث العداد الكلي
+      totalUnreadCount.value = conversations.fold(
+        0,
+            (sum, chat) => sum + chat.unreadForPharmacy,
+      );
     }, onError: (error) {
       print('❌ Error listening to conversations: $error');
+    });
+  }
+
+  /// 🔥 Stream للعداد الكلي لو احتجتيه في مكان ثاني
+  Stream<int> getUnreadCountStream() {
+    return _firestore
+        .collection("chats")
+        .where("pharmacyId", isEqualTo: pharmacyId)
+        .snapshots()
+        .map((snapshot) {
+      int total = 0;
+      for (final doc in snapshot.docs) {
+        total += (doc.data()["pharmacyUnreadCount"] ?? 0) as int;
+      }
+      return total;
     });
   }
 
@@ -75,10 +88,23 @@ class ChatController extends GetxController {
       print('Error loading messages: $error');
     });
 
-    // تحديث unreadCount إلى صفر
+    /// ✅ تصفير العداد الخاص بالصيدلية فقط
     _firestore.collection("chats").doc(chatId).update({
-      "unreadCount": 0,
+      "pharmacyUnreadCount": 0,
     });
+
+    /// ✅ تحديث العداد المحلي مباشرة
+    final index = conversations.indexWhere((c) => c.id == chatId);
+    if (index != -1) {
+      conversations[index] = conversations[index].copyWith(
+        pharmacyUnreadCount: 0,
+      );
+
+      totalUnreadCount.value = conversations.fold(
+        0,
+            (sum, chat) => sum + chat.unreadForPharmacy,
+      );
+    }
   }
 
   /// ✉ إرسال رسالة من الصيدلية
@@ -98,22 +124,26 @@ class ChatController extends GetxController {
       "timestamp": FieldValue.serverTimestamp(),
       "type": "text",
       "isMe": false,
+      "status": "sent",
+      "isRead": false,
+      "senderType": "pharmacy",
     };
 
     try {
-      // إضافة الرسالة إلى مجموعة messages الفرعية
       await _firestore
           .collection("chats")
           .doc(chatId)
           .collection("messages")
           .add(newMessage);
 
-      // تحديث المحادثة الرئيسية
       await _firestore.collection("chats").doc(chatId).update({
         "lastMessage": text,
+        "lastMessageType": "text",
         "lastMessageTime": FieldValue.serverTimestamp(),
-        "unreadCount": 0,
+        "userUnreadCount": FieldValue.increment(1),
+        "pharmacyUnreadCount": 0,
         "pharmacyIsOnline": true,
+        "updatedAt": FieldValue.serverTimestamp(),
       });
 
       print('Message sent successfully');

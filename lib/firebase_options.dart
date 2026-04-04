@@ -42,12 +42,12 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions web = FirebaseOptions(
     apiKey: 'AIzaSyAbRJpPIXvI11zYIF8_kg_po4XokPAX61U',
-    appId: '1:809487153088:web:54dc1736441b9117bffa25',
+    appId: '1:809487153088:web:5de4770b3fab8be4bffa25',
     messagingSenderId: '809487153088',
     projectId: 'pharmafind-fd452',
     authDomain: 'pharmafind-fd452.firebaseapp.com',
     storageBucket: 'pharmafind-fd452.firebasestorage.app',
-    measurementId: 'G-L76L293JKJ',
+    measurementId: 'G-76Z70T8WGG',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
@@ -89,4 +89,5 @@ class DefaultFirebaseOptions {
     storageBucket: 'pharmafind-fd452.firebasestorage.app',
     measurementId: 'G-29W9Q9C8EJ',
   );
+
 }

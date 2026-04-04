@@ -80,9 +80,9 @@ class InsuranceCompaniesPage extends StatelessWidget {
             ),
             _buildVerticalDivider(),
             _buildStatItem(
-              icon: Iconsax.star_1,
-              value: '${stats['totalCoveredMedications']}',
-              label: 'أدوية مشمولة',
+              icon: Iconsax.calendar_tick,
+              value: '${stats['expiringSoonContracts'] ?? 0}',
+              label: 'تنتهي قريبًا',
               color: Colors.purple,
             ),
           ],
@@ -416,12 +416,26 @@ class InsuranceCompaniesPage extends StatelessWidget {
           ),
           Expanded(
             child: Text(
+              'الكود',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Colors.blue.shade800,
+                fontSize: 14,
+              ),
+              textAlign: TextAlign.center, // إضافة هذه الخاصية لتوسيط النص
+
+            ),
+          ),
+          Expanded(
+            child: Text(
               'الشخص المسؤول',
               style: TextStyle(
                 fontWeight: FontWeight.w700,
                 color: Colors.blue.shade800,
                 fontSize: 14,
               ),
+              textAlign: TextAlign.center, // إضافة هذه الخاصية لتوسيط النص
+
             ),
           ),
           Expanded(
@@ -432,6 +446,8 @@ class InsuranceCompaniesPage extends StatelessWidget {
                 color: Colors.blue.shade800,
                 fontSize: 14,
               ),
+              textAlign: TextAlign.center, // إضافة هذه الخاصية لتوسيط النص
+
             ),
           ),
           Expanded(
@@ -442,6 +458,8 @@ class InsuranceCompaniesPage extends StatelessWidget {
                 color: Colors.blue.shade800,
                 fontSize: 14,
               ),
+              textAlign: TextAlign.center, // إضافة هذه الخاصية لتوسيط النص
+
             ),
           ),
           Expanded(
@@ -452,6 +470,8 @@ class InsuranceCompaniesPage extends StatelessWidget {
                 color: Colors.blue.shade800,
                 fontSize: 14,
               ),
+              textAlign: TextAlign.center, // إضافة هذه الخاصية لتوسيط النص
+
             ),
           ),
         ],
@@ -484,6 +504,7 @@ class InsuranceCompaniesPage extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         child: Row(
           children: [
+
             // اسم الشركة
             Expanded(
               flex: 2,
@@ -530,6 +551,26 @@ class InsuranceCompaniesPage extends StatelessWidget {
             ),
 
             // الكود
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.blue.shade100),
+                ),
+                child: Text(
+                  company.code,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.blue.shade800,
+                  ),
+                ),
+              ),
+            ),
+
             const SizedBox(width: 15),
 
             // الشخص المسؤول
@@ -540,13 +581,15 @@ class InsuranceCompaniesPage extends StatelessWidget {
                   fontSize: 13,
                   color: Color(0xFF475569),
                 ),
+                textAlign: TextAlign.center, // إضافة هذه الخاصية لتوسيط النص
               ),
             ),
+            const SizedBox(width: 15),
 
             // نسبة الخصم
             Expanded(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
@@ -573,7 +616,7 @@ class InsuranceCompaniesPage extends StatelessWidget {
             // الحالة
             Expanded(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
                   color: _getStatusColor(company.status).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
@@ -587,7 +630,7 @@ class InsuranceCompaniesPage extends StatelessWidget {
                   children: [
                     Container(
                       width: 8,
-                      height: 30,
+                      height: 20,
                       decoration: BoxDecoration(
                         color: _getStatusColor(company.status),
                         shape: BoxShape.circle,
@@ -638,6 +681,8 @@ class InsuranceCompaniesPage extends StatelessWidget {
                 ],
               ),
             ),
+            const SizedBox(width: 15),
+
           ],
         ),
       ),
