@@ -127,7 +127,16 @@ class HealthRecordPanel extends StatelessWidget {
       if (!chatDoc.exists) return null;
 
       final chatData = chatDoc.data() as Map<String, dynamic>;
+
+      // 1) الأفضل: بيانات المستفيد المرتبطة بالطلب
+      final healthSnapshot = chatData['healthSnapshot'];
+      if (healthSnapshot is Map<String, dynamic>) {
+        return healthSnapshot;
+      }
+
+      // 2) fallback قديم: صاحب الحساب
       final userId = chatData['userId'];
+      if (userId == null || userId.toString().isEmpty) return null;
 
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
@@ -137,13 +146,13 @@ class HealthRecordPanel extends StatelessWidget {
       if (userDoc.exists) {
         return userDoc.data() as Map<String, dynamic>;
       }
+
       return null;
     } catch (e) {
       print('Error fetching user health data: $e');
       return null;
     }
   }
-
   Widget _buildHealthRecord(Map<String, dynamic> userData, BuildContext context) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),

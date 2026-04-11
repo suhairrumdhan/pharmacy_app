@@ -66,7 +66,7 @@ class Medicine {
   bool get isExpired => expiryDate != null ? expiryDate!.isBefore(DateTime.now()) : false;
 
   // ===== From Map =====
-  factory Medicine.fromMap(Map<String, dynamic> data) {
+  factory Medicine.fromMap(Map<String, dynamic> data, String id) {
     int safeInt(dynamic value) => int.tryParse(value?.toString() ?? '') ?? 0;
     double safeDouble(dynamic value) => double.tryParse(value?.toString() ?? '') ?? 0;
     final pieceQty = safeInt(data['pieceQuantity']);
@@ -94,7 +94,7 @@ class Medicine {
     }
 
     return Medicine(
-      id: data['id']?.toString() ?? '',
+      id: id,  // استخدام الـ id المستلم كمعامل
       name: data['name']?.toString() ?? '',
       scientificName: data['scientificName']?.toString(),
       quantity: safeInt(data['quantity']),
@@ -115,7 +115,6 @@ class Medicine {
       lastUpdated: parseDate(data['lastUpdated']) ?? DateTime.now(),
     );
   }
-
   // ===== Copy With =====
   Medicine copyWith({
     String? id,

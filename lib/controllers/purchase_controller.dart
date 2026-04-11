@@ -1,9 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-
 import '../models/purchase_model.dart';
 import '../models/inventory_model.dart';
+import '../services/search_index_service.dart';
 import 'auth_controller.dart';
 import 'finance_controller.dart';
 import 'inventory_controller.dart';
@@ -472,9 +472,23 @@ class PurchaseController extends GetxController {
       _inventoryCtrl.medicines.assignAll(meds);
       _inventoryCtrl.filteredMedicines.assignAll(meds);
       _inventoryCtrl.searchMedicines(_inventoryCtrl.searchQuery.value);
+      /// ✅ حمّل بيانات الصيدلية الأحدث دائمًا قبل تحديث الـ index
+      await _inventoryCtrl.loadPharmacyData();
+
+      final freshPharmacyData = Map<String, dynamic>.from(_inventoryCtrl.pharmacyData);
+
+      /// ✅ تحديث الـ search index لكل صنف تم تعديله
+      final searchIndexService = SearchIndexService();
+
+      for (final updatedMedicine in updatedLocals.values) {
+        await searchIndexService.createOrUpdateIndex(
+          pharmacyId: _pharmacyId,
+          pharmacyData: freshPharmacyData,
+          medicine: updatedMedicine,
+        );
+      }
     }
   }
-
   /// =======================================================
   /// Payments
   /// =======================================================

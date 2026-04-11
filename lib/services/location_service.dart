@@ -278,12 +278,7 @@ class LocationService extends GetxService {
 
       // 🔴 Rate limit
       if (response.statusCode == 429) {
-        Get.snackbar(
-          'تنبيه',
-          'الرجاء الانتظار قليلاً قبل إعادة البحث',
-          backgroundColor: Colors.orange,
-          colorText: Colors.white,
-        );
+
         return;
       }
 
@@ -402,6 +397,7 @@ class LocationService extends GetxService {
       addressController.text = addressDescription.value;
     }
   }
+
   Future<void> copyToClipboard(String text) async {
     await Clipboard.setData(ClipboardData(text: text));
     Get.snackbar(
@@ -454,23 +450,21 @@ class LocationService extends GetxService {
     return true;
   }
 
-  // تحويل LatLng إلى Map
   Map<String, dynamic> getLocationAsMap() {
     if (currentMapCenter.value == null) {
       return {
         "address": "",
-        "lat": defaultLocation.latitude,
-        "lng": defaultLocation.longitude,
+        "latitude": defaultLocation.latitude,
+        "longitude": defaultLocation.longitude,
       };
     }
 
     return {
       "address": addressController.text,
-      "lat": currentMapCenter.value!.latitude,
-      "lng": currentMapCenter.value!.longitude,
+      "latitude": currentMapCenter.value!.latitude,
+      "longitude": currentMapCenter.value!.longitude,
     };
   }
-
   // الحصول على الإحداثيات كمصفوفة
   List<double> getLocationCoordinates() {
     if (currentMapCenter.value == null) {

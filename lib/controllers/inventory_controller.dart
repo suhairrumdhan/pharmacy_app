@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:csv/csv.dart';
 import 'dart:io';
 import '../models/inventory_model.dart';
+import '../services/search_index_service.dart';
 import '../views/inventory/widgets/quick_alerts.dart';
 import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
@@ -109,8 +110,7 @@ class InventoryController extends GetxController {
 
       medicines.assignAll(
         snapshot.docs.map((doc) {
-          final data = {'id': doc.id, ...doc.data() as Map<String, dynamic>};
-          return Medicine.fromMap(data);
+          return Medicine.fromMap(doc.data() as Map<String, dynamic>, doc.id);
         }).toList(),
       );
 
@@ -121,7 +121,20 @@ class InventoryController extends GetxController {
       isLoading.value = false;
     }
   }
+  Future<void> _refreshPharmacyData() async {
+    final doc = await _firestore.collection('pharmacies').doc(_pharmacyId).get();
+    if (doc.exists) {
+      pharmacyData.value = doc.data()!;
+    }
+  }
+  Future<void> _rebuildIndexForCurrentPharmacy() async {
+    await _refreshPharmacyData();
 
+    await searchIndexService.rebuildPharmacyIndex(
+      pharmacyId: _pharmacyId,
+      pharmacyData: pharmacyData,
+    );
+  }
   // Search medicines
   void searchMedicines(String query) {
     searchQuery.value = query;
@@ -171,30 +184,47 @@ class InventoryController extends GetxController {
 
     filteredMedicines.assignAll(result);
   }
+  final searchIndexService = SearchIndexService();
 
   // Add medicine to Firestore
   Future<void> addMedicine(Medicine medicine) async {
     try {
       final data = medicine.toMap(forFirestore: true);
-      // If id exists and you want to use it as doc id, use set; otherwise add generates id.
+      late Medicine medicineForIndex;
+
       if (medicine.id.isNotEmpty) {
         await _medicinesCollection.doc(medicine.id).set(data);
+        medicineForIndex = medicine;
       } else {
         final docRef = await _medicinesCollection.add(data);
-        // Update the medicine with the generated ID
         await docRef.update({'id': docRef.id});
+        medicineForIndex = medicine.copyWith(id: docRef.id);
       }
+
+      await _refreshPharmacyData();
+
+      await searchIndexService.createOrUpdateIndex(
+        pharmacyId: _pharmacyId,
+        pharmacyData: pharmacyData,
+        medicine: medicineForIndex,
+      );
+
       await loadMedicines();
       Get.snackbar('نجاح', 'تم إضافة الدواء بنجاح', backgroundColor: Colors.green);
     } catch (e) {
       Get.snackbar('خطأ', 'فشل في إضافة الدواء: $e', backgroundColor: Colors.red);
     }
   }
-
   // Update medicine (now in nested collection)
   Future<void> updateMedicine(String id, Medicine updatedMedicine) async {
     try {
       await _medicinesCollection.doc(id).update(updatedMedicine.toMap(forFirestore: true));
+      await _refreshPharmacyData();
+      await searchIndexService.createOrUpdateIndex(
+        pharmacyId: _pharmacyId!,
+        pharmacyData: pharmacyData,
+        medicine: updatedMedicine,
+      );
       await loadMedicines();
       Get.snackbar('نجاح', 'تم تحديث الدواء بنجاح', backgroundColor: Colors.green);
     } catch (e) {
@@ -214,19 +244,32 @@ class InventoryController extends GetxController {
         'pieceQuantity': newPieceQty,
         'lastUpdated': FieldValue.serverTimestamp(),
       });
-
-      // بدل loadMedicines() كل مرة، نحدّث محلياً:
+      await _refreshPharmacyData();
       final idx = medicines.indexWhere((m) => m.id == id);
       if (idx != -1) {
-        medicines[idx] = medicines[idx].copyWith(
+        final updatedMedicine = medicines[idx].copyWith(
           quantity: newPackageQty,
           pieceQuantity: newPieceQty,
           lastUpdated: DateTime.now(),
         );
+
+        medicines[idx] = updatedMedicine;
         _applyFilters();
+
+        final searchIndexService = SearchIndexService();
+
+        await searchIndexService.createOrUpdateIndex(
+          pharmacyId: _pharmacyId!,
+          pharmacyData: pharmacyData,
+          medicine: updatedMedicine,
+        );
       }
     } catch (e) {
-      Get.snackbar('خطأ', 'فشل في تحديث المخزون: $e', backgroundColor: Colors.red);
+      Get.snackbar(
+        'خطأ',
+        'فشل في تحديث المخزون: $e',
+        backgroundColor: Colors.red,
+      );
       rethrow;
     }
   }
@@ -235,6 +278,10 @@ class InventoryController extends GetxController {
   Future<void> deleteMedicine(String id) async {
     try {
       await _medicinesCollection.doc(id).delete();
+      await searchIndexService.deleteIndex(
+        pharmacyId: _pharmacyId!,
+        medicineId: id,
+      );
       await loadMedicines();
       Get.snackbar('نجاح', 'تم حذف الدواء بنجاح', backgroundColor: Colors.green);
     } catch (e) {
@@ -274,6 +321,7 @@ class InventoryController extends GetxController {
       }
 
       await batch.commit();
+      await _rebuildIndexForCurrentPharmacy();
       await loadMedicines();
 
       Get.snackbar(
@@ -639,6 +687,7 @@ class InventoryController extends GetxController {
       }
 
       await batch.commit();
+      await _rebuildIndexForCurrentPharmacy();
       await loadMedicines();
 
       Get.snackbar(

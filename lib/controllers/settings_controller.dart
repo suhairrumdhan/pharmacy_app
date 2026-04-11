@@ -2,31 +2,31 @@
 
 import 'dart:async';
 import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
+
 import '../models/settings_model.dart';
+import '../services/search_index_service.dart';
+
 class SettingsController extends GetxController {
-  // ====== Dependencies ======
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseStorage _storage = FirebaseStorage.instance;
   final ImagePicker _imagePicker = ImagePicker();
 
-  // ====== Basic state ======
   String get pharmacyId => FirebaseAuth.instance.currentUser?.uid ?? '';
 
-  var isLoading = false.obs;
-  var isUploadingImage = false.obs;
-  var errorMessage = ''.obs;
-  var successMessage = ''.obs;
+  final isLoading = false.obs;
+  final isUploadingImage = false.obs;
+  final errorMessage = ''.obs;
+  final successMessage = ''.obs;
 
-  // ====== Rx model holder ======
-  var settings = PharmacySettings.empty().obs;
+  final settings = PharmacySettings.empty().obs;
 
-  // ====== Text controllers for UI binding ======
   final nameController = TextEditingController();
   final ownerNameController = TextEditingController();
   final ownerIdNumberController = TextEditingController();
@@ -35,12 +35,10 @@ class SettingsController extends GetxController {
   final addressController = TextEditingController();
   final licenseNumberController = TextEditingController();
 
-  // ====== Reactive simple fields ======
-  var imageUrl = ''.obs;
-  var latitude = 0.0.obs;
-  var longitude = 0.0.obs;
+  final imageUrl = ''.obs;
+  final latitude = 0.0.obs;
+  final longitude = 0.0.obs;
 
-  // ====== Field-specific error messages ======
   final RxMap<String, String?> fieldErrors = <String, String?>{
     'name': null,
     'ownerName': null,
@@ -48,24 +46,14 @@ class SettingsController extends GetxController {
     'email': null,
     'phone': null,
     'address': null,
-    'description': null,
     'licenseNumber': null,
   }.obs;
 
-  void initializeControllers(PharmacySettings settings) {
-    nameController.text = settings.name ?? '';
-    ownerNameController.text = settings.ownerName ?? '';
-    ownerIdNumberController.text = settings.ownerIdNumber ?? '';
-    emailController.text = settings.email ?? '';
-    phoneController.text = settings.phoneNumber ?? '';
-    addressController.text = settings.address ?? '';
-    licenseNumberController.text = settings.licenseNumber ?? '';
-  }
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _settingsSub;
+
   @override
   void onInit() {
     super.onInit();
-
-    // إذا كان المستخدم موجودًا، حمّل الإعدادات تلقائياً
     if (pharmacyId.isNotEmpty) {
       loadSettings();
       startRealtimeListener();
@@ -74,7 +62,7 @@ class SettingsController extends GetxController {
 
   @override
   void onClose() {
-    // تنظيف TextEditingControllers
+    _settingsSub?.cancel();
     nameController.dispose();
     ownerNameController.dispose();
     ownerIdNumberController.dispose();
@@ -85,116 +73,130 @@ class SettingsController extends GetxController {
     super.onClose();
   }
 
+  void initializeControllers(PharmacySettings current) {
+    nameController.text = current.name;
+    ownerNameController.text = current.ownerName;
+    ownerIdNumberController.text = current.ownerIdNumber;
+    emailController.text = current.email;
+    phoneController.text = current.phoneNumber;
+    addressController.text = current.address;
+    licenseNumberController.text = current.licenseNumber;
+
+    imageUrl.value = current.imageUrl ?? '';
+    latitude.value = current.location.latitude;
+    longitude.value = current.location.longitude;
+  }
+
   Future<void> loadSettings() async {
     if (pharmacyId.isEmpty) {
-      errorMessage('لم يتم العثور على معرف الصيدلية');
+      errorMessage.value = 'لم يتم العثور على معرف الصيدلية';
       return;
     }
 
     try {
-      isLoading(true);
+      isLoading.value = true;
       errorMessage.value = '';
 
-      final doc = await _firestore.collection('pharmacies').doc(pharmacyId).get();
-      final data = doc.data() ?? {};
+      final pharmacyRef = _firestore.collection('pharmacies').doc(pharmacyId);
+      final pharmacyDoc = await pharmacyRef.get();
 
-      // معالجة الموقع
-      // التعامل مع الماب location
-      final locData = (data['location'] is Map)
-          ? Map<String, dynamic>.from(data['location'])
-          : {};
-
-      // أولاً: خط العرض والطول
-      final lat = _parseDouble(locData['lat']) ??
-          _parseDouble(data['lat']) ??
-          (data['locationCoordinates'] is List && data['locationCoordinates'].length >= 1
-              ? _parseDouble(data['locationCoordinates'][0])
-              : 0.0);
-
-      final lng = _parseDouble(locData['lng']) ??
-          _parseDouble(data['lng']) ??
-          (data['locationCoordinates'] is List && data['locationCoordinates'].length >= 2
-              ? _parseDouble(data['locationCoordinates'][1])
-              : 0.0);
-
-      // العنوان
-      final address = locData['address']?.toString() ??
-          data['address']?.toString() ??
-          'no address';
-
-      // معالجة أوقات العمل
-      Map<String, dynamic> businessHoursData = {};
-      try {
-        final businessHoursDoc = await _firestore
-            .collection('pharmacies')
-            .doc(pharmacyId)
-            .collection('settings')
-            .doc('businessHours')
-            .get();
-
-        if (businessHoursDoc.exists && businessHoursDoc.data() != null) {
-          businessHoursData = businessHoursDoc.data()!;
-        } else if (data['businessHours'] is Map) {
-          businessHoursData = Map<String, dynamic>.from(data['businessHours']);
-        }
-      } catch (e) {
-        print('Error loading business hours: $e');
+      if (!pharmacyDoc.exists || pharmacyDoc.data() == null) {
+        errorMessage.value = 'بيانات الصيدلية غير موجودة';
+        return;
       }
 
-      final is24 = data['is24Hours'] ?? false;
+      final data = pharmacyDoc.data()!;
+
+      final generalDoc = await pharmacyRef.collection('settings').doc('general').get();
+      final generalData = generalDoc.data() ?? <String, dynamic>{};
+
+      Map<String, dynamic> businessHoursData = {};
+      final businessHoursDoc =
+      await pharmacyRef.collection('settings').doc('businessHours').get();
+      if (businessHoursDoc.exists && businessHoursDoc.data() != null) {
+        businessHoursData = businessHoursDoc.data()!;
+      } else if (data['businessHours'] is Map<String, dynamic>) {
+        businessHoursData = Map<String, dynamic>.from(data['businessHours']);
+      }
+
+      final locationData = data['location'] is Map
+          ? Map<String, dynamic>.from(data['location'])
+          : <String, dynamic>{};
+
+      final double parsedLat =
+          _parseDouble(locationData['latitude']) ??
+              _parseDouble(locationData['lat']) ??
+              _parseDouble(data['latitude']) ??
+              _parseDouble(data['lat']) ??
+              0.0;
+
+      final double parsedLng =
+          _parseDouble(locationData['longitude']) ??
+              _parseDouble(locationData['lng']) ??
+              _parseDouble(data['longitude']) ??
+              _parseDouble(data['lng']) ??
+              0.0;
+
+      final String parsedAddress =
+      (locationData['address']?.toString().trim().isNotEmpty ?? false)
+          ? locationData['address'].toString().trim()
+          : (data['address']?.toString().trim().isNotEmpty ?? false)
+          ? data['address'].toString().trim()
+          : '';
+
+      final bool parsedIs24Hours =
+          (generalData['is24Hours'] ?? data['is24Hours'] ?? false) == true;
+
+      final bool parsedIsOnline =
+          (generalData['isOnline'] ?? data['isOnline'] ?? false) == true;
 
       final loaded = PharmacySettings(
-        uid: data['uid']?.toString() ?? '',
+        uid: data['id']?.toString() ?? pharmacyId,
         name: data['pharmacyName']?.toString() ?? '',
         ownerName: data['ownerName']?.toString() ?? '',
         ownerIdNumber: data['ownerIdNumber']?.toString() ?? '',
         email: data['email']?.toString() ?? '',
         phoneNumber: data['phoneNumber']?.toString() ?? '',
-        address: address,
+        address: parsedAddress,
         licenseNumber: data['licenseNumber']?.toString() ?? '',
         status: data['status']?.toString() ?? 'pending',
-        is24Hours: is24,
-        isOnline: data['isOnline'] ?? false,
+        is24Hours: parsedIs24Hours,
+        isOnline: parsedIsOnline,
         imageUrl: data['imageUrl']?.toString() ?? '',
-        location: PharmacyLocation(latitude: lat!, longitude: lng!),
-
+        location: PharmacyLocation(
+          latitude: parsedLat,
+          longitude: parsedLng,
+          address: parsedAddress,
+        ),
         businessHours: BusinessHours.fromMap(
           businessHoursData,
-          is24Hours: is24,
+          is24Hours: parsedIs24Hours,
         ),
-
-        createdAt: (data['createdAt'] is Timestamp)
-            ? data['createdAt']
-            : Timestamp.now(),
-        updatedAt: (data['updatedAt'] is Timestamp)
-            ? data['updatedAt']
-            : Timestamp.now(),
+        createdAt: data['createdAt'] is Timestamp ? data['createdAt'] : Timestamp.now(),
+        updatedAt: data['updatedAt'] is Timestamp ? data['updatedAt'] : Timestamp.now(),
+        notificationsEnabled: (generalData['notificationsEnabled'] ?? true) == true,
       );
 
-      // تحديث الحالة + الكونترولرز
       settings.value = loaded;
       imageUrl.value = loaded.imageUrl ?? '';
-      latitude.value = loaded.location?.latitude ?? 0.0;
-      longitude.value = loaded.location?.longitude ?? 0.0;
+      latitude.value = loaded.location.latitude ?? 0.0;
+      longitude.value = loaded.location.longitude ?? 0.0;
 
       nameController.text = loaded.name ?? '';
       ownerNameController.text = loaded.ownerName ?? '';
       ownerIdNumberController.text = loaded.ownerIdNumber ?? '';
       emailController.text = loaded.email ?? '';
       phoneController.text = loaded.phoneNumber ?? '';
-      addressController.text = loaded.address ?? '**';
+      addressController.text = loaded.address ?? '';
       licenseNumberController.text = loaded.licenseNumber ?? '';
     } catch (e, st) {
-      errorMessage('فشل في تحميل الإعدادات: $e');
+      errorMessage.value = 'فشل في تحميل الإعدادات: $e';
       print('loadSettings error: $e\n$st');
     } finally {
-      isLoading(false);
+      isLoading.value = false;
     }
   }
 
-
-
-  /// اختيار صورة من المعرض ورفعها تلقائياً
   Future<void> pickAndUploadImage() async {
     if (pharmacyId.isEmpty) {
       _showErrorSnackbar('المستخدم غير موثّق');
@@ -210,20 +212,24 @@ class SettingsController extends GetxController {
       );
 
       if (image == null) return;
-
       await _uploadImageFile(File(image.path));
     } catch (e) {
       _showErrorSnackbar('فشل في اختيار الصورة: $e');
     }
   }
+
   Future<String?> _uploadImageFile(File file) async {
     if (pharmacyId.isEmpty) return null;
+
     try {
-      isUploadingImage(true);
+      isUploadingImage.value = true;
+
       final ext = file.path.split('.').last.toLowerCase();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final fileName = 'pharmacy_logo_$timestamp.$ext';
+
       final ref = _storage.ref().child('pharmacies/$pharmacyId/imageUrl/$fileName');
+
       final metadata = SettableMetadata(
         contentType: 'image/$ext',
         customMetadata: {
@@ -232,37 +238,44 @@ class SettingsController extends GetxController {
           'originalName': file.path.split('/').last,
         },
       );
+
       final uploadTask = ref.putFile(file, metadata);
+
       uploadTask.snapshotEvents.listen((taskSnapshot) {
-        final progress = (taskSnapshot.bytesTransferred / taskSnapshot.totalBytes) * 100;
+        final progress =
+            (taskSnapshot.bytesTransferred / taskSnapshot.totalBytes) * 100;
         print('Upload progress: ${progress.toStringAsFixed(2)}%');
       });
+
       final snapshot = await uploadTask;
       final downloadUrl = await snapshot.ref.getDownloadURL();
+
       await _firestore.collection('pharmacies').doc(pharmacyId).update({
         'imageUrl': downloadUrl,
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
       imageUrl.value = downloadUrl;
-      if (settings.value != null) {
-        settings.value = settings.value!.copyWith(
-          imageUrl: downloadUrl,
-          updatedAt: Timestamp.now(),
-        );
-      }
+      settings.value = settings.value.copyWith(
+        imageUrl: downloadUrl,
+        updatedAt: Timestamp.now(),
+      );
+
       return downloadUrl;
-    } catch (e, st) {
-      _showErrorSnackbar('فشل في رفع الصورة: ${e.toString()}');
+    } catch (e) {
+      _showErrorSnackbar('فشل في رفع الصورة: $e');
       return null;
     } finally {
-      isUploadingImage(false);
+      isUploadingImage.value = false;
     }
   }
+
   Future<void> deleteCurrentImage() async {
     if (pharmacyId.isEmpty || imageUrl.value.isEmpty) return;
 
     try {
-      isUploadingImage(true);
+      isUploadingImage.value = true;
+
       final currentUrl = imageUrl.value;
       try {
         final ref = _storage.refFromURL(currentUrl);
@@ -270,26 +283,24 @@ class SettingsController extends GetxController {
       } catch (e) {
         print('Note: Could not delete from Storage: $e');
       }
+
       await _firestore.collection('pharmacies').doc(pharmacyId).update({
         'imageUrl': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
+
       imageUrl.value = '';
-      if (settings.value != null) {
-        settings.value = settings.value!.copyWith(
-          imageUrl: '',
-        );
-      }
+      settings.value = settings.value.copyWith(imageUrl: '');
     } catch (e) {
       _showErrorSnackbar('فشل في حذف الصورة: $e');
     } finally {
-      isUploadingImage(false);
+      isUploadingImage.value = false;
     }
   }
 
-
   Future<bool> updateSettings({bool requireLocation = false}) async {
     if (pharmacyId.isEmpty) {
-      errorMessage('لم يتم العثور على معرف الصيدلية');
+      errorMessage.value = 'لم يتم العثور على معرف الصيدلية';
       return false;
     }
 
@@ -298,8 +309,10 @@ class SettingsController extends GetxController {
     }
 
     try {
-      isLoading(true);
+      isLoading.value = true;
       errorMessage.value = '';
+
+      final pharmacyRef = _firestore.collection('pharmacies').doc(pharmacyId);
 
       final updateData = <String, dynamic>{
         'pharmacyName': nameController.text.trim(),
@@ -307,70 +320,74 @@ class SettingsController extends GetxController {
         'ownerIdNumber': ownerIdNumberController.text.trim(),
         'email': emailController.text.trim(),
         'phoneNumber': phoneController.text.trim(),
-        'address': addressController.text.trim(),
         'licenseNumber': licenseNumberController.text.trim(),
-        'is24Hours': settings.value?.is24Hours ?? false,
-        'isOnline': settings.value?.isOnline ?? false,
+        'is24Hours': settings.value.is24Hours ?? false,
+        'isOnline': settings.value.isOnline ?? false,
+        'location': {
+          'address': addressController.text.trim(),
+          'latitude': latitude.value,
+          'longitude': longitude.value,
+        },
+        'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      // إضافة الصورة إذا موجودة
       if (imageUrl.value.isNotEmpty) {
         updateData['imageUrl'] = imageUrl.value;
       }
 
-      // إضافة الموقع
-      if (latitude.value != 0.0 || longitude.value != 0.0) {
-        updateData['location'] = {
-          'latitude': latitude.value,
-          'longitude': longitude.value,
-        };
-        updateData['latitude'] = latitude.value;
-        updateData['longitude'] = longitude.value;
-      }
+      await pharmacyRef.update(updateData);
 
-      // تحديث Firestore فقط للبيانات الأساسية، بدون ساعات العمل
-      await _firestore.collection('pharmacies').doc(pharmacyId).update(updateData);
+      await pharmacyRef.collection('settings').doc('general').set({
+        'is24Hours': settings.value.is24Hours ?? false,
+        'isOnline': settings.value.isOnline ?? false,
+        'notificationsEnabled': settings.value.notificationsEnabled ?? true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
-      // تحديث الحالة المحلية
-      if (settings.value != null) {
-        final newSettings = settings.value!.copyWith(
-          name: nameController.text.trim(),
-          ownerName: ownerNameController.text.trim(),
-          ownerIdNumber: ownerIdNumberController.text.trim(),
-          email: emailController.text.trim(),
-          phoneNumber: phoneController.text.trim(),
+      final pharmacyDoc = await pharmacyRef.get();
+      final pharmacyData = pharmacyDoc.data();
+      if (pharmacyData == null) return false;
+
+      await SearchIndexService().rebuildPharmacyIndex(
+        pharmacyId: pharmacyId,
+        pharmacyData: pharmacyData,
+      );
+
+      settings.value = settings.value.copyWith(
+        name: nameController.text.trim(),
+        ownerName: ownerNameController.text.trim(),
+        ownerIdNumber: ownerIdNumberController.text.trim(),
+        email: emailController.text.trim(),
+        phoneNumber: phoneController.text.trim(),
+        address: addressController.text.trim(),
+        licenseNumber: licenseNumberController.text.trim(),
+        imageUrl: imageUrl.value,
+        location: PharmacyLocation(
+          latitude: latitude.value,
+          longitude: longitude.value,
           address: addressController.text.trim(),
-          licenseNumber: licenseNumberController.text.trim(),
-          imageUrl: imageUrl.value.isNotEmpty
-              ? imageUrl.value
-              : settings.value!.imageUrl,
-          location: PharmacyLocation(
-            latitude: latitude.value,
-            longitude: longitude.value,
-          ),
-        );
-        settings.value = newSettings;
-      }
+        ),
+      );
 
+      Get.snackbar('نجاح', 'تم تحديث البيانات والبحث بنجاح');
       return true;
     } catch (e) {
-      errorMessage('فشل في حفظ الإعدادات: $e');
-      print('updateSettings error: $e');
+      errorMessage.value = 'فشل في حفظ الإعدادات: $e';
       return false;
     } finally {
-      isLoading(false);
+      isLoading.value = false;
     }
   }
 
   Future<void> saveBusinessHours(BusinessHours newHours) async {
-    final currentSettings = this.settings.value;
-    if (currentSettings == null) return;
+    final currentSettings = settings.value;
+    final docRef = _firestore
+        .collection('pharmacies')
+        .doc(pharmacyId)
+        .collection('settings')
+        .doc('businessHours');
 
-    final pharmacyId = this.pharmacyId;
-    final bh = newHours;
-
-    // إعداد البيانات
-    final toSave = currentSettings.is24Hours
+    final toSave = currentSettings.is24Hours == true
         ? {
       'sunday': '24 Hours',
       'monday': '24 Hours',
@@ -381,52 +398,31 @@ class SettingsController extends GetxController {
       'saturday': '24 Hours',
     }
         : {
-      'sunday': bh.sunday,
-      'monday': bh.monday,
-      'tuesday': bh.tuesday,
-      'wednesday': bh.wednesday,
-      'thursday': bh.thursday,
-      'friday': bh.friday,
-      'saturday': bh.saturday,
+      'sunday': newHours.sunday,
+      'monday': newHours.monday,
+      'tuesday': newHours.tuesday,
+      'wednesday': newHours.wednesday,
+      'thursday': newHours.thursday,
+      'friday': newHours.friday,
+      'saturday': newHours.saturday,
     };
 
-    // المرجع للكولكشن/دوكومنت
-    final docRef = _firestore
-        .collection('pharmacies')
-        .doc(pharmacyId)
-        .collection('settings')
-        .doc('businessHours');
-
-    // التحقق إذا كان الدوكومنت موجود أو لا
-    final docSnapshot = await docRef.get();
-    if (!docSnapshot.exists) {
-      // إذا الدوكومنت غير موجود، سيتم إنشاؤه تلقائيًا مع set
-    }
-
-    // حفظ البيانات مع merge للتأكد من عدم مسح أي بيانات أخرى
     await docRef.set({
       ...toSave,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    // تحديث الحالة المحلية عبر Rx
-    this.settings.value = currentSettings.copyWith(businessHours: bh);
+    settings.value = currentSettings.copyWith(businessHours: newHours);
   }
-// في settings_controller.dart
+
   Future<void> toggleDayStatus(String dayKey) async {
-    final settings = this.settings.value;
-    if (settings == null) return;
+    final current = settings.value;
+    final hours = current.businessHours;
 
-    final hours = settings.businessHours;
-
-    // الحصول على الوقت الحالي لليوم
     final currentTime = _getDayTime(dayKey, hours);
     final isClosed = currentTime.toLowerCase() == 'مغلق';
-
-    // الوقت الجديد
     final newTime = isClosed ? '09:00 ص - 05:00 م' : 'مغلق';
 
-    // إنشاء ساعات جديدة
     final newHours = BusinessHours(
       sunday: dayKey == 'sunday' ? newTime : hours.sunday,
       monday: dayKey == 'monday' ? newTime : hours.monday,
@@ -437,29 +433,34 @@ class SettingsController extends GetxController {
       saturday: dayKey == 'saturday' ? newTime : hours.saturday,
     );
 
-    // تحديث المحلي
-    this.settings.value = settings.copyWith(businessHours: newHours);
-
-    // حفظ في الفايرستور
+    settings.value = current.copyWith(businessHours: newHours);
     await saveBusinessHours(newHours);
   }
 
-// دالة مساعدة داخل الكونترولر
   String _getDayTime(String dayKey, BusinessHours hours) {
     switch (dayKey) {
-      case 'sunday': return hours.sunday;
-      case 'monday': return hours.monday;
-      case 'tuesday': return hours.tuesday;
-      case 'wednesday': return hours.wednesday;
-      case 'thursday': return hours.thursday;
-      case 'friday': return hours.friday;
-      case 'saturday': return hours.saturday;
-      default: return 'مغلق';
+      case 'sunday':
+        return hours.sunday;
+      case 'monday':
+        return hours.monday;
+      case 'tuesday':
+        return hours.tuesday;
+      case 'wednesday':
+        return hours.wednesday;
+      case 'thursday':
+        return hours.thursday;
+      case 'friday':
+        return hours.friday;
+      case 'saturday':
+        return hours.saturday;
+      default:
+        return 'مغلق';
     }
   }
 
   Future<bool> updateOnlineStatus(bool isOnline) async {
     if (pharmacyId.isEmpty) return false;
+
     try {
       await _firestore.collection('pharmacies').doc(pharmacyId).update({
         'isOnline': isOnline,
@@ -467,52 +468,72 @@ class SettingsController extends GetxController {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      if (settings.value != null) {
-        settings.value = settings.value!.copyWith(isOnline: isOnline);
-      }
+      await _firestore
+          .collection('pharmacies')
+          .doc(pharmacyId)
+          .collection('settings')
+          .doc('general')
+          .set({
+        'isOnline': isOnline,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      settings.value = settings.value.copyWith(isOnline: isOnline);
       return true;
     } catch (e) {
-      errorMessage('فشل في تحديث الحالة: $e');
+      errorMessage.value = 'فشل في تحديث الحالة: $e';
       return false;
     }
   }
 
   Future<bool> update24HoursStatus(bool is24) async {
     if (pharmacyId.isEmpty) return false;
+
     try {
       await _firestore.collection('pharmacies').doc(pharmacyId).update({
         'is24Hours': is24,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      if (settings.value != null) {
-        settings.value = settings.value!.copyWith(is24Hours: is24);
-      }
+      await _firestore
+          .collection('pharmacies')
+          .doc(pharmacyId)
+          .collection('settings')
+          .doc('general')
+          .set({
+        'is24Hours': is24,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      settings.value = settings.value.copyWith(is24Hours: is24);
       return true;
     } catch (e) {
-      errorMessage('فشل في تحديث وضع 24 ساعة: $e');
+      errorMessage.value = 'فشل في تحديث وضع 24 ساعة: $e';
       return false;
     }
   }
 
   Future<void> toggle24HoursWithUI() async {
-
-    try{
-      final newValue = !(settings.value?.is24Hours ?? false);
+    try {
+      final newValue = !(settings.value.is24Hours ?? false);
       final success = await update24HoursStatus(newValue);
-    }catch (e) {
-      _showErrorSnackbar('فشل في تحديث وضع 24 ساعة',);
+      if (!success) {
+        _showErrorSnackbar('فشل في تحديث وضع 24 ساعة');
+      }
+    } catch (_) {
+      _showErrorSnackbar('فشل في تحديث وضع 24 ساعة');
     }
   }
 
   Future<void> toggleOnlineStatusWithUI() async {
     try {
-
-      final newValue = !(settings.value?.isOnline ?? false);
-      await updateOnlineStatus(newValue);
-
-    }catch(e){
-      _showSuccessSnackbar('فشل في تحديث   ');
+      final newValue = !(settings.value.isOnline ?? false);
+      final success = await updateOnlineStatus(newValue);
+      if (!success) {
+        _showErrorSnackbar('فشل في تحديث الحالة');
+      }
+    } catch (_) {
+      _showErrorSnackbar('فشل في تحديث الحالة');
     }
   }
 
@@ -523,9 +544,8 @@ class SettingsController extends GetxController {
       _showSuccessSnackbar('تم حفظ الإعدادات بنجاح');
       return true;
     } else {
-      final error = errorMessage.value.isNotEmpty
-          ? errorMessage.value
-          : 'فشل في حفظ الإعدادات';
+      final error =
+      errorMessage.value.isNotEmpty ? errorMessage.value : 'فشل في حفظ الإعدادات';
       _showErrorSnackbar(error);
       return false;
     }
@@ -571,34 +591,74 @@ class SettingsController extends GetxController {
     );
   }
 
-  bool get is24HoursValue => settings.value?.is24Hours ?? false;
-  bool get isOnlineValue => settings.value?.isOnline ?? false;
-  String get imageUrlValue => settings.value?.imageUrl ?? '';
-  String get nameValue => settings.value?.name ?? '';
-  PharmacySettings? get currentSettings => settings.value;
+  bool get is24HoursValue => settings.value.is24Hours ?? false;
+  bool get isOnlineValue => settings.value.isOnline ?? false;
+  String get imageUrlValue => settings.value.imageUrl ?? '';
+  String get nameValue => settings.value.name ?? '';
+  PharmacySettings get currentSettings => settings.value;
   bool get hasImage => imageUrl.value.isNotEmpty;
-  StreamSubscription<DocumentSnapshot>? _settingsSub;
 
   void startRealtimeListener() {
     if (pharmacyId.isEmpty) return;
+
     _settingsSub?.cancel();
     _settingsSub = _firestore
         .collection('pharmacies')
         .doc(pharmacyId)
         .snapshots()
         .listen((snapshot) {
-      if (!snapshot.exists) return;
-      final data = snapshot.data() as Map<String, dynamic>;
-      if (settings.value != null) {
-        settings.value = settings.value!.copyWith(
-          isOnline: data['isOnline'] ?? settings.value!.isOnline,
-          is24Hours: data['is24Hours'] ?? settings.value!.is24Hours,
-          name: data['name']?.toString() ?? settings.value!.name,
-        );
-      }
-      if (data['imageUrl'] != null && data['imageUrl'] != imageUrl.value) {
-        imageUrl.value = data['imageUrl'].toString();
-      }
+      if (!snapshot.exists || snapshot.data() == null) return;
+
+      final data = snapshot.data()!;
+      final locationData = data['location'] is Map
+          ? Map<String, dynamic>.from(data['location'])
+          : <String, dynamic>{};
+
+      final liveLat =
+          _parseDouble(locationData['latitude']) ??
+              _parseDouble(locationData['lat']) ??
+              latitude.value;
+
+      final liveLng =
+          _parseDouble(locationData['longitude']) ??
+              _parseDouble(locationData['lng']) ??
+              longitude.value;
+
+      final liveAddress =
+          locationData['address']?.toString() ?? addressController.text.trim();
+
+      settings.value = settings.value.copyWith(
+        isOnline: data['isOnline'] ?? settings.value.isOnline,
+        is24Hours: data['is24Hours'] ?? settings.value.is24Hours,
+        name: data['pharmacyName']?.toString() ?? settings.value.name,
+        ownerName: data['ownerName']?.toString() ?? settings.value.ownerName,
+        ownerIdNumber:
+        data['ownerIdNumber']?.toString() ?? settings.value.ownerIdNumber,
+        email: data['email']?.toString() ?? settings.value.email,
+        phoneNumber: data['phoneNumber']?.toString() ?? settings.value.phoneNumber,
+        licenseNumber:
+        data['licenseNumber']?.toString() ?? settings.value.licenseNumber,
+        address: liveAddress,
+        imageUrl: data['imageUrl']?.toString() ?? settings.value.imageUrl,
+        status: data['status']?.toString() ?? settings.value.status,
+        location: PharmacyLocation(
+          latitude: liveLat,
+          longitude: liveLng,
+          address: liveAddress,
+        ),
+      );
+
+      latitude.value = liveLat;
+      longitude.value = liveLng;
+      imageUrl.value = data['imageUrl']?.toString() ?? imageUrl.value;
+
+      nameController.text = settings.value.name ?? '';
+      ownerNameController.text = settings.value.ownerName ?? '';
+      ownerIdNumberController.text = settings.value.ownerIdNumber ?? '';
+      emailController.text = settings.value.email ?? '';
+      phoneController.text = settings.value.phoneNumber ?? '';
+      addressController.text = settings.value.address ?? '';
+      licenseNumberController.text = settings.value.licenseNumber ?? '';
     });
   }
 
@@ -613,11 +673,14 @@ class SettingsController extends GetxController {
   }
 
   void clearFieldErrors() {
-    fieldErrors.keys.forEach((k) => fieldErrors[k] = null);
+    for (final key in fieldErrors.keys) {
+      fieldErrors[key] = null;
+    }
     fieldErrors.refresh();
-    errorMessage('');
-    successMessage('');
+    errorMessage.value = '';
+    successMessage.value = '';
   }
+
   double? _parseDouble(dynamic value) {
     if (value == null) return null;
     if (value is num) return value.toDouble();
@@ -648,7 +711,7 @@ class SettingsController extends GetxController {
 
   String? validateEmail(String value) {
     if (value.trim().isEmpty) return 'الرجاء إدخال البريد الإلكتروني';
-    final reg = RegExp(r"^[\w\.\-]+@([\w\-]+\.)+[a-zA-Z]{2,}$");
+    final reg = RegExp(r'^[\w\.\-]+@([\w\-]+\.)+[a-zA-Z]{2,}$');
     if (!reg.hasMatch(value.trim())) return 'البريد الإلكتروني غير صالح';
     return null;
   }
@@ -656,18 +719,14 @@ class SettingsController extends GetxController {
   String? validatePhone(String value) {
     if (value.trim().isEmpty) return 'الرجاء إدخال رقم الهاتف';
     final digits = value.replaceAll(RegExp(r'\D'), '');
-    if (digits.length < 7 || digits.length > 15) return 'رقم الهاتف يجب أن يحتوي بين 7 و 15 رقم';
+    if (digits.length < 7 || digits.length > 15) {
+      return 'رقم الهاتف يجب أن يحتوي بين 7 و 15 رقم';
+    }
     return null;
   }
 
   String? validateAddress(String value) {
     if (value.trim().isEmpty) return 'الرجاء إدخال العنوان';
-    return null;
-  }
-
-  String? validateDescription(String value) {
-    if (value.trim().isEmpty) return 'الرجاء إدخال الوصف';
-    if (value.trim().length < 4) return 'الوصف قصير جدا';
     return null;
   }
 
@@ -679,7 +738,7 @@ class SettingsController extends GetxController {
 
   bool validateLocation() {
     if (latitude.value == 0.0 && longitude.value == 0.0) {
-      errorMessage('إحداثيات الموقع غير محددة');
+      errorMessage.value = 'إحداثيات الموقع غير محددة';
       return false;
     }
     return true;
@@ -697,9 +756,8 @@ class SettingsController extends GetxController {
     fieldErrors.refresh();
 
     final hasFieldError = fieldErrors.values.any((v) => v != null);
-
     if (hasFieldError) {
-      errorMessage('يرجى تصحيح الحقول المشار إليها');
+      errorMessage.value = 'يرجى تصحيح الحقول المشار إليها';
       return false;
     }
 
@@ -707,7 +765,7 @@ class SettingsController extends GetxController {
       return false;
     }
 
-    errorMessage('');
+    errorMessage.value = '';
     return true;
   }
 }

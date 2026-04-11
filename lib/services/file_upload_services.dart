@@ -22,51 +22,57 @@ class FileUploadService {
     }
   }
 
-  // رفع صورة إلى Firebase Storage
   Future<String?> uploadImage({
     required XFile imageFile,
     required String userId,
     required String fileType,
   }) async {
     try {
-      // التحقق من صحة الملف
       if (!isValidImageFile(imageFile)) {
         throw Exception('نوع الملف غير مدعوم');
       }
 
-      // التحقق من حجم الملف
       final file = File(imageFile.path);
       if (!isValidFileSize(file)) {
         throw Exception('حجم الملف كبير جداً. الحد الأقصى 10MB');
       }
 
-      // إنشاء مسار الملف
-      String fileName = '${fileType}_${DateTime.now().millisecondsSinceEpoch}';
-      String fileExtension = path.extension(imageFile.path).toLowerCase();
-      String fullFileName = '$fileName$fileExtension';
+      final fileName = '${fileType}_${DateTime.now().millisecondsSinceEpoch}';
+      final fileExtension = path.extension(imageFile.path).toLowerCase();
+      final fullFileName = '$fileName$fileExtension';
 
-      Reference storageRef = _storage
-          .ref()
-          .child('pharmacies')
-          .child(userId)
-          .child('documents')
-          .child(fileType)
-          .child(fullFileName);
+      final bool isTemp = userId.startsWith('temp_');
 
-      // رفع الملف
-      UploadTask uploadTask = storageRef.putFile(file);
+      Reference storageRef;
+      if (isTemp) {
+        storageRef = _storage
+            .ref()
+            .child('pharmacy_requests_uploads')
+            .child(userId)
+            .child(fileType)
+            .child(fullFileName);
+      } else {
+        storageRef = _storage
+            .ref()
+            .child('pharmacies')
+            .child(userId)
+            .child('documents')
+            .child(fileType)
+            .child(fullFileName);
+      }
 
-      // متابعة حالة التحميل
+      final UploadTask uploadTask = storageRef.putFile(file);
+
       uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
-        double progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+        final progress =
+            (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
         print('Upload progress: $progress%');
       });
 
-      TaskSnapshot snapshot = await uploadTask;
+      final TaskSnapshot snapshot = await uploadTask;
 
-      // التحقق من نجاح التحميل
       if (snapshot.state == TaskState.success) {
-        String downloadUrl = await snapshot.ref.getDownloadURL();
+        final downloadUrl = await snapshot.ref.getDownloadURL();
         print('File uploaded successfully: $downloadUrl');
         return downloadUrl;
       } else {

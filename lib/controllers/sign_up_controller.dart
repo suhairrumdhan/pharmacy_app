@@ -47,7 +47,7 @@ class SignUpController extends GetxController {
   final RxString ownerName = ''.obs;
   final RxString licenseNumber = ''.obs;
   final RxString phoneNumber = ''.obs;
-  final RxString addressDescription = ''.obs;
+  final RxString address = ''.obs;
   final RxString ownerIdNumber = ''.obs;
 
   // ملفات الصور
@@ -103,7 +103,6 @@ class SignUpController extends GetxController {
 
   // --- GetX Workers للتفاعلات التلقائية ---
   void _setupGetXWorkers() {
-    // تحديث صحة النموذج عند تغيير أي حقل
     everAll([
       email, password, pharmacyName, ownerName,
       licenseNumber, phoneNumber, ownerIdNumber,
@@ -111,9 +110,9 @@ class SignUpController extends GetxController {
       locationService.currentMapCenter
     ], (_) => _updateFormValidity());
 
-    // تحديث العنوان عند تحديد موقع جديد
     ever(locationService.currentMapCenter, (location) {
-      if (location != null && addressDescription.value.isEmpty) {
+      // تحديث العنوان فقط إذا كان المستخدم لم يكتب عنواناً بعد
+      if (location != null ) {
         _updateAddressFromLocation(location);
       }
     });
@@ -127,7 +126,7 @@ class SignUpController extends GetxController {
     ownerNameController.addListener(() => ownerName.value = ownerNameController.text.trim());
     licenseController.addListener(() => licenseNumber.value = licenseController.text.trim());
     phoneController.addListener(() => phoneNumber.value = phoneController.text.trim());
-    addressController.addListener(() => addressDescription.value = addressController.text.trim());
+    addressController.addListener(() => address.value = addressController.text.trim());
     ownerIdNumberController.addListener(() => ownerIdNumber.value = ownerIdNumberController.text.trim());
   }
 
@@ -154,9 +153,8 @@ class SignUpController extends GetxController {
           location.latitude,
           location.longitude
       );
-      if (address != null && addressDescription.value.isEmpty) {
+      if (address != null ) {
         addressController.text = address;
-        addressDescription.value = address;
       }
     } catch (e) {
       print("Error getting address: $e");
@@ -358,15 +356,16 @@ class SignUpController extends GetxController {
         licenseFileUrl: licenseFileUrl.value,
         ownerIdFileUrl: ownerIdFileUrl.value,
         phoneNumber: phoneNumber.value.trim(),
-        locationCoordinates: locationService.getLocationCoordinates(),
-        location: locationService.getLocationAsMap(),
+          location: {
+            ...locationService.getLocationAsMap(),
+            'address': address.value.trim(),
+          },
         ownerIdNumber: ownerIdNumber.value.trim(),
         is24Hours: is24Hours.value,
         isOnline: isOnline.value,
         status: 'pending',
         requestDate: DateTime.now(),
       );
-
       await _firestore.collection('pharmacyRequests').doc(uid).set(pharmacy.toMap());
 
       isLoading.value = false;
@@ -466,12 +465,7 @@ class SignUpController extends GetxController {
       }
     } catch (e) {
       print("Error updating pharmacy files: $e");
-      Get.snackbar(
-        "تحذير",
-        "تم التسجيل ولكن حدث خطأ في نقل الملفات",
-        backgroundColor: Colors.orange,
-        colorText: Colors.white,
-      );
+
     }
   }
 

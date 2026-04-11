@@ -29,7 +29,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  int selectedIndex = 0;
+  final NavigationController navController = Get.put(NavigationController());
   final ChatController chatController = Get.find<ChatController>(); // ✅ أضف هذ
   final AuthController authController = Get.find<AuthController>();
   late List<Widget> pages;
@@ -138,7 +138,7 @@ class _HomePageState extends State<HomePage> {
         .map((r) => (r['sidebar'] as Map<String, dynamic>)['item'] as SidebarItem)
         .toList();
 
-    if (selectedIndex >= pages.length) selectedIndex = 0;
+    if (navController.selectedIndex.value >= pages.length) navController.selectedIndex.value = 0;
   }
 
   @override
@@ -161,7 +161,7 @@ class _HomePageState extends State<HomePage> {
           );
         }
 
-        if (selectedIndex >= pages.length) selectedIndex = 0;
+        if (navController.selectedIndex.value >= pages.length) navController.selectedIndex.value = 0;
 
         final String pharmacyName =
             authController.pharmacyData['pharmacyName'] as String? ?? '';
@@ -180,11 +180,9 @@ class _HomePageState extends State<HomePage> {
                   width: sidebarWidth,
                   child: SidebarWidget(
                     collapsed: collapsed,
-                    selectedIndex: selectedIndex,
+                    selectedIndex: navController.selectedIndex.value,
                     sidebarItems: sidebarItems,
-                    onItemSelected: (index) {
-                      setState(() => selectedIndex = index);
-                    },
+                    onItemSelected: navController.goToPage,
                     pharmacyName: pharmacyName,
                     backgroundColor: const Color(0xFF1E40AF),
                     activeColor: const Color(0xFF3B82F6),
@@ -192,7 +190,7 @@ class _HomePageState extends State<HomePage> {
                     activeTextColor: Colors.white,
                   ),
                 ),
-                Expanded(child: pages[selectedIndex]),
+                Expanded(child: pages[navController.selectedIndex.value]),
               ],
             );
           },
@@ -241,6 +239,14 @@ class PageWrapper extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class NavigationController extends GetxController {
+  final RxInt selectedIndex = 0.obs;
+
+  void goToPage(int index) {
+    selectedIndex.value = index;
   }
 }
 
