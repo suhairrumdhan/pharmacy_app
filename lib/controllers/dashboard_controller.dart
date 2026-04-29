@@ -217,50 +217,62 @@ class DashboardController extends GetxController {
     }
   }
 
-  // ========== Month Metrics ==========
+// ========== Month Metrics ==========
   Future<void> _loadMonthMetrics() async {
     try {
+      final dashboard = _financeCtrl.dashboard.value;
       final now = DateTime.now();
 
-      // Get monthly sales from FinanceController or calculate
-      monthSales.value = _financeCtrl.overview.value.totalSalesMonth;
-      monthExpenses.value = _financeCtrl.overview.value.totalExpensesMonth;
-      monthProfit.value = _financeCtrl.overview.value.netProfitMonth;
+      monthSales.value = dashboard.sales.netSales;
+      monthExpenses.value = dashboard.expenses.totalExpenses;
+      monthProfit.value = dashboard.profitability.netProfit;
 
-      // Count transactions this month
       final startOfMonth = DateTime(now.year, now.month, 1);
       final endOfMonth = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
 
-      final monthSalesList = await _salesCtrl.getSalesReport(startOfMonth, endOfMonth);
+      final monthSalesList =
+      await _salesCtrl.getSalesReport(startOfMonth, endOfMonth);
       monthTransactions.value = monthSalesList.length;
-
     } catch (e) {
       print('Error loading month metrics: $e');
     }
   }
 
-  // ========== Year Metrics ==========
+// ========== Year Metrics ==========
   Future<void> _loadYearMetrics() async {
     try {
-      yearSales.value = _financeCtrl.overview.value.totalSalesYear;
-      yearExpenses.value = _financeCtrl.overview.value.totalExpensesYear;
-      yearProfit.value = _financeCtrl.overview.value.netProfitYear;
+      final dashboard = _financeCtrl.dashboard.value;
+      final trend = dashboard.monthlyTrend;
+
+      double sales = 0;
+      double expenses = 0;
+      double profit = 0;
+
+      for (final point in trend) {
+        sales += point.netSales;
+        expenses += point.expenses + point.payroll;
+        profit += point.netProfit;
+      }
+
+      yearSales.value = sales;
+      yearExpenses.value = expenses;
+      yearProfit.value = profit;
     } catch (e) {
       print('Error loading year metrics: $e');
     }
   }
 
-  // ========== Financial Health ==========
+// ========== Financial Health ==========
   Future<void> _loadFinancialHealth() async {
     try {
-      final overview = _financeCtrl.overview.value;
+      final dashboard = _financeCtrl.dashboard.value;
 
-      cashInHand.value = overview.cashIn - overview.cashOut;
-      cashInBank.value = overview.bankIn - overview.bankOut;
-      receivablesTotal.value = overview.totalReceivables;
-      payablesTotal.value = overview.totalDueSuppliers;
-      netCashFlow.value = (overview.cashIn + overview.bankIn) - (overview.cashOut + overview.bankOut);
-
+      cashInHand.value = dashboard.cash.closingBalance;
+      cashInBank.value = dashboard.bank.closingBalance;
+      receivablesTotal.value = dashboard.workingCapital.accountsReceivable;
+      payablesTotal.value = dashboard.workingCapital.accountsPayable;
+      netCashFlow.value =
+          dashboard.cash.netCashFlow + dashboard.bank.netFlow;
     } catch (e) {
       print('Error loading financial health: $e');
     }

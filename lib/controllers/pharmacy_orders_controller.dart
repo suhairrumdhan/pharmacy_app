@@ -1,7 +1,8 @@
 import 'dart:async';
-
+import '../services/pharmacy_order_notifications_service.dart';
+import '../../controllers/settings_controller.dart';
 import 'package:get/get.dart';
-
+import '../services/pharmacy_order_notifications_service.dart';
 import '../models/pharmacy_order_model.dart';
 import '../services/pharmacy_orders_service.dart';
 
@@ -28,7 +29,7 @@ class PharmacyOrdersController extends GetxController {
   final RxString errorMessage = ''.obs;
   final RxString selectedStatus = 'all'.obs;
   final RxString pharmacyId = ''.obs;
-
+  SettingsController get _settingsController => Get.find<SettingsController>();
   void startListening(String currentPharmacyId) {
 
     if (currentPharmacyId.trim().isEmpty) {
@@ -178,6 +179,8 @@ class PharmacyOrdersController extends GetxController {
     }
 
     try {
+      final order = allOrders.firstWhereOrNull((o) => o.id == orderId);
+
       await _service.updateOrderStatus(
         orderId: orderId,
         newStatus: newStatus,
@@ -187,10 +190,56 @@ class PharmacyOrdersController extends GetxController {
         note: note,
       );
 
+      if (order != null && order.userId.trim().isNotEmpty) {
+        final pharmacyName =
+        _settingsController.currentSettings.name.trim().isNotEmpty
+            ? _settingsController.currentSettings.name.trim()
+            : 'الصيدلية';
+
+        final pharmacyImageUrl = _settingsController.currentSettings.imageUrl;
+
+        await PharmacyOrderNotificationsService.instance.notifyOrderStatusChanged(
+          userId: order.userId,
+          orderId: order.id,
+          pharmacyId: pharmacyId.value,
+          pharmacyName: pharmacyName,
+          imageUrl: pharmacyImageUrl,
+          status: newStatus,
+          statusLabel: _statusLabel(newStatus),
+          beneficiaryId: order.beneficiaryId,
+          beneficiaryName: order.beneficiaryName,
+          beneficiaryType: order.beneficiaryType,
+          beneficiaryRelationLabel: order.relationLabel,
+          note: note,
+          deliveredMedicines:
+          newStatus == 'completed' ? _buildDeliveredMedicinesPayload(order) : const [],
+        );
+      }
+
       Get.snackbar('تم', 'تم تحديث حالة الطلب');
     } catch (e) {
       Get.snackbar('خطأ', 'فشل تحديث حالة الطلب: $e');
     }
+  }
+
+  List<Map<String, dynamic>> _buildDeliveredMedicinesPayload(
+      PharmacyOrderModel order,
+      ) {
+    return order.medicines.map((m) {
+      return {
+        'requestedName': m.name,
+        'medicineName': m.name,
+        'matchedMedicineName': m.name,
+        'strength': m.strength,
+        'dosage': m.strength,
+        'dosageForm': m.dosageForm,
+        'route': m.dosageForm,
+        'quantity': m.quantity,
+        'estimatedPrice': m.price,
+        'availableAtSelection': m.available ?? true,
+        'source': 'pharmacy_completed_order',
+      };
+    }).toList();
   }
 
   Future<void> markAsReviewing({
@@ -296,10 +345,35 @@ class PharmacyOrdersController extends GetxController {
     required String note,
   }) async {
     try {
+      final cleanedNote = note.trim();
+      final order = allOrders.firstWhereOrNull((o) => o.id == orderId);
+
       await _service.updatePharmacyNote(
         orderId: orderId,
-        note: note,
+        note: cleanedNote,
       );
+
+      if (order != null &&
+          order.userId.trim().isNotEmpty &&
+          cleanedNote.isNotEmpty) {
+        final pharmacyName = _settingsController.currentSettings.name.trim().isNotEmpty
+            ? _settingsController.currentSettings.name.trim()
+            : 'الصيدلية';
+
+        final pharmacyImageUrl = _settingsController.currentSettings.imageUrl;
+
+        await PharmacyOrderNotificationsService.instance.notifyPharmacyNoteAdded(
+          userId: order.userId,
+          orderId: order.id,
+          pharmacyId: pharmacyId.value,
+          pharmacyName: pharmacyName,
+          imageUrl: pharmacyImageUrl,
+          beneficiaryId: order.beneficiaryId,
+          beneficiaryName: order.beneficiaryName,
+          beneficiaryType: order.beneficiaryType,
+          note: cleanedNote,
+        );
+      }
 
       Get.snackbar('تم', 'تم حفظ ملاحظة الصيدلية');
     } catch (e) {

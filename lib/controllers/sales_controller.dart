@@ -1,38 +1,30 @@
 // lib/controllers/sales_controller.dart
 import 'dart:async';
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:pharmacy_desktop/controllers/shift_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import '../models/inventory_model.dart';
 import '../models/sales_model.dart';
 import '../models/insurance_company_model.dart';
-
 import 'auth_controller.dart';
 import 'inventory_controller.dart';
 import 'insurance_company_controller.dart';
-
+import '../services/audit_log_service.dart';
 class SalesController extends GetxController {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-
   final FocusNode searchFocusNode = FocusNode();
   final RxBool allowAutoFocusSearch = true.obs;
   final RxDouble manualDiscount = 0.0.obs; // خصم موظف يدوي
   static const String _pendingInvoicesKey = 'pending_invoices_';
-
   static const String _kPharmacyHistory = '__pharmacy__';
   static const String _kMyHistory = '__my_history__';
-
   final RxMap<String, List<Sale>> _userInvoices = <String, List<Sale>>{}.obs;
-
   final RxInt currentInvoiceIndex = 0.obs;
-
   final Rx<Sale> currentSale = Sale(
     invoiceNumber: Sale.generateInvoiceNumber(),
     pharmacyId: '',
@@ -76,6 +68,133 @@ class SalesController extends GetxController {
   final RxDouble refundCashOut = 0.0.obs;
   final RxDouble refundCardOut = 0.0.obs;
 
+  final AuditLogService _auditLogService = AuditLogService();
+
+  AuthController get authController => Get.find<AuthController>();
+
+  void _ensureCan(String permission, String message) {
+    if (!authController.can(permission)) {
+      throw Exception(message);
+    }
+  }
+
+  Map<String, dynamic> get _actor => Map<String, dynamic>.from(authController.actorInfo);
+
+
+  Future<void> _logCreateSale(Sale savedSale) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: pharmacyId,
+        action: AuditActions.createSale,
+        module: AuditModules.sales,
+        targetType: AuditTargetTypes.sale,
+        targetId: savedSale.id ?? '',
+        targetName: savedSale.invoiceNumber,
+        performedBy: _actor,
+        details: {
+          'note': 'تم إنشاء فاتورة مبيعات',
+          'newValues': {
+            'invoiceNumber': savedSale.invoiceNumber,
+            'saleType': savedSale.type.name,
+            'itemsCount': savedSale.items.length,
+            'subtotal': savedSale.subtotal,
+            'total': savedSale.total,
+            'customerPaid': _customerPaid(savedSale),
+            'companyBilled': _companyBilled(savedSale),
+            'paymentMethod': _customerMethod(savedSale).name,
+            'employeeId': savedSale.employeeId,
+            'employeeName': savedSale.employeeName,
+            'customerName': savedSale.customerName,
+            'customerPhone': savedSale.customerPhone,
+            'insuranceCompanyId': savedSale.insuranceCompanyId,
+            'insuranceCompanyName': savedSale.insuranceCompanyName,
+            'shiftId': savedSale.shiftId,
+            'isSaved': savedSale.isSaved,
+            'isDeleted': savedSale.isDeleted,
+          },
+        },
+        entityPath: 'pharmacies/$pharmacyId/sales/${savedSale.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (create_sale): $e');
+    }
+  }
+
+  Future<void> _logRefundSale({
+    required String saleId,
+    required Sale refundSale,
+    required Sale originalSale,
+    required String shiftId,
+  }) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: pharmacyId,
+        action: AuditActions.refundSale,
+        module: AuditModules.sales,
+        targetType: AuditTargetTypes.sale,
+        targetId: saleId,
+        targetName: refundSale.invoiceNumber,
+        performedBy: _actor,
+        details: {
+          'note': 'تم إنشاء فاتورة ترجيع',
+          'oldValues': {
+            'refSaleId': originalSale.id,
+            'refInvoiceNumber': originalSale.invoiceNumber,
+          },
+          'newValues': {
+            'refundInvoiceNumber': refundSale.invoiceNumber,
+            'itemsCount': refundSale.items.length,
+            'subtotal': refundSale.subtotal,
+            'total': refundSale.total,
+            'cashOut': refundCashOut.value,
+            'cardOut': refundCardOut.value,
+            'paymentMethod': refundSale.paymentMethod.name,
+            'shiftId': shiftId,
+          },
+        },
+        entityPath: 'pharmacies/$pharmacyId/sales/$saleId',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (refund_sale): $e');
+    }
+  }
+
+  Future<void> _logDeleteSale({
+    required String saleId,
+    required Sale sale,
+  }) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: pharmacyId,
+        action: 'delete_sale',
+        module: AuditModules.sales,
+        targetType: AuditTargetTypes.sale,
+        targetId: saleId,
+        targetName: sale.invoiceNumber,
+        performedBy: _actor,
+        details: {
+          'note': 'تم حذف الفاتورة منطقيًا',
+          'deletedSnapshot': {
+            'invoiceNumber': sale.invoiceNumber,
+            'saleType': sale.type.name,
+            'itemsCount': sale.items.length,
+            'subtotal': sale.subtotal,
+            'total': sale.total,
+            'employeeId': sale.employeeId,
+            'employeeName': sale.employeeName,
+            'customerName': sale.customerName,
+            'customerPhone': sale.customerPhone,
+            'paymentMethod': sale.paymentMethod.name,
+            'isSaved': sale.isSaved,
+            'isDeleted': true,
+          },
+        },
+        entityPath: 'pharmacies/$pharmacyId/sales/$saleId',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (delete_sale): $e');
+    }
+  }
 
   // =============================
   // Firebase refs
@@ -417,15 +536,6 @@ class SalesController extends GetxController {
     }
   }
 
-  void debugPrintHistory() {
-    debugPrint('🔍 isOwnerView: $isOwnerView');
-    debugPrint(
-        '🔍 _kPharmacyHistory: ${_userInvoices[_kPharmacyHistory]?.length ?? 0} فاتورة');
-    debugPrint(
-        '🔍 _kMyHistory: ${_userInvoices[_kMyHistory]?.length ?? 0} فاتورة');
-    debugPrint(
-        '🔍 actorKey $_currentActorKey: ${_userInvoices[_currentActorKey]?.length ?? 0} فاتورة');
-  }
 
   Future<void> loadHistoryByRange({
     required DateTime start,
@@ -1033,6 +1143,8 @@ class SalesController extends GetxController {
     final sale = currentSale.value;
     if (sale.items.isEmpty) return null;
 
+    _ensureCan('sales.create', 'ليس لديك صلاحية إنشاء مبيعات');
+
     if (sale.isSaved || sale.status == InvoiceStatus.completed) {
       _safeSnackbar('غير مسموح', 'هذه الفاتورة محفوظة مسبقاً');
       return null;
@@ -1120,8 +1232,7 @@ class SalesController extends GetxController {
       _addOrReplaceInvoice(saved);
       currentSale.value = saved;
 
-      await _logSaleActivity(saved);
-
+      await _logCreateSale(saved);
       await _removePendingInvoiceByNumber('ignored', saved.invoiceNumber);
       await _savePendingInvoicesToLocal();
 
@@ -1201,38 +1312,6 @@ class SalesController extends GetxController {
     await _savePendingInvoicesToLocal();
   }
 
-  Future<void> _logSaleActivity(Sale savedSale) async {
-    try {
-      final authController = Get.find<AuthController>();
-      final actor = authController.currentEmployee.value;
-
-      String employeeName = savedSale.employeeName ?? 'موظف';
-      String employeeId = savedSale.employeeId ?? (_auth.currentUser?.uid ?? '');
-
-      if (actor != null && actor is Map<String, dynamic>) {
-        employeeName = actor['name']?.toString() ?? employeeName;
-        employeeId = actor['id']?.toString() ?? employeeId;
-      }
-
-      await _firestore
-          .collection('pharmacies')
-          .doc(pharmacyId)
-          .collection('audit_logs')
-          .add({
-        'action': 'create_sale',
-        'targetId': savedSale.id,
-        'invoiceNumber': savedSale.invoiceNumber,
-        'customerPaid': _customerPaid(savedSale),
-        'companyBilled': _companyBilled(savedSale),
-        'itemsCount': savedSale.items.length,
-        'performedBy': employeeName,
-        'userId': employeeId,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      debugPrint('❌ audit log error: $e');
-    }
-  }
 
   // =============================
   // Reports
@@ -1275,7 +1354,30 @@ class SalesController extends GetxController {
 
   Future<bool> deleteSale(String saleId) async {
     try {
-      await salesCollection.doc(saleId).update({'isDeleted': true});
+      _ensureCan('sales.delete', 'ليس لديك صلاحية حذف المبيعات');
+
+      final doc = await salesCollection.doc(saleId).get();
+      if (!doc.exists) {
+        Get.snackbar('تنبيه', 'الفاتورة غير موجودة');
+        return false;
+      }
+
+      final sale = Sale.fromMap({
+        'id': doc.id,
+        ...doc.data() as Map<String, dynamic>,
+      }).copyWith(id: doc.id).recalculate();
+
+      await salesCollection.doc(saleId).update({
+        'isDeleted': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': _actor,
+      });
+
+      await _logDeleteSale(
+        saleId: saleId,
+        sale: sale,
+      );
+
       return true;
     } catch (e) {
       Get.snackbar('خطأ', 'فشل في حذف الفاتورة');
@@ -1922,6 +2024,7 @@ class SalesController extends GetxController {
     final shiftId = shiftCtrl.activeShift.value!.id;
 
     final orig = originalSale.value;
+    _ensureCan('sales.refund', 'ليس لديك صلاحية إرجاع المبيعات');
     if (orig == null) throw Exception('حمّلي الفاتورة الأصلية أولاً');
 
     final r = currentSale.value;
@@ -1987,16 +2090,12 @@ class SalesController extends GetxController {
     }
 
     // (اختياري) audit log
-    await _firestore.collection('pharmacies').doc(pharmacyId).collection('audit_logs').add({
-      'action': 'create_refund',
-      'targetId': doc.id,
-      'refInvoiceNumber': orig.invoiceNumber,
-      'refundInvoiceNumber': payloadSale.invoiceNumber,
-      'cashOut': refundCashOut.value,
-      'cardOut': refundCardOut.value,
-      'itemsCount': payloadSale.items.length,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
+    await _logRefundSale(
+      saleId: doc.id,
+      refundSale: payloadSale,
+      originalSale: orig,
+      shiftId: shiftId,
+    );
 
     // Reset UI
     toggleRefundMode(); // يطلع من الوضع

@@ -89,6 +89,37 @@ class InsuranceCompany {
     };
   }
 
+  InsuranceCompany copyWith({
+    String? id,
+    String? name,
+    String? code,
+    String? contactPerson,
+    String? phone,
+    String? address, // ✅ أضيفي هذا
+    double? discountPercentage,
+    String? status,
+    DateTime? contractStartDate,
+    DateTime? contractEndDate,
+    String? notes,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return InsuranceCompany(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      code: code ?? this.code,
+      contactPerson: contactPerson ?? this.contactPerson,
+      phone: phone ?? this.phone,
+      discountPercentage: discountPercentage ?? this.discountPercentage,
+      status: status ?? this.status,
+      address: address ?? this.address, // ✅ مهم جدًا
+      contractStartDate: contractStartDate ?? this.contractStartDate,
+      contractEndDate: contractEndDate ?? this.contractEndDate,
+      notes: notes ?? this.notes,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
   // معلومات تنسيقية
   String get formattedContractStartDate {
     return '${contractStartDate.day}/${contractStartDate.month}/${contractStartDate.year}';

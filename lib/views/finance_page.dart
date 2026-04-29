@@ -1,4 +1,4 @@
-// ignore_for_file: prefer_const_constructors, use_key_in_widget_constructors, prefer_const_literals_to_create_immutables
+// ignore_for_file: prefer_const_constructors
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -9,427 +9,125 @@ import '../../controllers/finance_controller.dart';
 import '../../models/finance_model.dart';
 import 'expenses_page.dart';
 
-class FinanceConstants {
-  static const Color primaryBlue = Color(0xFF1565C0);
-  static const Color softBlue = Color(0xFFEAF3FF);
-  static const Color teal = Color(0xFF00897B);
-  static const Color green = Color(0xFF43A047);
-  static const Color orange = Color(0xFFEF6C00);
-  static const Color deepOrange = Color(0xFFD84315);
-  static const Color purple = Color(0xFF6A1B9A);
-
-  static const List<String> months = [
-    'ينا', 'فبر', 'مار', 'أبر', 'ماي', 'يون',
-    'يول', 'أغس', 'سبت', 'أكت', 'نوف', 'ديس',
-  ];
-
-  static const String currency = 'د.ل';
-}
-
-// ============= الدوال المساعدة العامة =============
-String formatMoney(dynamic value) {
-  if (value == null) return '0 ${FinanceConstants.currency}';
-
-  double numValue;
-  if (value is String) {
-    numValue = double.tryParse(value) ?? 0;
-  } else if (value is int) {
-    numValue = value.toDouble();
-  } else if (value is double) {
-    numValue = value;
-  } else {
-    return '0 ${FinanceConstants.currency}';
-  }
-
-  return '${numValue.toStringAsFixed(2)} ${FinanceConstants.currency}';
-}
-
-String calculateProfitPercentage(dynamic profit, dynamic sales) {
-  double profitValue = 0;
-  double salesValue = 0;
-
-  if (profit is String) profitValue = double.tryParse(profit) ?? 0;
-  else if (profit is double) profitValue = profit;
-  else if (profit is int) profitValue = profit.toDouble();
-
-  if (sales is String) salesValue = double.tryParse(sales) ?? 0;
-  else if (sales is double) salesValue = sales;
-  else if (sales is int) salesValue = sales.toDouble();
-
-  if (salesValue <= 0) return '0%';
-  final percentage = (profitValue / salesValue * 100);
-  return '${percentage.toStringAsFixed(1)}%';
-}
-
-double getValueForIndex(int index, dynamic data) {
-  switch (index) {
-    case 0: return toDouble(data.totalSalesMonth);
-    case 1: return toDouble(data.totalPurchasesMonth);
-    case 2: return toDouble(data.netProfitMonth);
-    case 3: return toDouble(data.totalExpensesMonth);
-    case 4: return toDouble(data.totalDueSuppliers);
-    case 5: return toDouble(data.totalReceivables);
-    default: return 0;
-  }
-}
-
-double toDouble(dynamic value) {
-  if (value == null) return 0;
-  if (value is double) return value;
-  if (value is int) return value.toDouble();
-  if (value is String) return double.tryParse(value) ?? 0;
-  return 0;
-}
-
-
-Widget buildInfoRow(String label, String value, Color color, {bool isBold = false}) {
-  return Padding(
-    padding: const EdgeInsets.symmetric(vertical: 2),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
-            color: color,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-Widget buildLiquiditySection(dynamic data) {
-  return Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      buildInfoRow('الداخل كاش', formatMoney(data.cashIn), Colors.green),
-      buildInfoRow('الخارج كاش', formatMoney(data.cashOut), Colors.red),
-      const Divider(height: 16),
-      buildInfoRow('رصيد الكاش التقريبي', formatMoney(data.cashBalance), FinanceConstants.primaryBlue, isBold: true),
-      const SizedBox(height: 8),
-      buildInfoRow('الداخل بنك/بطاقة', formatMoney(data.bankIn), Colors.green),
-      buildInfoRow('الخارج بنك/بطاقة', formatMoney(data.bankOut), Colors.red),
-      const Divider(height: 16),
-      buildInfoRow('رصيد البنك التقريبي', formatMoney(data.bankBalance), FinanceConstants.primaryBlue, isBold: true),
-    ],
-  );
-}
-
-Widget buildPayrollSection(dynamic payroll) {
-  return Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      buildInfoRow('عدد الموظفين', '${payroll.employeesCount}', FinanceConstants.primaryBlue),
-      buildInfoRow('إجمالي الرواتب', formatMoney(payroll.totalMonthlySalaries), Colors.black87),
-      buildInfoRow('المدفوع', formatMoney(payroll.paidSalariesThisMonth), Colors.green),
-      buildInfoRow('المتبقي', formatMoney(payroll.unpaidSalariesThisMonth), Colors.red),
-      const SizedBox(height: 8),
-      ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: LinearProgressIndicator(
-          value: (payroll.paymentRate / 100).clamp(0.0, 1.0),
-          minHeight: 6,
-          backgroundColor: Colors.grey.shade200,
-          valueColor: const AlwaysStoppedAnimation(FinanceConstants.primaryBlue),
-        ),
-      ),
-      const SizedBox(height: 4),
-      Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          'نسبة السداد: ${payroll.paymentRate.toStringAsFixed(1)}%',
-          style: TextStyle(color: Colors.grey.shade700, fontSize: 11, fontWeight: FontWeight.w600),
-        ),
-      ),
-    ],
-  );
-}
-
-Widget buildAnnualSummarySection(dynamic data) {
-  return Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      buildInfoRow('مبيعات السنة', formatMoney(data.totalSalesYear), Colors.green),
-      buildInfoRow('مشتريات السنة', formatMoney(data.totalPurchasesYear), Colors.orange),
-      buildInfoRow('مصروفات السنة', formatMoney(data.totalExpensesYear), Colors.red),
-      const Divider(height: 16),
-      buildInfoRow('صافي السنة', formatMoney(data.netProfitYear), FinanceConstants.primaryBlue, isBold: true),
-    ],
-  );
-}
-// =================================================
-
 class FinancePage extends GetView<FinanceController> {
   const FinancePage({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,  // خلفية بيضاء للصفحة
+      backgroundColor: _FinanceColors.pageBg,
       body: SafeArea(
         child: Obx(() {
-          final data = controller.overview.value;
+          final dashboard = controller.dashboard.value;
+
+          if (controller.isLoading.value && dashboard.monthlyTrend.isEmpty) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
           return RefreshIndicator(
             onRefresh: controller.loadFinanceData,
-            child: controller.isLoading.value && data.monthlyTrend.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(18),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ========== HEADER SECTION ==========
-                  _HeaderSection(
-                    year: controller.selectedYear.value,
-                    onRefresh: controller.loadFinanceData,
+                  _FinanceHeader(
+                    selectedYear: controller.selectedYear.value,
+                    selectedMonth: controller.selectedMonth.value,
                     onYearChanged: controller.changeYear,
-                    onExport: _exportReport,
-                  ),
-                  const SizedBox(height: 12),
-                  // بطاقات المؤشرات المالية
-                  _CompactPanel(
-                    title: '',
-                    padding: const EdgeInsets.all(16),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        int cardsPerRow = constraints.maxWidth > 800 ? 3:
-                        constraints.maxWidth > 500 ? 2 : 1;
-
-                        double cardWidth = (constraints.maxWidth - (cardsPerRow - 1) * 12) / cardsPerRow;
-
-                        return Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _buildStatCard(
-                              title: 'مبيعات الشهر',
-                              icon: Icons.point_of_sale_rounded,
-                              color: FinanceConstants.primaryBlue,
-                              value: formatMoney(data.totalSalesMonth),
-                              width: cardWidth,
-                            ),
-                            _buildStatCard(
-                              title: 'مشتريات الشهر',
-                              icon: Icons.shopping_cart_checkout_rounded,
-                              color: FinanceConstants.teal,
-                              value: formatMoney(data.totalPurchasesMonth),
-                              width: cardWidth,
-                            ),
-                            _buildStatCard(
-                              title: 'مصروفات الشهر',
-                              icon: Icons.receipt_long_rounded,
-                              color: FinanceConstants.orange,
-                              value: formatMoney(data.totalExpensesMonth),
-                              width: cardWidth,
-                            ),
-                            _buildStatCard(
-                              title: 'ذمم الموردين',
-                              icon: Icons.account_balance_wallet_rounded,
-                              color: FinanceConstants.deepOrange,
-                              value: formatMoney(data.totalDueSuppliers),
-                              width: cardWidth,
-                            ),
-                            _buildStatCard(
-                              title: 'المستحقات لك',
-                              icon: Icons.payments_rounded,
-                              color: FinanceConstants.purple,
-                              value: formatMoney(data.totalReceivables),
-                              width: cardWidth,
-                            ),
-                            _buildStatCard(
-                              title: 'صافي الربح',
-                              icon: Icons.trending_up_rounded,
-                              color: FinanceConstants.green,
-                              value: formatMoney(data.netProfitMonth),
-                              percentage: calculateProfitPercentage(data.netProfitMonth, data.totalSalesMonth),
-                              width: cardWidth,
-                            ),
-                          ],
+                    onMonthChanged: controller.changeMonth,
+                    onRefresh: controller.loadFinanceData,
+                    onOpenExpenses: () {
+                      if (!controller.canViewExpenses) {
+                        Get.snackbar(
+                          'غير مسموح',
+                          'ليس لديك صلاحية عرض المصروفات',
+                          backgroundColor: Colors.red,
+                          colorText: Colors.white,
                         );
-                      },
-                    ),
+                        return;
+                      }
+
+                      Get.dialog(
+                        const ExpensesDialog(),
+                        barrierDismissible: true,
+                      );
+                    },
                   ),
-                  const SizedBox(height: 20),
-                  // ========== MAIN ROW ==========
+
+                  const SizedBox(height: 18),
+
+                  _ExecutiveKpisGrid(dashboard: dashboard),
+
+                  const SizedBox(height: 18),
+
                   LayoutBuilder(
                     builder: (context, constraints) {
-                      if (constraints.maxWidth < 700) {
-                        return Column(
-                          children: [
-                            // اليسار
-                            _CompactPanel(
-                              title: 'السيولة',
-                              child: _buildLiquiditySection(data),
-                            ),
-                            const SizedBox(height: 12),
-                            _CompactPanel(
-                              title: 'الرواتب',
-                              child: _buildPayrollSection(data.payroll),
-                            ),
-                            const SizedBox(height: 12),
-                            _CompactPanel(
-                              title: 'ملخص سنوي',
-                              child: _buildAnnualSummarySection(data),
-                            ),
-                            const SizedBox(height: 20),
-                            // اليمين
-                            _CompactPanel(
-                              title: 'تحليل المصروفات',
-                              child: LayoutBuilder(
-                                builder: (context, constraints) {
-                                  if (constraints.maxWidth < 500) {
-                                    return Column(
-                                      children: [
-                                        SizedBox(
-                                          height: 200,
-                                          child: controller.expenses.isEmpty
-                                              ? const Center(child: Text('لا توجد بيانات'))
-                                              : ExpensesPieChart(
-                                            expenses: controller.expenses,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 16),
-                                        _buildExpenseCategoriesList(controller),
-                                      ],
-                                    );
-                                  } else {
-                                    return Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          flex: 6,
-                                          child: SizedBox(
-                                            height: 220,
-                                            child: controller.expenses.isEmpty
-                                                ? const Center(child: Text('لا توجد بيانات'))
-                                                : ExpensesPieChart(
-                                              expenses: controller.expenses,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 16),
-                                        Expanded(
-                                          flex: 4,
-                                          child: SizedBox(
-                                            height: 220,
-                                            child: _buildExpenseCategoriesList(controller),
-                                          ),
-                                        ),
-                                      ],
-                                    );
-                                  }
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            _CompactPanel(
-                              title: 'الاتجاه الشهري',
-                              child: SizedBox(
-                                height: 280,
-                                child: data.monthlyTrend.isEmpty
-                                    ? const Center(child: Text('لا توجد بيانات'))
-                                    : MonthlyFinanceChart(
-                                  monthlyTrend: data.monthlyTrend,
-                                ),
-                              ),
-                            ),
-                          ],
-                        );
-                      } else {
+                      final isWide = constraints.maxWidth >= 1180;
+                      final isMedium = constraints.maxWidth >= 760;
+
+                      if (isWide) {
                         return Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // العمود الأيسر: السيولة + الرواتب + الملخص السنوي
                             Expanded(
-                              flex: 6,
+                              flex: 7,
                               child: Column(
                                 children: [
-                                  _CompactPanel(
-                                    title: 'السيولة',
-                                    child: _buildLiquiditySection(data),
+                                  _SectionCard(
+                                    title: 'تحليل الربحية',
+                                    icon: Iconsax.chart_21,
+                                    child: _ProfitabilitySection(
+                                      data: dashboard.profitability,
+                                    ),
                                   ),
-                                  const SizedBox(height: 12),
-                                  _CompactPanel(
-                                    title: 'الرواتب',
-                                    child: _buildPayrollSection(data.payroll),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  _CompactPanel(
-                                    title: 'ملخص سنوي',
-                                    child: _buildAnnualSummarySection(data),
+                                  const SizedBox(height: 16),
+                                  _SectionCard(
+                                    title: 'الاتجاه الشهري',
+                                    icon: Iconsax.chart_2,
+                                    child: _MonthlyTrendSection(
+                                      monthlyTrend: dashboard.monthlyTrend,
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            // العمود الأيمن: تحليل المصروفات + الاتجاه الشهري
+                            const SizedBox(width: 16),
                             Expanded(
-                              flex: 6,
+                              flex: 5,
                               child: Column(
                                 children: [
-                                  _CompactPanel(
-                                    title: 'تحليل المصروفات',
-                                    child: LayoutBuilder(
-                                      builder: (context, constraints) {
-                                        if (constraints.maxWidth < 500) {
-                                          return Column(
-                                            children: [
-                                              SizedBox(
-                                                height: 200,
-                                                child: controller.expenses.isEmpty
-                                                    ? const Center(child: Text('لا توجد بيانات'))
-                                                    : ExpensesPieChart(
-                                                  expenses: controller.expenses,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 16),
-                                              _buildExpenseCategoriesList(controller),
-                                            ],
-                                          );
-                                        } else {
-                                          return Row(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Expanded(
-                                                flex: 6,
-                                                child: SizedBox(
-                                                  height: 220,
-                                                  child: controller.expenses.isEmpty
-                                                      ? const Center(child: Text('لا توجد بيانات'))
-                                                      : ExpensesPieChart(
-                                                    expenses: controller.expenses,
-                                                  ),
-                                                ),
-                                              ),
-                                              const SizedBox(width: 16),
-                                              Expanded(
-                                                flex: 4,
-                                                child: SizedBox(
-                                                  height: 220,
-                                                  child: _buildExpenseCategoriesList(controller),
-                                                ),
-                                              ),
-                                            ],
-                                          );
-                                        }
-                                      },
+                                  _SectionCard(
+                                    title: 'السيولة النقدية',
+                                    icon: Iconsax.wallet_3,
+                                    child: _CashBankSection(
+                                      cash: dashboard.cash,
+                                      bank: dashboard.bank,
                                     ),
                                   ),
-                                  const SizedBox(height: 40),
-                                  _CompactPanel(
-                                    title: 'الاتجاه الشهري',
-                                    child: SizedBox(
-                                      height: 280,
-                                      child: data.monthlyTrend.isEmpty
-                                          ? const Center(child: Text('لا توجد بيانات'))
-                                          : MonthlyFinanceChart(
-                                        monthlyTrend: data.monthlyTrend,
-                                      ),
+                                  const SizedBox(height: 16),
+                                  _SectionCard(
+                                    title: 'رأس المال العامل',
+                                    icon: Iconsax.activity,
+                                    child: _WorkingCapitalSection(
+                                      data: dashboard.workingCapital,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  _SectionCard(
+                                    title: 'الرواتب',
+                                    icon: Iconsax.profile_2user,
+                                    child: _PayrollSection(
+                                      data: dashboard.payroll,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  _SectionCard(
+                                    title: 'المخزون مالياً',
+                                    icon: Iconsax.box,
+                                    child: _InventorySection(
+                                      data: dashboard.inventory,
                                     ),
                                   ),
                                 ],
@@ -438,6 +136,132 @@ class FinancePage extends GetView<FinanceController> {
                           ],
                         );
                       }
+
+                      if (isMedium) {
+                        return Column(
+                          children: [
+                            _SectionCard(
+                              title: 'تحليل الربحية',
+                              icon: Iconsax.chart_21,
+                              child: _ProfitabilitySection(
+                                data: dashboard.profitability,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: _SectionCard(
+                                    title: 'السيولة النقدية',
+                                    icon: Iconsax.wallet_3,
+                                    child: _CashBankSection(
+                                      cash: dashboard.cash,
+                                      bank: dashboard.bank,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _SectionCard(
+                                    title: 'رأس المال العامل',
+                                    icon: Iconsax.activity,
+                                    child: _WorkingCapitalSection(
+                                      data: dashboard.workingCapital,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: _SectionCard(
+                                    title: 'الرواتب',
+                                    icon: Iconsax.profile_2user,
+                                    child: _PayrollSection(
+                                      data: dashboard.payroll,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _SectionCard(
+                                    title: 'المخزون مالياً',
+                                    icon: Iconsax.box,
+                                    child: _InventorySection(
+                                      data: dashboard.inventory,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            _SectionCard(
+                              title: 'الاتجاه الشهري',
+                              icon: Iconsax.chart_2,
+                              child: _MonthlyTrendSection(
+                                monthlyTrend: dashboard.monthlyTrend,
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+
+                      return Column(
+                        children: [
+                          _SectionCard(
+                            title: 'تحليل الربحية',
+                            icon: Iconsax.chart_21,
+                            child: _ProfitabilitySection(
+                              data: dashboard.profitability,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _SectionCard(
+                            title: 'السيولة النقدية',
+                            icon: Iconsax.wallet_3,
+                            child: _CashBankSection(
+                              cash: dashboard.cash,
+                              bank: dashboard.bank,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _SectionCard(
+                            title: 'رأس المال العامل',
+                            icon: Iconsax.activity,
+                            child: _WorkingCapitalSection(
+                              data: dashboard.workingCapital,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _SectionCard(
+                            title: 'الرواتب',
+                            icon: Iconsax.profile_2user,
+                            child: _PayrollSection(
+                              data: dashboard.payroll,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _SectionCard(
+                            title: 'المخزون مالياً',
+                            icon: Iconsax.box,
+                            child: _InventorySection(
+                              data: dashboard.inventory,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _SectionCard(
+                            title: 'الاتجاه الشهري',
+                            icon: Iconsax.chart_2,
+                            child: _MonthlyTrendSection(
+                              monthlyTrend: dashboard.monthlyTrend,
+                            ),
+                          ),
+                        ],
+                      );
                     },
                   ),
                 ],
@@ -448,540 +272,299 @@ class FinancePage extends GetView<FinanceController> {
       ),
     );
   }
-// ========== HELPER METHODS ==========
+}
 
+class _FinanceHeader extends StatelessWidget {
+  final int selectedYear;
+  final int selectedMonth;
+  final ValueChanged<int> onYearChanged;
+  final ValueChanged<int> onMonthChanged;
+  final Future<void> Function() onRefresh;
+  final VoidCallback onOpenExpenses;
 
+  const _FinanceHeader({
+    required this.selectedYear,
+    required this.selectedMonth,
+    required this.onYearChanged,
+    required this.onMonthChanged,
+    required this.onRefresh,
+    required this.onOpenExpenses,
+  });
 
-  Widget _buildLiquiditySection(FinanceOverview data) {
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final years = List.generate(6, (i) => now.year - 3 + i);
+    final months = const {
+      1: 'يناير',
+      2: 'فبراير',
+      3: 'مارس',
+      4: 'أبريل',
+      5: 'مايو',
+      6: 'يونيو',
+      7: 'يوليو',
+      8: 'أغسطس',
+      9: 'سبتمبر',
+      10: 'أكتوبر',
+      11: 'نوفمبر',
+      12: 'ديسمبر',
+    };
+
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        children: [
-          _buildLiquidityRow(
-            'النقدية',
-            data.cashIn,
-            data.cashOut,
-            data.cashBalance,
-            Icons.money_rounded,
-            Colors.green,
-          ),
-          const SizedBox(height: 16),
-          _buildLiquidityRow(
-            'البنك',
-            data.bankIn,
-            data.bankOut,
-            data.bankBalance,
-            Icons.account_balance_rounded,
-            Colors.blue,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [
+            _FinanceColors.primary,
+            _FinanceColors.primaryDark,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: _FinanceColors.primary.withOpacity(0.20),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
           ),
         ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 760;
+
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _headerTopRow(onRefresh: onRefresh, onOpenExpenses: onOpenExpenses),
+                const SizedBox(height: 16),
+                _headerFilters(
+                  years: years,
+                  months: months,
+                  selectedYear: selectedYear,
+                  selectedMonth: selectedMonth,
+                  onYearChanged: onYearChanged,
+                  onMonthChanged: onMonthChanged,
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(child: _headerTopRow(onRefresh: onRefresh, onOpenExpenses: onOpenExpenses)),
+              const SizedBox(width: 18),
+              SizedBox(
+                width: 360,
+                child: _headerFilters(
+                  years: years,
+                  months: months,
+                  selectedYear: selectedYear,
+                  selectedMonth: selectedMonth,
+                  onYearChanged: onYearChanged,
+                  onMonthChanged: onMonthChanged,
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildLiquidityRow(String label, double incoming, double outgoing, double balance, IconData icon, Color color) {
+  Widget _headerTopRow({
+    required Future<void> Function() onRefresh,
+    required VoidCallback onOpenExpenses,
+  }) {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(8),
+          width: 54,
+          height: 54,
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
+            color: Colors.white.withOpacity(0.16),
+            borderRadius: BorderRadius.circular(18),
           ),
-          child: Icon(icon, color: color, size: 20),
+          child: const Icon(
+            Iconsax.chart_success,
+            color: Colors.white,
+            size: 28,
+          ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
+        const SizedBox(width: 14),
+        const Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                label,
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                'الإدارة المالية',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'وارد: ${formatMoney(incoming)}',
-                      style: TextStyle(fontSize: 12, color: Colors.green.shade700),
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      'صادر: ${formatMoney(outgoing)}',
-                      style: TextStyle(fontSize: 12, color: Colors.red.shade700),
-                    ),
-                  ),
-                ],
+              SizedBox(height: 4),
+              Text(
+                'لوحة مالية احترافية للمبيعات والربحية والسيولة والالتزامات',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ],
           ),
         ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: balance >= 0 ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            formatMoney(balance),
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-              color: balance >= 0 ? Colors.green.shade700 : Colors.red.shade700,
-            ),
-          ),
+        const SizedBox(width: 12),
+        _HeaderActionButton(
+          label: 'المصروفات',
+          icon: Iconsax.money_4,
+          onTap: onOpenExpenses,
+        ),
+        const SizedBox(width: 10),
+        _HeaderActionButton(
+          label: 'تحديث',
+          icon: Iconsax.refresh,
+          onTap: () => onRefresh(),
         ),
       ],
     );
   }
 
-  Widget _buildPayrollSection(PayrollSummary payroll) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        children: [
-          _buildPayrollInfoRow('عدد الموظفين', payroll.employeesCount.toString(), Icons.people_rounded),
-          const SizedBox(height: 12),
-          _buildPayrollInfoRow('إجمالي الرواتب', formatMoney(payroll.totalMonthlySalaries), Icons.attach_money_rounded),
-          const SizedBox(height: 12),
-          _buildPayrollInfoRow('المدفوع', formatMoney(payroll.paidSalariesThisMonth), Icons.check_circle_rounded, color: Colors.green),
-          const SizedBox(height: 12),
-          _buildPayrollInfoRow('المتبقي', formatMoney(payroll.unpaidSalariesThisMonth), Icons.access_time_rounded, color: Colors.orange),
-          const SizedBox(height: 16),
-          LinearProgressIndicator(
-            value: payroll.paymentRate / 100,
-            backgroundColor: Colors.grey.shade200,
-            valueColor: AlwaysStoppedAnimation<Color>(
-              payroll.paymentRate >= 80 ? Colors.green : Colors.orange,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'نسبة الدفع: ${payroll.paymentRate.toStringAsFixed(1)}%',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPayrollInfoRow(String label, String value, IconData icon, {Color? color}) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: color ?? Colors.grey.shade600),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 14,
-            color: color,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAnnualSummarySection(FinanceOverview data) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        children: [
-          _buildAnnualSummaryRow('إجمالي المبيعات', formatMoney(data.totalSalesYear), Icons.trending_up, Colors.blue),
-          const SizedBox(height: 12),
-          _buildAnnualSummaryRow('إجمالي المشتريات', formatMoney(data.totalPurchasesYear), Icons.shopping_cart, Colors.teal),
-          const SizedBox(height: 12),
-          _buildAnnualSummaryRow('إجمالي المصروفات', formatMoney(data.totalExpensesYear), Icons.receipt, Colors.orange),
-          const Divider(height: 20),
-          _buildAnnualSummaryRow('صافي الربح السنوي', formatMoney(data.netProfitYear), Icons.assessment, Colors.green, isBold: true),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAnnualSummaryRow(String label, String value, IconData icon, Color color, {bool isBold = false}) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Icon(icon, size: 14, color: color),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: isBold ? 14 : 13,
-              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
-            fontSize: isBold ? 15 : 14,
-            color: isBold ? color : null,
-          ),
-        ),
-      ],
-    );
-  }
-
-// ========== UTILITY FUNCTIONS ==========
-
-  String formatMoney(double value) {
-    return ' د.ل ${value.toStringAsFixed(2)} '; // عدل حسب العملة المفضلة
-  }
-
-  double? calculateProfitPercentage(double profit, double sales) {
-    if (sales == 0) return null;
-    return (profit / sales) * 100;
-  }
-
-// ========== HELPER METHODS ==========
-
-  Widget _buildStatCard({
-    required String title,
-    required IconData icon,
-    required Color color,
-    required String value,
-    double? percentage,
-    required double width,
+  Widget _headerFilters({
+    required List<int> years,
+    required Map<int, String> months,
+    required int selectedYear,
+    required int selectedMonth,
+    required ValueChanged<int> onYearChanged,
+    required ValueChanged<int> onMonthChanged,
   }) {
-    return SizedBox(
-      width: width,
-      child: _StatCard(
-        title: title,
-        value: value,
-        icon: icon,
-        color: color,
-        percentage: percentage != null ? '${percentage.toStringAsFixed(1)}%' : null,
-      ),
+    return Row(
+      children: [
+        Expanded(
+          child: _HeaderDropdown<int>(
+            value: selectedYear,
+            items: years
+                .map((year) => DropdownMenuItem<int>(
+              value: year,
+              child: Text(year.toString()),
+            ))
+                .toList(),
+            onChanged: (value) {
+              if (value != null) onYearChanged(value);
+            },
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _HeaderDropdown<int>(
+            value: selectedMonth,
+            items: months.entries
+                .map((e) => DropdownMenuItem<int>(
+              value: e.key,
+              child: Text(e.value),
+            ))
+                .toList(),
+            onChanged: (value) {
+              if (value != null) onMonthChanged(value);
+            },
+          ),
+        ),
+      ],
     );
   }
+}
 
-  Widget _buildExpenseCategoriesList(dynamic controller) {
-    final categories = controller.getTopExpenseCategories(5);
-    if (categories.isEmpty) {
-      return const Center(child: Text('لا توجد فئات'));
-    }
+class _ExecutiveKpisGrid extends StatelessWidget {
+  final FinanceDashboard dashboard;
 
-    final totalExpenses = controller.getFilteredExpensesTotal();
+  const _ExecutiveKpisGrid({required this.dashboard});
 
-    return ListView.separated(
-      padding: EdgeInsets.zero,
-      itemCount: categories.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final category = categories[index];
-        final categoryName = category['name'] as String;
-        final categoryTotal = category['total'] as double;
-        final percentage = totalExpenses > 0 ? (categoryTotal / totalExpenses) * 100 : 0;
+  @override
+  Widget build(BuildContext context) {
+    final kpis = [
+      _KpiData(
+        title: 'صافي المبيعات',
+        value: _money(dashboard.sales.netSales),
+        subtitle: 'عدد الفواتير: ${dashboard.sales.invoicesCount}',
+        icon: Iconsax.receipt_2,
+        color: _FinanceColors.primary,
+      ),
+      _KpiData(
+        title: 'إجمالي الربح',
+        value: _money(dashboard.profitability.grossProfit),
+        subtitle:
+        'هامش ${dashboard.profitability.grossMarginPercent.toStringAsFixed(1)}%',
+        icon: Iconsax.chart_1,
+        color: _FinanceColors.success,
+      ),
+      _KpiData(
+        title: 'صافي الربح',
+        value: _money(dashboard.profitability.netProfit),
+        subtitle:
+        'هامش ${dashboard.profitability.netMarginPercent.toStringAsFixed(1)}%',
+        icon: Iconsax.trend_up,
+        color: dashboard.profitability.netProfit >= 0
+            ? _FinanceColors.success
+            : _FinanceColors.danger,
+      ),
+      _KpiData(
+        title: 'إغلاق الكاش',
+        value: _money(dashboard.cash.closingBalance),
+        subtitle: 'صافي تدفق ${_money(dashboard.cash.netCashFlow)}',
+        icon: Iconsax.wallet_check,
+        color: _FinanceColors.warning,
+      ),
+      _KpiData(
+        title: 'الذمم المدينة',
+        value: _money(dashboard.workingCapital.accountsReceivable),
+        subtitle: 'متأخر ${_money(dashboard.workingCapital.overdueReceivables)}',
+        icon: Iconsax.money_recive,
+        color: _FinanceColors.purple,
+      ),
+      _KpiData(
+        title: 'الذمم الدائنة',
+        value: _money(dashboard.workingCapital.accountsPayable),
+        subtitle: 'مستحق قريب ${_money(dashboard.workingCapital.supplierDueSoon)}',
+        icon: Iconsax.money_send,
+        color: _FinanceColors.orange,
+      ),
+    ];
 
-        return Row(
-          children: [
-            // استخدام نفس دالة الألوان الموحدة
-            Container(
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(
-                color: getCategoryColor(categoryName),
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                categoryName,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-              ),
-            ),
-            Text(
-              formatMoney(categoryTotal),
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-            ),
-            Text(
-              '  (${percentage.toStringAsFixed(1)}%)',
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-            ),
-          ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        int columns = 1;
+        if (constraints.maxWidth >= 1180) {
+          columns = 3;
+        } else if (constraints.maxWidth >= 760) {
+          columns = 2;
+        }
+
+        final width =
+            (constraints.maxWidth - ((columns - 1) * 14)) / columns;
+
+        return Wrap(
+          spacing: 14,
+          runSpacing: 14,
+          children: kpis
+              .map((kpi) => SizedBox(
+            width: width,
+            child: _KpiCard(data: kpi),
+          ))
+              .toList(),
         );
       },
     );
   }
-  void _exportReport() {
-    Get.dialog(
-      AlertDialog(
-        title: const Text('تصدير التقرير'),
-        content: const Text('اختر صيغة التقرير:'),
-        actions: [
-          TextButton(
-            onPressed: () => Get.back(),
-            child: const Text('إلغاء'),
-          ),
-          TextButton(
-            onPressed: () {
-              Get.back();
-              Get.snackbar(
-                'نجاح',
-                'تم تصدير التقرير بنجاح',
-                backgroundColor: Colors.green,
-                colorText: Colors.white,
-              );
-            },
-            child: const Text('PDF'),
-          ),
-          TextButton(
-            onPressed: () {
-              Get.back();
-              Get.snackbar(
-                'نجاح',
-                'تم تصدير التقرير بنجاح',
-                backgroundColor: Colors.green,
-                colorText: Colors.white,
-              );
-            },
-            child: const Text('Excel'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
-class _HeaderSection extends StatelessWidget {
-  final int year;
-  final VoidCallback onRefresh;
-  final ValueChanged<int> onYearChanged;
-  final VoidCallback onExport;
+class _KpiCard extends StatelessWidget {
+  final _KpiData data;
 
-  const _HeaderSection({
-    required this.year,
-    required this.onRefresh,
-    required this.onYearChanged,
-    required this.onExport,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.blue.shade700,
-            Colors.blue.shade500,
-            Colors.lightBlue.shade300,
-          ],
-        ),
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.blue.withOpacity(.16),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(.16),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(
-              Icons.account_balance_rounded,
-              color: Colors.white,
-              size: 28,
-            ),
-          ),
-          const SizedBox(width: 16),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'الشؤون المالية',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  'متابعة المبيعات، المشتريات، المصروفات، الذمم والرواتب',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: DropdownButton<int>(
-              value: year,
-              underline: const SizedBox(),
-              items: List.generate(6, (index) {
-                final y = DateTime.now().year - index;
-                return DropdownMenuItem(
-                  value: y,
-                  child: Text('$y'),
-                );
-              }),
-              onChanged: (v) {
-                if (v != null) onYearChanged(v);
-              },
-            ),
-          ),
-          const SizedBox(width: 10),
-
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: IconButton(
-              onPressed: () {
-                Get.dialog(
-                  const ExpensesDialog(),
-                  barrierDismissible: true, // يمكن إغلاقه بالنقر خارج الديالوج
-                );
-              },
-              icon: const Icon(
-                Iconsax.setting_2,
-                color: Color(0xFF1565C0),
-              ),
-              tooltip: 'إدارة المصروفات',
-            ),
-          ) ,
-          const SizedBox(width: 10),
-
-          IconButton(
-            onPressed: onRefresh,
-            style: IconButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.blue.shade700,
-            ),
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-          const SizedBox(width: 5),
-
-          IconButton(
-            onPressed: onExport,
-            style: IconButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.blue.shade700,
-            ),
-            icon: const Icon(Icons.download_rounded),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CompactPanel extends StatelessWidget {
-  final String title;
-  final Widget? child;
-  final EdgeInsetsGeometry? padding;
-
-  const _CompactPanel({
-    required this.title,
-    this.child,
-    this.padding,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        // تدرج أزرق للبطاقات كما طلبت
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.blue.shade50,
-            Colors.white,
-            Colors.blue.shade50,
-          ],
-        ),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (title.isNotEmpty) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-          Padding(
-            padding: padding ?? const EdgeInsets.all(12),
-            child: child ?? const SizedBox.shrink(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-  final String? percentage;
-
-  const _StatCard({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-    this.percentage,
-  });
+  const _KpiCard({required this.data});
 
   @override
   Widget build(BuildContext context) {
@@ -989,194 +572,342 @@ class _StatCard extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: _FinanceColors.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.blue.withOpacity(.06),
-            blurRadius: 14,
-            offset: const Offset(0, 5),
+            color: Colors.black.withOpacity(0.035),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
             width: 52,
             height: 52,
             decoration: BoxDecoration(
-              color: color.withOpacity(.12),
+              color: data.color.withOpacity(0.10),
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Icon(icon, color: color),
+            child: Icon(data.icon, color: data.color, size: 26),
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  title,
-                  style: TextStyle(
-                    color: Colors.grey.shade700,
-                    fontSize: 13,
+                  data.title,
+                  style: const TextStyle(
+                    color: _FinanceColors.textMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  value,
+                  data.value,
                   style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
+                    color: _FinanceColors.textDark,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  data.subtitle,
+                  style: const TextStyle(
+                    color: _FinanceColors.textMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
             ),
           ),
-          if (percentage != null) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 3,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                percentage!,
-                style: const TextStyle(
-                  color: Colors.green,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
         ],
       ),
     );
   }
 }
 
-// نسخة محسنة من ExpensesPieChart مع ألوان متناسقة
-class ExpensesPieChart extends StatelessWidget {
-  final List<ExpenseItem> expenses;
+class _SectionCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Widget child;
 
-  const ExpensesPieChart({
-    super.key,
-    required this.expenses,
+  const _SectionCard({
+    required this.title,
+    required this.icon,
+    required this.child,
   });
 
   @override
   Widget build(BuildContext context) {
-    final categoryTotals = _calculateCategoryTotals();
-    final total = categoryTotals.values.fold(0.0, (sum, item) => sum + item);
-
-    if (total == 0) {
-      return const Center(child: Text('لا توجد بيانات'));
-    }
-
-    // ترتيب الفئات تنازلياً
-    final sortedEntries = categoryTotals.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    final sections = sortedEntries.map((entry) {
-      final percentage = (entry.value / total) * 100;
-      if (percentage < 1) return null; // تجاهل الفئات الصغيرة جداً
-
-      return PieChartSectionData(
-        value: entry.value,
-        title: '${percentage.toStringAsFixed(1)}%',
-        titleStyle: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
-        color: getCategoryColor(entry.key),
-        radius: 80,
-        titlePositionPercentageOffset: 0.6,
-      );
-    }).whereType<PieChartSectionData>().toList();
-
-    return PieChart(
-      PieChartData(
-        sections: sections,
-        centerSpaceRadius: 40,
-        sectionsSpace: 2,
-        borderData: FlBorderData(show: false),
-        pieTouchData: PieTouchData(
-          touchCallback: (FlTouchEvent event, pieTouchResponse) {
-            // يمكن إضافة تفاعل هنا
-          },
-        ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _FinanceColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.035),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: _FinanceColors.primary.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: _FinanceColors.primary, size: 19),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: _FinanceColors.textDark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          child,
+        ],
       ),
     );
   }
+}
 
-  Map<String, double> _calculateCategoryTotals() {
-    final Map<String, double> totals = {};
+class _ProfitabilitySection extends StatelessWidget {
+  final ProfitabilitySummary data;
 
-    for (final expense in expenses) {
-      totals[expense.category] = (totals[expense.category] ?? 0) + expense.amount;
-    }
+  const _ProfitabilitySection({required this.data});
 
-    return totals;
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      _MetricItem('صافي المبيعات', _money(data.netSales)),
+      _MetricItem('تكلفة البضاعة المباعة', _money(data.cogs)),
+      _MetricItem('إجمالي الربح', _money(data.grossProfit), positive: data.grossProfit >= 0),
+      _MetricItem('المصروفات التشغيلية', _money(data.operatingExpenses)),
+      _MetricItem('الرواتب', _money(data.payrollExpenses)),
+      _MetricItem('مصروفات أخرى', _money(data.otherExpenses)),
+      _MetricItem('الربح التشغيلي', _money(data.operatingProfit), positive: data.operatingProfit >= 0),
+      _MetricItem('صافي الربح', _money(data.netProfit), positive: data.netProfit >= 0),
+      _MetricItem('هامش الربح الإجمالي', '${data.grossMarginPercent.toStringAsFixed(1)}%'),
+      _MetricItem('هامش الربح الصافي', '${data.netMarginPercent.toStringAsFixed(1)}%'),
+      _MetricItem('نسبة المصروفات', '${data.expenseRatioPercent.toStringAsFixed(1)}%'),
+      _MetricItem('نسبة الرواتب', '${data.payrollRatioPercent.toStringAsFixed(1)}%'),
+    ];
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: items.map((item) => _MetricTile(item: item)).toList(),
+    );
   }
-}// دالة مساعدة خارجية للاستخدام في أماكن أخرى
+}
 
+class _CashBankSection extends StatelessWidget {
+  final CashSummary cash;
+  final BankSummary bank;
 
-class MonthlyFinanceChart extends StatelessWidget {
-  final List<MonthlyPoint> monthlyTrend;
-
-  const MonthlyFinanceChart({
-    super.key,
-    required this.monthlyTrend,
+  const _CashBankSection({
+    required this.cash,
+    required this.bank,
   });
 
   @override
   Widget build(BuildContext context) {
-    final maxY = _getMaxY();
-    final lastIndex = monthlyTrend.length - 1;
+    return Column(
+      children: [
+        _FlowCard(
+          title: 'الصندوق / الكاش',
+          icon: Iconsax.wallet,
+          color: _FinanceColors.warning,
+          opening: cash.openingBalance,
+          inflow: cash.inflows,
+          outflow: cash.outflows,
+          closing: cash.closingBalance,
+          net: cash.netCashFlow,
+        ),
+        const SizedBox(height: 14),
+        _FlowCard(
+          title: 'الحساب البنكي / البطاقة',
+          icon: Iconsax.card,
+          color: _FinanceColors.primary,
+          opening: bank.openingBalance,
+          inflow: bank.inflows,
+          outflow: bank.outflows,
+          closing: bank.closingBalance,
+          net: bank.netFlow,
+        ),
+      ],
+    );
+  }
+}
+
+class _WorkingCapitalSection extends StatelessWidget {
+  final WorkingCapitalSummary data;
+
+  const _WorkingCapitalSection({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _infoRow('الذمم المدينة', _money(data.accountsReceivable)),
+        _infoRow('المتأخر من الذمم المدينة', _money(data.overdueReceivables),
+            valueColor: _FinanceColors.danger),
+        _infoRow('الذمم الدائنة', _money(data.accountsPayable)),
+        _infoRow('المتأخر من الذمم الدائنة', _money(data.overduePayables),
+            valueColor: _FinanceColors.danger),
+        _infoRow('موردون مستحقون قريباً', _money(data.supplierDueSoon),
+            valueColor: _FinanceColors.orange),
+        const Divider(height: 24),
+        _infoRow(
+          'نسبة تغطية السيولة',
+          data.liquidityCoverageRatio.toStringAsFixed(2),
+          valueColor: data.liquidityCoverageRatio >= 1
+              ? _FinanceColors.success
+              : _FinanceColors.danger,
+          isBold: true,
+        ),
+      ],
+    );
+  }
+}
+
+class _PayrollSection extends StatelessWidget {
+  final PayrollSummary data;
+
+  const _PayrollSection({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (data.paymentRatePercent / 100).clamp(0.0, 1.0);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: 14,
-          runSpacing: 10,
-          children: const [
-            _ChartLegend(color: FinanceConstants.primaryBlue, label: 'المبيعات'),
-            _ChartLegend(color: FinanceConstants.teal, label: 'المشتريات'),
-            _ChartLegend(color: FinanceConstants.orange, label: 'المصروفات'),
-            _ChartLegend(color: Colors.green, label: 'الربح / الخسارة'),
-          ],
+        _infoRow('عدد الموظفين', '${data.employeesCount}'),
+        _infoRow('إجمالي الرواتب الشهرية', _money(data.totalMonthlySalaries)),
+        _infoRow('المدفوع', _money(data.paidSalariesThisMonth),
+            valueColor: _FinanceColors.success),
+        _infoRow('المتبقي', _money(data.unpaidSalariesThisMonth),
+            valueColor: _FinanceColors.orange),
+        const SizedBox(height: 16),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 10,
+            backgroundColor: _FinanceColors.softBlue,
+            valueColor: AlwaysStoppedAnimation<Color>(
+              data.paymentRatePercent >= 80
+                  ? _FinanceColors.success
+                  : _FinanceColors.orange,
+            ),
+          ),
         ),
-        const SizedBox(height: 18),
-        Expanded(
+        const SizedBox(height: 8),
+        Text(
+          'نسبة السداد: ${data.paymentRatePercent.toStringAsFixed(1)}%',
+          style: const TextStyle(
+            color: _FinanceColors.textMuted,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InventorySection extends StatelessWidget {
+  final InventoryFinancialSummary data;
+
+  const _InventorySection({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _infoRow('قيمة المخزون بالتكلفة', _money(data.inventoryValueAtCost)),
+        _infoRow('قيمة المخزون بسعر البيع', _money(data.inventoryValueAtRetail)),
+        _infoRow('هامش الربح التقديري بالمخزون',
+            _money(data.estimatedGrossMarginValue),
+            valueColor: _FinanceColors.success),
+        _infoRow('قيمة المخزون الراكد/التالف', _money(data.deadStockValue),
+            valueColor: _FinanceColors.danger),
+        _infoRow('مخاطر النقص', _money(data.lowStockRiskValue),
+            valueColor: _FinanceColors.orange),
+        const Divider(height: 24),
+        _infoRow(
+          'معدل دوران المخزون',
+          data.turnoverRate.toStringAsFixed(2),
+          valueColor: _FinanceColors.primary,
+          isBold: true,
+        ),
+      ],
+    );
+  }
+}
+
+class _MonthlyTrendSection extends StatelessWidget {
+  final List<MonthlyFinancePoint> monthlyTrend;
+
+  const _MonthlyTrendSection({required this.monthlyTrend});
+
+  @override
+  Widget build(BuildContext context) {
+    if (monthlyTrend.isEmpty) {
+      return const SizedBox(
+        height: 280,
+        child: Center(child: Text('لا توجد بيانات')),
+      );
+    }
+
+    final maxY = _findMaxY(monthlyTrend);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 290,
           child: LineChart(
             LineChartData(
-              minY: _getMinProfit(),
-              maxY: maxY,
-              clipData: const FlClipData.all(),
-              extraLinesData: ExtraLinesData(
-                horizontalLines: [
-                  HorizontalLine(
-                    y: 0,
-                    color: Colors.grey.shade400,
-                    strokeWidth: 1.2,
-                    dashArray: [6, 4],
-                  ),
-                ],
-              ),
+              minY: 0,
+              maxY: maxY <= 0 ? 100 : maxY * 1.15,
               gridData: FlGridData(
                 show: true,
+                horizontalInterval: maxY <= 0 ? 20 : maxY / 5,
+                getDrawingHorizontalLine: (value) {
+                  return FlLine(
+                    color: _FinanceColors.border,
+                    strokeWidth: 1,
+                  );
+                },
                 drawVerticalLine: false,
-                horizontalInterval: maxY <= 0 ? 100 : maxY / 5,
               ),
+              borderData: FlBorderData(show: false),
               titlesData: FlTitlesData(
                 topTitles: const AxisTitles(
                   sideTitles: SideTitles(showTitles: false),
@@ -1188,13 +919,12 @@ class MonthlyFinanceChart extends StatelessWidget {
                   sideTitles: SideTitles(
                     showTitles: true,
                     reservedSize: 52,
-                    interval: maxY <= 0 ? 100 : maxY / 5,
                     getTitlesWidget: (value, meta) {
                       return Text(
-                        value.toInt().toString(),
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                          fontSize: 11,
+                        _compactMoney(value),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: _FinanceColors.textMuted,
                         ),
                       );
                     },
@@ -1203,23 +933,19 @@ class MonthlyFinanceChart extends StatelessWidget {
                 bottomTitles: AxisTitles(
                   sideTitles: SideTitles(
                     showTitles: true,
-                    interval: 1,
                     reservedSize: 34,
                     getTitlesWidget: (value, meta) {
                       final index = value.toInt();
-
-                      if (index < 0 ||
-                          index >= FinanceConstants.months.length) {
+                      if (index < 0 || index >= monthlyTrend.length) {
                         return const SizedBox.shrink();
                       }
-
                       return Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
-                          FinanceConstants.months[index],
-                          style: TextStyle(
-                            color: Colors.grey.shade700,
-                            fontSize: 11,
+                          monthlyTrend[index].label.substring(0, 3),
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: _FinanceColors.textMuted,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -1228,34 +954,19 @@ class MonthlyFinanceChart extends StatelessWidget {
                   ),
                 ),
               ),
-              borderData: FlBorderData(
-                show: true,
-                border: Border(
-                  left: BorderSide(color: Colors.blue.shade100),
-                  bottom: BorderSide(color: Colors.blue.shade100),
-                  top: BorderSide.none,
-                  right: BorderSide.none,
-                ),
-              ),
               lineTouchData: LineTouchData(
-                handleBuiltInTouches: true,
                 touchTooltipData: LineTouchTooltipData(
-                  tooltipRoundedRadius: 12,
-                  tooltipPadding: const EdgeInsets.all(10),
-                  getTooltipItems: (touchedSpots) {
-                    return touchedSpots.map((spot) {
+                  getTooltipItems: (spots) {
+                    return spots.map((spot) {
                       String label = '';
-
-                      if (spot.barIndex == 0) label = 'المبيعات';
-                      if (spot.barIndex == 1) label = 'المشتريات';
-                      if (spot.barIndex == 2) label = 'المصروفات';
-                      if (spot.barIndex == 3) label = 'الربح / الخسارة';
-
+                      if (spot.barIndex == 0) label = 'صافي المبيعات';
+                      if (spot.barIndex == 1) label = 'إجمالي الربح';
+                      if (spot.barIndex == 2) label = 'صافي الربح';
                       return LineTooltipItem(
-                        '$label\n${spot.y.toStringAsFixed(2)} ${FinanceConstants.currency}',
+                        '$label\n${_money(spot.y)}',
                         const TextStyle(
                           color: Colors.white,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w700,
                           fontSize: 12,
                         ),
                       );
@@ -1264,246 +975,415 @@ class MonthlyFinanceChart extends StatelessWidget {
                 ),
               ),
               lineBarsData: [
-                _buildLine(
-                  data: monthlyTrend.map((e) => e.sales).toList(),
-                  color: FinanceConstants.primaryBlue,
+                _lineBar(
+                  monthlyTrend
+                      .asMap()
+                      .entries
+                      .map((e) => FlSpot(e.key.toDouble(), e.value.netSales))
+                      .toList(),
+                  _FinanceColors.primary,
                 ),
-                _buildLine(
-                  data: monthlyTrend.map((e) => e.purchases).toList(),
-                  color: FinanceConstants.teal,
+                _lineBar(
+                  monthlyTrend
+                      .asMap()
+                      .entries
+                      .map((e) => FlSpot(e.key.toDouble(), e.value.grossProfit))
+                      .toList(),
+                  _FinanceColors.success,
                 ),
-                _buildLine(
-                  data: monthlyTrend.map((e) => e.expenses).toList(),
-                  color: FinanceConstants.orange,
+                _lineBar(
+                  monthlyTrend
+                      .asMap()
+                      .entries
+                      .map((e) => FlSpot(e.key.toDouble(), e.value.netProfit))
+                      .toList(),
+                  _FinanceColors.orange,
                 ),
-                _buildProfitLine(),
               ],
             ),
           ),
         ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: const [
+            _LegendChip(label: 'صافي المبيعات', color: _FinanceColors.primary),
+            _LegendChip(label: 'إجمالي الربح', color: _FinanceColors.success),
+            _LegendChip(label: 'صافي الربح', color: _FinanceColors.orange),
+          ],
+        ),
       ],
     );
   }
 
-  LineChartBarData _buildLine({
-    required List<double> data,
-    required Color color,
-  }) {
-    final spots = List.generate(
-      data.length,
-          (index) => FlSpot(index.toDouble(), data[index]),
-    );
-
-    return LineChartBarData(
-      isCurved: true,
-      curveSmoothness: 0.2,
-      preventCurveOverShooting: true,
-      color: color,
-      barWidth: 3,
-      isStrokeCapRound: true,
-      dotData: const FlDotData(show: true),
-      belowBarData: BarAreaData(
-        show: true,
-        cutOffY: 0,
-        applyCutOffY: true,
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            color.withOpacity(0.12),
-            Colors.transparent,
-          ],
-        ),
-      ),
-      spots: spots,
-    );
-  }
-
-  LineChartBarData _buildProfitLine() {
-    final spots = List.generate(
-      monthlyTrend.length,
-          (index) => FlSpot(index.toDouble(), monthlyTrend[index].profit),
-    );
-
-    return LineChartBarData(
-      isCurved: true,
-      curveSmoothness: 0.2,
-      preventCurveOverShooting: true,
-      barWidth: 3,
-      isStrokeCapRound: true,
-      dotData: const FlDotData(show: true),
-      gradient: LinearGradient(
-        colors: monthlyTrend.map((e) {
-          return e.profit >= 0 ? Colors.green : Colors.red;
-        }).toList(),
-      ),
-      belowBarData: BarAreaData(
-        show: true,
-        cutOffY: 0,
-        applyCutOffY: true,
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            (monthlyTrend.last.profit >= 0
-                ? Colors.green
-                : Colors.red)
-                .withOpacity(0.15),
-            Colors.transparent,
-          ],
-        ),
-      ),
-      spots: spots,
-    );
-  }
-
-  double _getMaxY() {
+  double _findMaxY(List<MonthlyFinancePoint> data) {
     double maxValue = 0;
-
-    for (final item in monthlyTrend) {
-      if (item.sales > maxValue) maxValue = item.sales;
-      if (item.purchases > maxValue) maxValue = item.purchases;
-      if (item.expenses > maxValue) maxValue = item.expenses;
+    for (final point in data) {
+      if (point.netSales > maxValue) maxValue = point.netSales;
+      if (point.grossProfit > maxValue) maxValue = point.grossProfit;
+      if (point.netProfit > maxValue) maxValue = point.netProfit;
     }
-
-    if (maxValue <= 0) return 100;
-
-    return maxValue * 1.2;
+    return maxValue;
   }
 
-  double _getMinProfit() {
-    double minProfit = 0;
-
-    for (final item in monthlyTrend) {
-      if (item.profit < minProfit) {
-        minProfit = item.profit;
-      }
-    }
-
-    if (minProfit >= 0) return 0;
-
-    return minProfit * 1.2;
+  LineChartBarData _lineBar(List<FlSpot> spots, Color color) {
+    return LineChartBarData(
+      spots: spots,
+      isCurved: true,
+      color: color,
+      barWidth: 3.2,
+      dotData: FlDotData(
+        show: true,
+        getDotPainter: (p0, p1, p2, p3) => FlDotCirclePainter(
+          radius: 2.8,
+          color: color,
+          strokeWidth: 1.5,
+          strokeColor: Colors.white,
+        ),
+      ),
+      belowBarData: BarAreaData(
+        show: true,
+        color: color.withOpacity(0.08),
+      ),
+    );
   }
 }
 
-class _ChartLegend extends StatelessWidget {
+class _FlowCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
   final Color color;
-  final String label;
+  final double opening;
+  final double inflow;
+  final double outflow;
+  final double closing;
+  final double net;
 
-  const _ChartLegend({
+  const _FlowCard({
+    required this.title,
+    required this.icon,
     required this.color,
-    required this.label,
+    required this.opening,
+    required this.inflow,
+    required this.outflow,
+    required this.closing,
+    required this.net,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(4),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withOpacity(0.16)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: _FinanceColors.textDark,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.grey.shade700,
-            fontWeight: FontWeight.w600,
-            fontSize: 12,
+          const SizedBox(height: 14),
+          _infoRow('رصيد افتتاحي', _money(opening)),
+          _infoRow('داخل', _money(inflow), valueColor: _FinanceColors.success),
+          _infoRow('خارج', _money(outflow), valueColor: _FinanceColors.danger),
+          const Divider(height: 22),
+          _infoRow(
+            'رصيد إغلاق',
+            _money(closing),
+            valueColor: color,
+            isBold: true,
           ),
-        ),
-      ],
+          _infoRow(
+            'صافي الحركة',
+            _money(net),
+            valueColor: net >= 0 ? _FinanceColors.success : _FinanceColors.danger,
+            isBold: true,
+          ),
+        ],
+      ),
     );
   }
 }
-class FinanceColors {
-  // الألوان الأساسية المتناسقة مع الأزرق
-  static const Color primaryBlue = Color(0xFF1976D2); // أزرق غامق
-  static const Color lightBlue = Color(0xFF42A5F5);   // أزرق فاتح
-  static const Color skyBlue = Color(0xFF4FC3F7);     // سماوي
-  static const Color cyan = Color(0xFF26C6DA);        // سيان
-  static const Color teal = Color(0xFF26A69A);        // تيل
-  static const Color green = Color(0xFF66BB6A);       // أخضر
-  static const Color lightGreen = Color(0xFF9CCC65);  // أخضر فاتح
-  static const Color indigo = Color(0xFF5C6BC0);      // نيلي
-  static const Color blueGrey = Color(0xFF78909C);    // أزرق رمادي
 
-  // ألوان داعمة خفيفة للتباين (تجنّب ألوان قوية خارجة عن التدرج)
-  static const Color deepPurple = Color(0xFF7E57C2);  // بنفسجي غامق
-  static const Color lime = Color(0xFFD4E157);        // ليموني فاتح
-}
+class _MetricTile extends StatelessWidget {
+  final _MetricItem item;
 
-// ========== دالة موحدة للألوان مع تدرجات متناسقة ==========
-Color getCategoryColor(String category) {
-  switch (category) {
-    case 'رواتب':
-    case 'الرواتب':
-      return FinanceColors.lightBlue;
+  const _MetricTile({required this.item});
 
-    case 'إيجار':
-      return FinanceColors.indigo;
-
-    case 'فواتير':
-    case 'كهرباء':
-      return FinanceColors.primaryBlue;
-
-    case 'مخزون':
-    case 'أدوية':
-      return FinanceColors.green;
-    case 'مستلزمات':
-      return FinanceColors.lightGreen;
-
-    case 'صيانة':
-      return FinanceColors.blueGrey;
-
-    case 'تسويق':
-    case 'دعاية':
-      return FinanceColors.deepPurple;
-
-    case 'نقل':
-    case 'مواصلات':
-      return FinanceColors.teal;
-
-    case 'تأمين':
-      return FinanceColors.indigo;
-
-    case 'ضرائب':
-    case 'رسوم':
-      return FinanceColors.lime;
-
-    case 'مشتريات':
-      return FinanceColors.cyan;
-
-    case 'إدارية':
-    case 'إدارة':
-      return FinanceColors.blueGrey;
-
-    default:
-      return _getHarmoniousColor(category);
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 210,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _FinanceColors.softBlue,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            item.label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: _FinanceColors.textMuted,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            item.value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: item.positive == null
+                  ? _FinanceColors.textDark
+                  : (item.positive! ? _FinanceColors.success : _FinanceColors.danger),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
-// دالة توليد ألوان متناسقة مع التدرج الأزرق-الأخضر
-Color _getHarmoniousColor(String category) {
-  final harmoniousColors = [
-    FinanceColors.primaryBlue,
-    FinanceColors.lightBlue,
-    FinanceColors.skyBlue,
-    FinanceColors.cyan,
-    FinanceColors.teal,
-    FinanceColors.green,
-    FinanceColors.lightGreen,
-    FinanceColors.indigo,
-    FinanceColors.blueGrey,
-    FinanceColors.deepPurple,
-    FinanceColors.lime,
-  ];
+class _LegendChip extends StatelessWidget {
+  final String label;
+  final Color color;
 
-  final index = category.hashCode.abs() % harmoniousColors.length;
-  return harmoniousColors[index];
+  const _LegendChip({
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 9,
+            height: 9,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _HeaderActionButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Icon(icon, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderDropdown<T> extends StatelessWidget {
+  final T value;
+  final List<DropdownMenuItem<T>> items;
+  final ValueChanged<T?> onChanged;
+
+  const _HeaderDropdown({
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.13),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withOpacity(0.14)),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: value,
+          dropdownColor: Colors.white,
+          isExpanded: true,
+          iconEnabledColor: Colors.white,
+          style: const TextStyle(
+            color: _FinanceColors.textDark,
+            fontWeight: FontWeight.w700,
+          ),
+          items: items,
+          onChanged: onChanged,
+          selectedItemBuilder: (context) {
+            return items.map((item) {
+              final child = item.child;
+              if (child is Text) {
+                return Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    child.data ?? '',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                );
+              }
+              return const SizedBox.shrink();
+            }).toList();
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _KpiData {
+  final String title;
+  final String value;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+
+  const _KpiData({
+    required this.title,
+    required this.value,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+  });
+}
+
+class _MetricItem {
+  final String label;
+  final String value;
+  final bool? positive;
+
+  const _MetricItem(this.label, this.value, {this.positive});
+}
+
+class _FinanceColors {
+  static const Color primary = Color(0xFF2563EB);
+  static const Color primaryDark = Color(0xFF1D4ED8);
+  static const Color success = Color(0xFF16A34A);
+  static const Color danger = Color(0xFFDC2626);
+  static const Color warning = Color(0xFFF59E0B);
+  static const Color orange = Color(0xFFEA580C);
+  static const Color purple = Color(0xFF7C3AED);
+
+  static const Color textDark = Color(0xFF0F172A);
+  static const Color textMuted = Color(0xFF64748B);
+  static const Color pageBg = Color(0xFFF8FAFC);
+  static const Color border = Color(0xFFE2E8F0);
+  static const Color softBlue = Color(0xFFEFF6FF);
+}
+
+Widget _infoRow(
+    String label,
+    String value, {
+      Color? valueColor,
+      bool isBold = false,
+    }) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 5),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: _FinanceColors.textMuted,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          value,
+          style: TextStyle(
+            color: valueColor ?? _FinanceColors.textDark,
+            fontSize: isBold ? 14 : 13,
+            fontWeight: isBold ? FontWeight.w800 : FontWeight.w700,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+String _money(num value) => '${value.toStringAsFixed(2)} د.ل';
+
+String _compactMoney(double value) {
+  if (value >= 1000000) {
+    return '${(value / 1000000).toStringAsFixed(1)}M';
+  }
+  if (value >= 1000) {
+    return '${(value / 1000).toStringAsFixed(0)}K';
+  }
+  return value.toStringAsFixed(0);
 }

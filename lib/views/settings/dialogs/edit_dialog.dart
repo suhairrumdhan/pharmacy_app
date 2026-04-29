@@ -526,6 +526,7 @@ void openEditDialog(PharmacySettings settings) {
                                           ),
                                         )
                                       else
+
                                         const Icon(
                                           Iconsax.tick_circle,
                                           color: Colors.white,

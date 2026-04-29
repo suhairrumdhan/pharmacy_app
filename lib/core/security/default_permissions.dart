@@ -12,6 +12,11 @@ abstract class DefaultPermissions {
     'dashboard.analytics.view': true,
     'dashboard.reports.view': true,
 
+    'insurance.view': true,
+    'insurance.create': true,
+    'insurance.update': true,
+    'insurance.delete': true,
+
     // Shifts (✅ ميزات جديدة)
     'shifts.view': true,
     'shifts.open': true,
@@ -27,7 +32,6 @@ abstract class DefaultPermissions {
     'shifts.cashbox.adjust': true,       // تسوية صندوق/كاش بوكس (لو عندك)
     'shifts.view_all': true,
     'shifts.close_any': true,
-    'purchases.view': true,
 
     // Sales
     'sales.view': true,
@@ -47,6 +51,13 @@ abstract class DefaultPermissions {
     'sales.history.filter.date': true,
     'sales.history.filter.payment': true,
     'sales.history.filter.insurance': true,
+
+    // Suppliers
+    'suppliers.view': true,
+    'suppliers.create': true,
+    'suppliers.update': true,
+    'suppliers.delete': true,
+    'suppliers.credit.manage': true,
 
     // Inventory
     'inventory.view': true,
@@ -79,6 +90,11 @@ abstract class DefaultPermissions {
     'settings.delete_image': true,
     'settings.update_online': true,
     'settings.update_24h': true,
+
+    'purchases.view': true,
+    'purchases.create': true,
+    'purchases.payment': true,
+    'purchases.delete': true,
   };
 
   // =========================
@@ -90,6 +106,17 @@ abstract class DefaultPermissions {
     'dashboard.analytics.view': false,
     'dashboard.reports.view': false,
 
+    'insurance.view': true,
+    'insurance.create': true,
+    'insurance.update': true,
+    'insurance.delete': false,
+
+    // Suppliers
+    'suppliers.view': true,
+    'suppliers.create': true,
+    'suppliers.update': true,
+    'suppliers.delete': false,
+    'suppliers.credit.manage': true,
     // Shifts (✅ ميزات جديدة)
     'shifts.view': true,
     'shifts.open': true,
@@ -107,6 +134,9 @@ abstract class DefaultPermissions {
     'shifts.close_any': false,
 
     'purchases.view': true,
+    'purchases.create': true,
+    'purchases.payment': true,
+    'purchases.delete': false,
 
     // Sales
     'sales.view': true,
@@ -169,6 +199,18 @@ abstract class DefaultPermissions {
     'dashboard.analytics.view': false,
     'dashboard.reports.view': false,
 
+    'insurance.view': false,
+    'insurance.create': false,
+    'insurance.update': false,
+    'insurance.delete': false,
+
+    // Suppliers
+    'suppliers.view': true,
+    'suppliers.create': false,
+    'suppliers.update': false,
+    'suppliers.delete': false,
+    'suppliers.credit.manage': false,
+
     // Shifts (✅ ميزات جديدة)
     'shifts.view': true,
     'shifts.open': true,
@@ -187,7 +229,9 @@ abstract class DefaultPermissions {
     'shifts.close_any': false,
 
     'purchases.view': true,
-
+    'purchases.create': false,
+    'purchases.payment': false,
+    'purchases.delete': false,
     // Sales
     'sales.view': true,
     'sales.create': true,
@@ -316,6 +360,16 @@ const List<String> ALL_PERMISSIONS = [
   'dashboard.analytics.view',
   'dashboard.reports.view',
 
+  'insurance.view',
+  'insurance.create',
+  'insurance.update',
+  'insurance.delete',
+// Suppliers
+  'suppliers.view',
+  'suppliers.create',
+  'suppliers.update',
+  'suppliers.delete',
+  'suppliers.credit.manage',
   // Shifts (✅ ميزات جديدة)
   'shifts.view',
   'shifts.open',
@@ -331,8 +385,18 @@ const List<String> ALL_PERMISSIONS = [
   'shifts.cashbox.adjust',
   'shifts.view_all',
   'shifts.close_any',
+  'finance.view',
+  'finance.expenses.view',
+  'finance.expenses.create',
+  'finance.expenses.update',
+  'finance.expenses.delete',
+  'finance.reports.export',
+  'finance.payroll.view',
 
   'purchases.view',
+  'purchases.create',
+  'purchases.payment',
+  'purchases.delete',
 
   // Sales
   'sales.view',
@@ -395,6 +459,17 @@ final Map<String, String> permissionTranslations = {
   'dashboard.analytics.view': 'عرض التحليلات',
   'dashboard.reports.view': 'عرض التقارير',
 
+  'insurance.view': 'عرض شركات التأمين',
+  'insurance.create': 'إضافة شركات التأمين',
+  'insurance.update': 'تعديل شركات التأمين',
+  'insurance.delete': 'حذف شركات التأمين',
+
+// Suppliers
+  'suppliers.view': 'عرض الموردين',
+  'suppliers.create': 'إضافة موردين',
+  'suppliers.update': 'تعديل الموردين',
+  'suppliers.delete': 'حذف الموردين',
+  'suppliers.credit.manage': 'إدارة حسابات الموردين',
   // Shifts (✅ ميزات جديدة)
   'shifts.view': 'عرض الورديات',
   'shifts.open': 'فتح وردية',
@@ -412,7 +487,9 @@ final Map<String, String> permissionTranslations = {
   'shifts.close_any' :'اغلاق أي وردية نشطة',
 
   'purchases.view': 'عرض المشتريات',
-
+  'purchases.create': 'إنشاء مشتريات',
+  'purchases.payment': 'تسديد فواتير المشتريات',
+  'purchases.delete': 'حذف فواتير المشتريات',
   // Sales
   'sales.view': 'عرض المبيعات',
   'sales.create': 'إنشاء مبيعات',
@@ -474,6 +551,12 @@ final Map<String, List<String>> permissionGroups = {
     'dashboard.analytics.view',
     'dashboard.reports.view',
   ],
+  'التأمين': [
+    'insurance.view',
+    'insurance.create',
+    'insurance.update',
+    'insurance.delete',
+  ],
   'الورديات': [
     'shifts.view',
     'shifts.open',
@@ -492,6 +575,9 @@ final Map<String, List<String>> permissionGroups = {
   ],
   'المشتريات': [
     'purchases.view',
+    'purchases.create',
+    'purchases.payment',
+    'purchases.delete',
   ],
   'المبيعات': [
     'sales.view',
@@ -533,6 +619,13 @@ final Map<String, List<String>> permissionGroups = {
     'employees.update',
     'employees.delete',
     'roles.manage',
+  ],
+  'الموردين': [
+    'suppliers.view',
+    'suppliers.create',
+    'suppliers.update',
+    'suppliers.delete',
+    'suppliers.credit.manage',
   ],
   'الإعدادات': [
     'settings.view',

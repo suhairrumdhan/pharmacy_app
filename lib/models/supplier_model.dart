@@ -85,6 +85,7 @@ class Supplier {
     );
   }
 
+
   Map<String, dynamic> toMap() {
     // تحويل التواريخ إلى String للتخزين في Firestore
     return {
@@ -102,6 +103,35 @@ class Supplier {
     };
   }
 
+  Supplier copyWith({
+    String? id,
+    String? name,
+    String? contactPerson,
+    String? phone,
+    String? address,
+    List<String>? suppliedMedications,
+    DateTime? contractStartDate,
+    DateTime? contractEndDate,
+    String? status,
+    String? notes,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return Supplier(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      contactPerson: contactPerson ?? this.contactPerson,
+      phone: phone ?? this.phone,
+      address: address ?? this.address,
+      suppliedMedications: suppliedMedications ?? this.suppliedMedications,
+      contractStartDate: contractStartDate ?? this.contractStartDate,
+      contractEndDate: contractEndDate ?? this.contractEndDate,
+      status: status ?? this.status,
+      notes: notes ?? this.notes,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
   // دالة إضافية لتنسيق التاريخ بشكل جميل
   String get formattedContractStartDate {
     return '${contractStartDate.day}/${contractStartDate.month}/${contractStartDate.year}';

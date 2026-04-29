@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 import 'package:path_provider/path_provider.dart';
 import '../core/security/default_permissions.dart';
 import '../models/employee_model.dart';
+import '../services/audit_log_service.dart';
 import 'auth_controller.dart';
 import 'package:path/path.dart' as p;
 import 'package:open_filex/open_filex.dart';
@@ -15,6 +16,7 @@ class EmployeeController extends GetxController {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final AuthController auth = Get.find<AuthController>();
   final FirebaseStorage _storage = FirebaseStorage.instance;
+  final AuditLogService _auditLogService = AuditLogService();
 
   String get pharmacyId => auth.pharmacyId;
 
@@ -124,12 +126,20 @@ class EmployeeController extends GetxController {
     passwordError.value = null;
     roleError.value = null;
 
+    final name = nameCtrl.text.trim();
     final username = usernameCtrl.text.trim();
     final password = passwordCtrl.text.trim();
-    final arabicRole = selectedRoleDisplay.value;
-    final englishRoleId = _translateRoleToEnglish(arabicRole);
+    final phone = phoneCtrl.text.trim();
+    final roleDisplay = selectedRoleDisplay.value.trim();
+    final roleId = selectedRoleId.value.trim().isNotEmpty
+        ? selectedRoleId.value.trim()
+        : _translateRoleToEnglish(roleDisplay);
 
     bool isValid = true;
+
+    if (name.isEmpty) {
+      isValid = false;
+    }
 
     if (username.isEmpty) {
       usernameError.value = 'اسم المستخدم مطلوب';
@@ -141,18 +151,17 @@ class EmployeeController extends GetxController {
       isValid = false;
     }
 
-    if (arabicRole.isEmpty) {
+    if (roleDisplay.isEmpty || roleId.isEmpty) {
       roleError.value = 'يجب اختيار دور';
       isValid = false;
     }
 
     if (!isValid) return false;
-
     if (isSaving.value) return false;
+
     isSaving.value = true;
 
     try {
-      // Check for duplicate username
       final existing = await _firestore
           .collection('pharmacies')
           .doc(pharmacyId)
@@ -163,7 +172,6 @@ class EmployeeController extends GetxController {
 
       if (existing.docs.isNotEmpty) {
         usernameError.value = 'اسم المستخدم مستخدم بالفعل';
-        isSaving.value = false;
         return false;
       }
 
@@ -174,27 +182,58 @@ class EmployeeController extends GetxController {
           .doc();
 
       final employeeId = ref.id;
+      final actor = auth.actorInfo;
       final uploadedUrls = await _uploadAllAttachments(employeeId);
 
-      final actor = auth.actorInfo;
-
-      await ref.set({
+      final employeeData = <String, dynamic>{
         'id': employeeId,
-        'name': nameCtrl.text.trim(),
+        'name': name,
         'username': username,
         'password': password,
-        'phone': phoneCtrl.text.trim(),
-        'roleId': englishRoleId,
-        'roleDisplay': arabicRole,
+        'phone': phone,
+        'roleId': roleId,
+        'roleDisplay': roleDisplay,
         'isActive': isActive.value,
         'contractType': contractType.value,
         'hiringDate': Timestamp.fromDate(hiringDate.value),
-        'permissionOverrides': {},
+        'permissionOverrides': <String, bool>{},
+        'hasCustomPermissions': false,
         'idCardImageUrl': uploadedUrls['idCard'],
         'certificateImageUrl': uploadedUrls['certificate'],
         'createdAt': FieldValue.serverTimestamp(),
         'createdBy': actor,
-      });
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': actor,
+      };
+
+      await ref.set(employeeData);
+
+      await _auditLogService.logSuccess(
+        pharmacyId: pharmacyId,
+        action: AuditActions.createEmployee,
+        module: AuditModules.employees,
+        targetType: AuditTargetTypes.employee,
+        targetId: employeeId,
+        targetName: name,
+        performedBy: actor,
+        details: {
+          'note': 'تم إضافة موظف جديد',
+          'newValues': {
+            'id': employeeId,
+            'name': name,
+            'username': username,
+            'phone': phone,
+            'roleId': roleId,
+            'roleDisplay': roleDisplay,
+            'isActive': isActive.value,
+            'contractType': contractType.value,
+            'hasCustomPermissions': false,
+            'idCardImageUrl': uploadedUrls['idCard'],
+            'certificateImageUrl': uploadedUrls['certificate'],
+          },
+        },
+        entityPath: 'pharmacies/$pharmacyId/employees/$employeeId',
+      );
 
       Get.snackbar('نجاح', 'تم إضافة الموظف بنجاح');
       clearForm();
@@ -206,32 +245,41 @@ class EmployeeController extends GetxController {
       isSaving.value = false;
     }
   }
-
   // ================= UPDATE EMPLOYEE =================
   Future<bool> updateEmployee(String employeeId) async {
-    if (employeeId.isEmpty) return false;
+    if (employeeId.isEmpty || pharmacyId.isEmpty) return false;
 
     final actor = auth.actorInfo;
+    final current = currentEmployee.value;
+
     final name = nameCtrl.text.trim();
     final phone = phoneCtrl.text.trim();
-    final roleId = selectedRoleId.value;
+    final roleDisplay = selectedRoleDisplay.value.trim();
+    final roleId = selectedRoleId.value.trim().isNotEmpty
+        ? selectedRoleId.value.trim()
+        : _translateRoleToEnglish(roleDisplay);
 
     bool isValid = true;
 
     if (name.isEmpty) isValid = false;
     if (roleId.isEmpty) isValid = false;
+    if (roleDisplay.isEmpty) isValid = false;
 
-    if (!isValid) return false;
+    if (!isValid) {
+      if (roleId.isEmpty || roleDisplay.isEmpty) {
+        roleError.value = 'يجب اختيار دور';
+      }
+      return false;
+    }
 
     try {
-      // 1. التعامل مع المرفقات
       final updatedAttachments = await _processAttachmentsForUpdate(employeeId);
 
-      // 2. إعداد بيانات التحديث
-      final updateData = {
+      final updateData = <String, dynamic>{
         'name': name,
         'phone': phone,
         'roleId': roleId,
+        'roleDisplay': roleDisplay,
         'isActive': isActive.value,
         'contractType': contractType.value,
         'hiringDate': Timestamp.fromDate(hiringDate.value),
@@ -239,10 +287,9 @@ class EmployeeController extends GetxController {
         'updatedBy': actor,
       };
 
-      // 3. إضافة المرفقات المحدثة - استخدام نفس الأسماء
       if (updatedAttachments.containsKey('idCard')) {
         if (updatedAttachments['idCard'] != null) {
-          updateData['idCardImageUrl'] = updatedAttachments['idCard']!;
+          updateData['idCardImageUrl'] = updatedAttachments['idCard'];
         } else {
           updateData['idCardImageUrl'] = FieldValue.delete();
         }
@@ -252,7 +299,7 @@ class EmployeeController extends GetxController {
 
       if (updatedAttachments.containsKey('certificate')) {
         if (updatedAttachments['certificate'] != null) {
-          updateData['certificateImageUrl'] = updatedAttachments['certificate']!;
+          updateData['certificateImageUrl'] = updatedAttachments['certificate'];
         } else {
           updateData['certificateImageUrl'] = FieldValue.delete();
         }
@@ -260,8 +307,6 @@ class EmployeeController extends GetxController {
         updateData['certificateImageUrl'] = FieldValue.delete();
       }
 
-
-      // 4. تنفيذ التحديث في Firebase
       await _firestore
           .collection('pharmacies')
           .doc(pharmacyId)
@@ -269,14 +314,68 @@ class EmployeeController extends GetxController {
           .doc(employeeId)
           .update(updateData);
 
-      // 5. حفظ التعديلات المعلقة للصلاحيات (إذا وجدت)
       if (_hasPendingChanges.value && _pendingPermissionOverrides.isNotEmpty) {
         await savePermissionChanges(employeeId);
       }
 
-      await _logAction(action: 'update_employee', targetId: employeeId);
+      final oldValues = <String, dynamic>{
+        'name': current?.name,
+        'phone': current?.phone,
+        'roleId': current?.roleId,
+        'roleDisplay': current?.roleDisplay,
+        'isActive': current?.isActive,
+        'contractType': current?.contractType,
+        'hiringDate': current?.hiringDate.toIso8601String(),
+        'idCardImageUrl': current?.idCardImageUrl,
+        'certificateImageUrl': current?.certificateImageUrl,
+        'hasCustomPermissions': current?.hasCustomPermissions,
+        'permissionOverrides': current?.permissionOverrides,
+      };
 
-      // 6. إعادة تعيين حالات المرفقات
+      final newValues = <String, dynamic>{
+        'name': name,
+        'phone': phone,
+        'roleId': roleId,
+        'roleDisplay': roleDisplay,
+        'isActive': isActive.value,
+        'contractType': contractType.value,
+        'hiringDate': hiringDate.value.toIso8601String(),
+        'idCardImageUrl': updatedAttachments.containsKey('idCard')
+            ? updatedAttachments['idCard']
+            : (shouldDeleteIdCard.value ? null : storedIdCardUrl.value),
+        'certificateImageUrl': updatedAttachments.containsKey('certificate')
+            ? updatedAttachments['certificate']
+            : (shouldDeleteCertificate.value ? null : storedCertificateUrl.value),
+        'hasCustomPermissions':
+        currentEmployee.value?.hasCustomPermissions ?? current?.hasCustomPermissions,
+        'permissionOverrides':
+        currentEmployee.value?.permissionOverrides ?? current?.permissionOverrides,
+      };
+
+      final changedFields = <String>[];
+      for (final entry in newValues.entries) {
+        if (oldValues[entry.key] != entry.value) {
+          changedFields.add(entry.key);
+        }
+      }
+
+      await _auditLogService.logSuccess(
+        pharmacyId: pharmacyId,
+        action: AuditActions.updateEmployee,
+        module: AuditModules.employees,
+        targetType: AuditTargetTypes.employee,
+        targetId: employeeId,
+        targetName: name,
+        performedBy: actor,
+        details: {
+          'note': 'تم تحديث بيانات الموظف',
+          'changedFields': changedFields,
+          'oldValues': oldValues,
+          'newValues': newValues,
+        },
+        entityPath: 'pharmacies/$pharmacyId/employees/$employeeId',
+      );
+
       _resetAttachmentStates();
 
       Get.snackbar('نجاح', 'تم تحديث بيانات الموظف بنجاح');
@@ -286,7 +385,6 @@ class EmployeeController extends GetxController {
       return false;
     }
   }
-
   // ================= ATTACHMENT METHODS =================
 
   // دالة لتحميل موظف للتعديل مع المرفقات
@@ -817,7 +915,46 @@ class EmployeeController extends GetxController {
 
   // ================= DELETE =================
   Future<void> deleteEmployee(String employeeId) async {
+    if (employeeId.isEmpty || pharmacyId.isEmpty) return;
+
     try {
+      final actor = auth.actorInfo;
+
+      final employeeDoc = await _firestore
+          .collection('pharmacies')
+          .doc(pharmacyId)
+          .collection('employees')
+          .doc(employeeId)
+          .get();
+
+      if (!employeeDoc.exists) {
+        Get.snackbar('تنبيه', 'الموظف غير موجود');
+        return;
+      }
+
+      final data = employeeDoc.data() as Map<String, dynamic>;
+
+      final targetName = (data['name'] ?? '').toString();
+      final deletedSnapshot = <String, dynamic>{
+        'id': data['id'],
+        'name': data['name'],
+        'username': data['username'],
+        'phone': data['phone'],
+        'roleId': data['roleId'],
+        'roleDisplay': data['roleDisplay'],
+        'isActive': data['isActive'],
+        'contractType': data['contractType'],
+        'hiringDate': data['hiringDate'],
+        'hasCustomPermissions': data['hasCustomPermissions'],
+        'permissionOverrides': data['permissionOverrides'],
+        'idCardImageUrl': data['idCardImageUrl'],
+        'certificateImageUrl': data['certificateImageUrl'],
+        'createdAt': data['createdAt'],
+        'createdBy': data['createdBy'],
+        'updatedAt': data['updatedAt'],
+        'updatedBy': data['updatedBy'],
+      };
+
       await _firestore
           .collection('pharmacies')
           .doc(pharmacyId)
@@ -825,29 +962,31 @@ class EmployeeController extends GetxController {
           .doc(employeeId)
           .delete();
 
-      await _logAction(action: 'delete_employee', targetId: employeeId);
+      await _auditLogService.logSuccess(
+        pharmacyId: pharmacyId,
+        action: AuditActions.deleteEmployee,
+        module: AuditModules.employees,
+        targetType: AuditTargetTypes.employee,
+        targetId: employeeId,
+        targetName: targetName,
+        performedBy: actor,
+        details: {
+          'note': 'تم حذف الموظف',
+          'deletedSnapshot': deletedSnapshot,
+        },
+        entityPath: 'pharmacies/$pharmacyId/employees/$employeeId',
+      );
+
+      if (currentEmployee.value?.id == employeeId) {
+        clearForm();
+      }
+
+      Get.snackbar('نجاح', 'تم حذف الموظف بنجاح');
     } catch (e) {
-      print('Error deleting employee: $e');
       Get.snackbar('خطأ', 'حدث خطأ أثناء الحذف');
     }
   }
 
-  Future<void> _logAction({
-    required String action,
-    required String targetId,
-  }) async {
-    await _firestore
-        .collection('pharmacies')
-        .doc(pharmacyId)
-        .collection('audit_logs')
-        .add({
-      'action': action,
-      'targetId': targetId,
-      'targetType': 'employee',
-      'performedBy': auth.actorInfo,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-  }
 
   // ================= UI HELPERS =================
   Future<void> selectDate(BuildContext context) async {

@@ -80,7 +80,6 @@ class _SalesHistoryDialogState extends State<SalesHistoryDialog> {
       // ✅ تأكد من تحميل البيانات
       await salesController.ensureHistoryLoaded();
       await _reloadAccordingToMode();
-      salesController.debugPrintHistory(); // تأكد من وجود بيانات
 
     });
   }

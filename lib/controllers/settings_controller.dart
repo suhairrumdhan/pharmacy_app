@@ -368,7 +368,8 @@ class SettingsController extends GetxController {
           address: addressController.text.trim(),
         ),
       );
-
+      isLoading.value = false;
+      Get.back();
       Get.snackbar('نجاح', 'تم تحديث البيانات والبحث بنجاح');
       return true;
     } catch (e) {

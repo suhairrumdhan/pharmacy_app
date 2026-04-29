@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:csv/csv.dart';
 import 'dart:io';
 import '../models/inventory_model.dart';
+import '../services/audit_log_service.dart';
 import '../services/search_index_service.dart';
 import '../views/inventory/widgets/quick_alerts.dart';
 import 'dart:convert';
@@ -28,6 +29,228 @@ class InventoryController extends GetxController {
   final isEditMode = false.obs;
   String? editingMedicineId;
   bool _initialized = false;
+
+
+  final AuditLogService _auditLogService = AuditLogService();
+
+  AuthController get _authController => Get.find<AuthController>();
+
+  Map<String, dynamic> get _actor =>
+      Map<String, dynamic>.from(_authController.actorInfo);
+
+  void _ensureCan(String permission, String message) {
+    if (!_authController.can(permission)) {
+      throw Exception(message);
+    }
+  }
+
+  Future<void> _logCreateMedicine(Medicine medicine) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: _pharmacyId,
+        action: AuditActions.createMedicine,
+        module: AuditModules.inventory,
+        targetType: AuditTargetTypes.medicine,
+        targetId: medicine.id,
+        targetName: medicine.name,
+        performedBy: _actor,
+        details: {
+          'note': 'تم إضافة دواء جديد',
+          'newValues': {
+            'name': medicine.name,
+            'scientificName': medicine.scientificName,
+            'quantity': medicine.quantity,
+            'pieceQuantity': medicine.pieceQuantity,
+            'purchasePrice': medicine.purchasePrice,
+            'sellingPrice': medicine.sellingPrice,
+            'unit': medicine.unit?.name,
+            'unitsPerPackage': medicine.unitsPerPackage,
+            'sellByPiece': medicine.sellByPiece,
+            'piecePrice': medicine.piecePrice,
+            'minStockLevel': medicine.minStockLevel,
+            'supplier': medicine.supplier,
+            'expiryDate': medicine.expiryDate?.toIso8601String(),
+            'barcode': medicine.barcode,
+            'category': medicine.category,
+          },
+        },
+        entityPath: 'pharmacies/$_pharmacyId/medicines/${medicine.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (create_medicine): $e');
+    }
+  }
+
+  Future<void> _logUpdateMedicine({
+    required Medicine oldMedicine,
+    required Medicine newMedicine,
+  }) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: _pharmacyId,
+        action: AuditActions.updateMedicine,
+        module: AuditModules.inventory,
+        targetType: AuditTargetTypes.medicine,
+        targetId: newMedicine.id,
+        targetName: newMedicine.name,
+        performedBy: _actor,
+        details: {
+          'note': 'تم تحديث بيانات الدواء',
+          'oldValues': {
+            'name': oldMedicine.name,
+            'scientificName': oldMedicine.scientificName,
+            'quantity': oldMedicine.quantity,
+            'pieceQuantity': oldMedicine.pieceQuantity,
+            'purchasePrice': oldMedicine.purchasePrice,
+            'sellingPrice': oldMedicine.sellingPrice,
+            'unit': oldMedicine.unit?.name,
+            'unitsPerPackage': oldMedicine.unitsPerPackage,
+            'sellByPiece': oldMedicine.sellByPiece,
+            'piecePrice': oldMedicine.piecePrice,
+            'minStockLevel': oldMedicine.minStockLevel,
+            'supplier': oldMedicine.supplier,
+            'expiryDate': oldMedicine.expiryDate?.toIso8601String(),
+            'barcode': oldMedicine.barcode,
+            'category': oldMedicine.category,
+          },
+          'newValues': {
+            'name': newMedicine.name,
+            'scientificName': newMedicine.scientificName,
+            'quantity': newMedicine.quantity,
+            'pieceQuantity': newMedicine.pieceQuantity,
+            'purchasePrice': newMedicine.purchasePrice,
+            'sellingPrice': newMedicine.sellingPrice,
+            'unit': newMedicine.unit?.name,
+            'unitsPerPackage': newMedicine.unitsPerPackage,
+            'sellByPiece': newMedicine.sellByPiece,
+            'piecePrice': newMedicine.piecePrice,
+            'minStockLevel': newMedicine.minStockLevel,
+            'supplier': newMedicine.supplier,
+            'expiryDate': newMedicine.expiryDate?.toIso8601String(),
+            'barcode': newMedicine.barcode,
+            'category': newMedicine.category,
+          },
+        },
+        entityPath: 'pharmacies/$_pharmacyId/medicines/${newMedicine.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (update_medicine): $e');
+    }
+  }
+
+  Future<void> _logDeleteMedicine(Medicine medicine) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: _pharmacyId,
+        action: AuditActions.deleteMedicine,
+        module: AuditModules.inventory,
+        targetType: AuditTargetTypes.medicine,
+        targetId: medicine.id,
+        targetName: medicine.name,
+        performedBy: _actor,
+        details: {
+          'note': 'تم حذف الدواء',
+          'deletedSnapshot': {
+            'name': medicine.name,
+            'scientificName': medicine.scientificName,
+            'quantity': medicine.quantity,
+            'pieceQuantity': medicine.pieceQuantity,
+            'purchasePrice': medicine.purchasePrice,
+            'sellingPrice': medicine.sellingPrice,
+            'unit': medicine.unit?.name,
+            'unitsPerPackage': medicine.unitsPerPackage,
+            'sellByPiece': medicine.sellByPiece,
+            'piecePrice': medicine.piecePrice,
+            'minStockLevel': medicine.minStockLevel,
+            'supplier': medicine.supplier,
+            'expiryDate': medicine.expiryDate?.toIso8601String(),
+            'barcode': medicine.barcode,
+            'category': medicine.category,
+          },
+        },
+        entityPath: 'pharmacies/$_pharmacyId/medicines/${medicine.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (delete_medicine): $e');
+    }
+  }
+
+  Future<void> _logAdjustStock({
+    required Medicine oldMedicine,
+    required Medicine newMedicine,
+  }) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: _pharmacyId,
+        action: AuditActions.adjustMedicineStock,
+        module: AuditModules.inventory,
+        targetType: AuditTargetTypes.medicine,
+        targetId: newMedicine.id,
+        targetName: newMedicine.name,
+        performedBy: _actor,
+        details: {
+          'note': 'تم تعديل مخزون الدواء',
+          'oldValues': {
+            'quantity': oldMedicine.quantity,
+            'pieceQuantity': oldMedicine.pieceQuantity,
+          },
+          'newValues': {
+            'quantity': newMedicine.quantity,
+            'pieceQuantity': newMedicine.pieceQuantity,
+          },
+        },
+        entityPath: 'pharmacies/$_pharmacyId/medicines/${newMedicine.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (adjust_medicine_stock): $e');
+    }
+  }
+
+  Future<void> _logImportMedicines(int count) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: _pharmacyId,
+        action: AuditActions.importMedicines,
+        module: AuditModules.inventory,
+        targetType: AuditTargetTypes.medicine,
+        targetId: 'bulk_import',
+        targetName: 'CSV Import',
+        performedBy: _actor,
+        details: {
+          'note': 'تم استيراد أدوية من ملف CSV',
+          'newValues': {
+            'importedCount': count,
+          },
+        },
+        entityPath: 'pharmacies/$_pharmacyId/medicines',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (import_medicines): $e');
+    }
+  }
+
+  Future<void> _logBulkUpdateMedicines(int count) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: _pharmacyId,
+        action: AuditActions.bulkUpdateMedicines,
+        module: AuditModules.inventory,
+        targetType: AuditTargetTypes.medicine,
+        targetId: 'bulk_update',
+        targetName: 'Bulk Update',
+        performedBy: _actor,
+        details: {
+          'note': 'تم تنفيذ تحديث جماعي على المخزون',
+          'newValues': {
+            'updatedCount': count,
+          },
+        },
+        entityPath: 'pharmacies/$_pharmacyId/medicines',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (bulk_update_medicines): $e');
+    }
+  }
 
   @override
   void onInit() {
@@ -104,6 +327,11 @@ class InventoryController extends GetxController {
   Future<void> loadMedicines() async {
     try {
       isLoading.value = true;
+      if (!_authController.can('inventory.view')) {
+        medicines.clear();
+        filteredMedicines.clear();
+        return;
+      }
       final QuerySnapshot snapshot = await _medicinesCollection
           .orderBy('lastUpdated', descending: true)
           .get();
@@ -189,6 +417,7 @@ class InventoryController extends GetxController {
   // Add medicine to Firestore
   Future<void> addMedicine(Medicine medicine) async {
     try {
+      _ensureCan('inventory.create', 'ليس لديك صلاحية إضافة الأدوية');
       final data = medicine.toMap(forFirestore: true);
       late Medicine medicineForIndex;
 
@@ -208,7 +437,7 @@ class InventoryController extends GetxController {
         pharmacyData: pharmacyData,
         medicine: medicineForIndex,
       );
-
+      await _logCreateMedicine(medicineForIndex);
       await loadMedicines();
       Get.snackbar('نجاح', 'تم إضافة الدواء بنجاح', backgroundColor: Colors.green);
     } catch (e) {
@@ -218,20 +447,48 @@ class InventoryController extends GetxController {
   // Update medicine (now in nested collection)
   Future<void> updateMedicine(String id, Medicine updatedMedicine) async {
     try {
-      await _medicinesCollection.doc(id).update(updatedMedicine.toMap(forFirestore: true));
-      await _refreshPharmacyData();
-      await searchIndexService.createOrUpdateIndex(
-        pharmacyId: _pharmacyId!,
-        pharmacyData: pharmacyData,
-        medicine: updatedMedicine,
+      _ensureCan('inventory.update', 'ليس لديك صلاحية تعديل الأدوية');
+
+      final oldMedicine = getMedicineById(id);
+      if (oldMedicine == null) {
+        Get.snackbar('تنبيه', 'الدواء غير موجود');
+        return;
+      }
+
+      final finalMedicine = updatedMedicine.copyWith(id: id);
+
+      await _medicinesCollection.doc(id).update(
+        finalMedicine.toMap(forFirestore: true),
       );
+
+      await _refreshPharmacyData();
+
+      await searchIndexService.createOrUpdateIndex(
+        pharmacyId: _pharmacyId,
+        pharmacyData: pharmacyData,
+        medicine: finalMedicine,
+      );
+
+      await _logUpdateMedicine(
+        oldMedicine: oldMedicine,
+        newMedicine: finalMedicine,
+      );
+
       await loadMedicines();
-      Get.snackbar('نجاح', 'تم تحديث الدواء بنجاح', backgroundColor: Colors.green);
+
+      Get.snackbar(
+        'نجاح',
+        'تم تحديث الدواء بنجاح',
+        backgroundColor: Colors.green,
+      );
     } catch (e) {
-      Get.snackbar('خطأ', 'فشل في تحديث الدواء: $e', backgroundColor: Colors.red);
+      Get.snackbar(
+        'خطأ',
+        'فشل في تحديث الدواء: $e',
+        backgroundColor: Colors.red,
+      );
     }
   }
-
   // Update stock quantity (now in nested collection)
   Future<void> updateStock({
     required String id,
@@ -239,31 +496,44 @@ class InventoryController extends GetxController {
     required int newPieceQty,
   }) async {
     try {
+      _ensureCan('inventory.adjust_quantity', 'ليس لديك صلاحية تعديل كميات المخزون');
+
+      final oldMedicine = getMedicineById(id);
+      if (oldMedicine == null) {
+        throw Exception('الدواء غير موجود');
+      }
+
       await _medicinesCollection.doc(id).update({
         'quantity': newPackageQty,
         'pieceQuantity': newPieceQty,
         'lastUpdated': FieldValue.serverTimestamp(),
       });
+
       await _refreshPharmacyData();
+
+      final updatedMedicine = oldMedicine.copyWith(
+        quantity: newPackageQty,
+        pieceQuantity: newPieceQty,
+        lastUpdated: DateTime.now(),
+      );
+
       final idx = medicines.indexWhere((m) => m.id == id);
       if (idx != -1) {
-        final updatedMedicine = medicines[idx].copyWith(
-          quantity: newPackageQty,
-          pieceQuantity: newPieceQty,
-          lastUpdated: DateTime.now(),
-        );
-
         medicines[idx] = updatedMedicine;
-        _applyFilters();
-
-        final searchIndexService = SearchIndexService();
-
-        await searchIndexService.createOrUpdateIndex(
-          pharmacyId: _pharmacyId!,
-          pharmacyData: pharmacyData,
-          medicine: updatedMedicine,
-        );
       }
+
+      _applyFilters();
+
+      await searchIndexService.createOrUpdateIndex(
+        pharmacyId: _pharmacyId,
+        pharmacyData: pharmacyData,
+        medicine: updatedMedicine,
+      );
+
+      await _logAdjustStock(
+        oldMedicine: oldMedicine,
+        newMedicine: updatedMedicine,
+      );
     } catch (e) {
       Get.snackbar(
         'خطأ',
@@ -277,24 +547,45 @@ class InventoryController extends GetxController {
   // Delete medicine (now from nested collection)
   Future<void> deleteMedicine(String id) async {
     try {
+      _ensureCan('inventory.delete', 'ليس لديك صلاحية حذف الأدوية');
+
+      final medicine = getMedicineById(id);
+      if (medicine == null) {
+        Get.snackbar('تنبيه', 'الدواء غير موجود');
+        return;
+      }
+
       await _medicinesCollection.doc(id).delete();
+
       await searchIndexService.deleteIndex(
-        pharmacyId: _pharmacyId!,
+        pharmacyId: _pharmacyId,
         medicineId: id,
       );
+
+      await _logDeleteMedicine(medicine);
+
       await loadMedicines();
-      Get.snackbar('نجاح', 'تم حذف الدواء بنجاح', backgroundColor: Colors.green);
+
+      Get.snackbar(
+        'نجاح',
+        'تم حذف الدواء بنجاح',
+        backgroundColor: Colors.green,
+      );
     } catch (e) {
-      Get.snackbar('خطأ', 'فشل في حذف الدواء: $e', backgroundColor: Colors.red);
+      Get.snackbar(
+        'خطأ',
+        'فشل في حذف الدواء: $e',
+        backgroundColor: Colors.red,
+      );
     }
   }
-
   Future<void> importFromCSV(
       String filePath,
       Map<String, int> mapping, {
         Map<String, dynamic>? defaults,
       }) async {
     try {
+      _ensureCan('inventory.create', 'ليس لديك صلاحية استيراد الأدوية');
       final file = File(filePath);
       final csvString = await file.readAsString();
 
@@ -324,12 +615,16 @@ class InventoryController extends GetxController {
       await _rebuildIndexForCurrentPharmacy();
       await loadMedicines();
 
+      await _logImportMedicines(parsed.length);
+
       Get.snackbar(
         'نجاح',
         'تم استيراد ${parsed.length} عنصر بنجاح',
         backgroundColor: Colors.green,
         colorText: Colors.white,
       );
+
+
     } catch (e) {
       Get.snackbar('خطأ', 'فشل في استيراد الملف: $e', backgroundColor: Colors.red);
     }
@@ -678,6 +973,8 @@ class InventoryController extends GetxController {
   // Bulk update medicines
   Future<void> bulkUpdateMedicines(List<Medicine> updatedMedicines) async {
     try {
+      _ensureCan('inventory.update', 'ليس لديك صلاحية التحديث الجماعي للمخزون');
+
       isLoading.value = true;
       final WriteBatch batch = _firestore.batch();
 
@@ -689,6 +986,8 @@ class InventoryController extends GetxController {
       await batch.commit();
       await _rebuildIndexForCurrentPharmacy();
       await loadMedicines();
+
+      await _logBulkUpdateMedicines(updatedMedicines.length);
 
       Get.snackbar(
         'نجاح',

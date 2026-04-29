@@ -6,6 +6,7 @@ class Employee {
   final String username;
   final String phone;
   final String roleId;
+  final String roleDisplay;
   final String contractType;
   final DateTime hiringDate;
   final Map<String, bool> permissionOverrides;
@@ -25,6 +26,7 @@ class Employee {
     required this.username,
     required this.phone,
     required this.roleId,
+    required this.roleDisplay,
     required this.contractType,
     required this.hiringDate,
     required this.isActive,
@@ -37,32 +39,29 @@ class Employee {
     this.certificateImageUrl,
     Map<String, bool>? permissionOverrides,
     bool? hasCustomPermissions,
-  }) :
-        permissionOverrides = permissionOverrides ?? {},
+  })  : permissionOverrides = permissionOverrides ?? <String, bool>{},
         hasCustomPermissions = hasCustomPermissions ?? false;
 
   factory Employee.fromMap(String id, Map<String, dynamic> data) {
     try {
-      print('🔍 تحويل بيانات الموظف - ID: $id');
-      print('   - المرفقات الواردة:');
-      print('     * certificateImageUrl: ${data['certificateImageUrl']}');
-      print('     * idCardImageUrl: ${data['idCardImageUrl']}');
-
-      // استخدام الأسماء المباشرة من Firestore
       final idCardUrl = data['idCardImageUrl']?.toString();
       final certificateUrl = data['certificateImageUrl']?.toString();
 
-      print('   - المرفقات المستخرجة:');
-      print('     * idCardImageUrl: $idCardUrl');
-      print('     * certificateImageUrl: $certificateUrl');
+      final parsedRoleId =
+      _parseString(data['roleId'], defaultValue: 'pharmacist');
 
       return Employee(
         id: id,
         name: _parseString(data['name']),
         username: _parseString(data['username']),
         phone: _parseString(data['phone']),
-        roleId: _parseString(data['roleId'], defaultValue: 'pharmacist'),
-        contractType: _parseString(data['contractType'], defaultValue: 'دوام كامل'),
+        roleId: parsedRoleId,
+        roleDisplay: _parseString(
+          data['roleDisplay'],
+          defaultValue: _defaultRoleDisplay(parsedRoleId),
+        ),
+        contractType:
+        _parseString(data['contractType'], defaultValue: 'دوام كامل'),
         hiringDate: _parseDateTime(data['hiringDate']),
         isActive: data['isActive'] == true,
         createdAt: _parseDateTime(data['createdAt']),
@@ -70,36 +69,44 @@ class Employee {
         updatedAt: _parseOptionalDateTime(data['updatedAt']),
         updatedBy: _parseOptionalMap(data['updatedBy']),
         password: data['password']?.toString(),
-        permissionOverrides: _parsePermissionOverrides(data['permissionOverrides']),
+        permissionOverrides:
+        _parsePermissionOverrides(data['permissionOverrides']),
         hasCustomPermissions: data['hasCustomPermissions'] == true,
-        // استخدام الأسماء الجديدة فقط
         idCardImageUrl: idCardUrl,
         certificateImageUrl: certificateUrl,
       );
-    } catch (e, stackTrace) {
-      print('❌ خطأ في تحليل بيانات الموظف مع id $id: $e');
-      print('📊 البيانات الواردة: $data');
-      print('📜 Stack trace: $stackTrace');
+    } catch (_) {
+      final parsedRoleId =
+      _parseString(data['roleId'], defaultValue: 'pharmacist');
 
-      // Fallback employee with safe defaults
       return Employee(
         id: id,
         name: _parseString(data['name']),
         username: _parseString(data['username']),
         phone: _parseString(data['phone']),
-        roleId: _parseString(data['roleId'], defaultValue: 'pharmacist'),
-        contractType: _parseString(data['contractType'], defaultValue: 'دوام كامل'),
+        roleId: parsedRoleId,
+        roleDisplay: _parseString(
+          data['roleDisplay'],
+          defaultValue: _defaultRoleDisplay(parsedRoleId),
+        ),
+        contractType:
+        _parseString(data['contractType'], defaultValue: 'دوام كامل'),
         hiringDate: DateTime.now(),
         isActive: true,
         createdAt: DateTime.now(),
         createdBy: {},
-        // استخدام الأسماء الجديدة فقط
+        updatedAt: null,
+        updatedBy: null,
+        password: data['password']?.toString(),
+        permissionOverrides:
+        _parsePermissionOverrides(data['permissionOverrides']),
+        hasCustomPermissions: data['hasCustomPermissions'] == true,
         idCardImageUrl: data['idCardImageUrl']?.toString(),
         certificateImageUrl: data['certificateImageUrl']?.toString(),
       );
     }
   }
-  // Helper methods for safe parsing
+
   static String _parseString(dynamic value, {String defaultValue = ''}) {
     if (value == null) return defaultValue;
     return value.toString();
@@ -155,9 +162,11 @@ class Employee {
     if (value == null) return {};
     try {
       if (value is Map) {
-        return Map<String, bool>.from(value.map(
-                (key, value) => MapEntry(key.toString(), value == true)
-        ));
+        return Map<String, bool>.from(
+          value.map(
+                (key, value) => MapEntry(key.toString(), value == true),
+          ),
+        );
       }
       return {};
     } catch (_) {
@@ -165,6 +174,18 @@ class Employee {
     }
   }
 
+  static String _defaultRoleDisplay(String roleId) {
+    switch (roleId) {
+      case 'admin':
+        return 'إداري';
+      case 'pharmacist':
+        return 'صيدلي';
+      case 'cashier':
+        return 'محاسب';
+      default:
+        return 'موظف';
+    }
+  }
 
   Map<String, dynamic> toMap() {
     final map = <String, dynamic>{
@@ -173,6 +194,7 @@ class Employee {
       'username': username,
       'phone': phone,
       'roleId': roleId,
+      'roleDisplay': roleDisplay,
       'contractType': contractType,
       'hiringDate': Timestamp.fromDate(hiringDate),
       'isActive': isActive,
@@ -182,12 +204,15 @@ class Employee {
       'createdBy': createdBy,
     };
 
-    // إضافة الحقول الاختيارية
-    if (updatedAt != null) map['updatedAt'] = Timestamp.fromDate(updatedAt!);
-    if (updatedBy != null) map['updatedBy'] = updatedBy;
-    if (password != null) map['password'] = password;
-
-    // حفظ المرفقات باستخدام نفس الأسماء في Firestore
+    if (updatedAt != null) {
+      map['updatedAt'] = Timestamp.fromDate(updatedAt!);
+    }
+    if (updatedBy != null) {
+      map['updatedBy'] = updatedBy;
+    }
+    if (password != null) {
+      map['password'] = password;
+    }
     if (idCardImageUrl != null && idCardImageUrl!.isNotEmpty) {
       map['idCardImageUrl'] = idCardImageUrl;
     }
@@ -197,13 +222,14 @@ class Employee {
 
     return map;
   }
-  // دالة copyWith لإنشاء نسخة معدلة من الكائن
+
   Employee copyWith({
     String? id,
     String? name,
     String? username,
     String? phone,
     String? roleId,
+    String? roleDisplay,
     String? contractType,
     DateTime? hiringDate,
     bool? isActive,
@@ -223,6 +249,7 @@ class Employee {
       username: username ?? this.username,
       phone: phone ?? this.phone,
       roleId: roleId ?? this.roleId,
+      roleDisplay: roleDisplay ?? this.roleDisplay,
       contractType: contractType ?? this.contractType,
       hiringDate: hiringDate ?? this.hiringDate,
       isActive: isActive ?? this.isActive,
@@ -240,36 +267,42 @@ class Employee {
 
   @override
   String toString() {
-    return 'Employee(id: $id, name: $name, username: $username, roleId: $roleId, '
-        'isActive: $isActive, idCardImageUrl: $idCardImageUrl, '
-        'certificateImageUrl: $certificateImageUrl)';
+    return 'Employee('
+        'id: $id, '
+        'name: $name, '
+        'username: $username, '
+        'roleId: $roleId, '
+        'roleDisplay: $roleDisplay, '
+        'isActive: $isActive, '
+        'idCardImageUrl: $idCardImageUrl, '
+        'certificateImageUrl: $certificateImageUrl'
+        ')';
   }
 
-  // دالة مساعدة للتحقق من وجود مرفقات
   bool get hasIdCard => idCardImageUrl != null && idCardImageUrl!.isNotEmpty;
-  bool get hasCertificate => certificateImageUrl != null && certificateImageUrl!.isNotEmpty;
+  bool get hasCertificate =>
+      certificateImageUrl != null && certificateImageUrl!.isNotEmpty;
 
-  // دالة للحصول على اسم الملف من الرابط
   String? get idCardFileName {
     if (idCardImageUrl == null || idCardImageUrl!.isEmpty) return null;
     try {
       final uri = Uri.parse(idCardImageUrl!);
-      final path = uri.path;
-      final parts = path.split('/');
-      return parts.last;
-    } catch (e) {
+      return uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'ملف_الهوية';
+    } catch (_) {
       return 'ملف_الهوية';
     }
   }
 
   String? get certificateFileName {
-    if (certificateImageUrl == null || certificateImageUrl!.isEmpty) return null;
+    if (certificateImageUrl == null || certificateImageUrl!.isEmpty) {
+      return null;
+    }
     try {
       final uri = Uri.parse(certificateImageUrl!);
-      final path = uri.path;
-      final parts = path.split('/');
-      return parts.last;
-    } catch (e) {
+      return uri.pathSegments.isNotEmpty
+          ? uri.pathSegments.last
+          : 'ملف_الشهادة';
+    } catch (_) {
       return 'ملف_الشهادة';
     }
   }

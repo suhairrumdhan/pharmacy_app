@@ -337,51 +337,47 @@ class PermissionsSection extends StatelessWidget {
     required String permissionKey,
     required String employeeId,
   }) {
-    Color backgroundColor;
-    Color borderColor;
-    Color textColor;
-    Color checkColor;
-
-    // حالة الصلاحية مفعلة (صح)
-    if (value) {
-      backgroundColor = Colors.blue.shade50;
-      borderColor = Colors.blue.shade300;
-      textColor = Colors.blue.shade800;
-      checkColor = Colors.blue.shade700;
-    }
-    // حالة الصلاحية معطلة (خطأ)
-    else {
-      backgroundColor = Colors.grey.shade100;
-      borderColor = Colors.grey.shade300;
-      textColor = Colors.grey.shade600;
-      checkColor = Colors.grey.shade400;
-    }
+    return Obx(() {
+      final currentEmployee = controller.currentEmployee.value;
+      final currentOverrides = currentEmployee?.permissionOverrides ?? {};
 
 
-    return GestureDetector(
-      onTap: () async {
-        final newValue = !value;
-        await controller.updatePermissionOverride(
-          employeeId: employeeId,
-          permissionKey: permissionKey,
-          value: newValue,
-        );
-      },
-      child: Obx(() {
-        final currentEmployee = controller.currentEmployee.value;
-        final currentOverrides = currentEmployee?.permissionOverrides ?? {};
-        final currentHasOverride = currentOverrides.containsKey(permissionKey);
-        final currentValue = currentHasOverride
-            ? currentOverrides[permissionKey] ?? value
-            : value;
+      final currentHasOverride = currentOverrides.containsKey(permissionKey);
+      final currentValue = currentHasOverride
+          ? (currentOverrides[permissionKey] ?? value)
+          : value;
 
-        return AnimatedContainer(
+      final hasCustomStyle = currentHasOverride;
+      
+      final backgroundColor =
+      currentValue ? Colors.blue.shade50 : Colors.grey.shade100;
+      final borderColor =
+      currentValue ? Colors.blue.shade300 : Colors.grey.shade300;
+      final textColor =
+      currentValue ? Colors.blue.shade800 : Colors.grey.shade600;
+      final checkColor =
+      currentValue ? Colors.blue.shade700 : Colors.grey.shade400;
+
+      return GestureDetector(
+        onTap: () async {
+          await controller.updatePermissionOverride(
+            employeeId: employeeId,
+            permissionKey: permissionKey,
+            value: !currentValue,
+          );
+        },
+        child: AnimatedContainer(
           duration: const Duration(milliseconds: 300),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: borderColor, width: 1.5),
+            border: Border.all(
+              color: hasCustomStyle
+                  ? Colors.orange.shade300
+                  : borderColor,
+              width: hasCustomStyle ? 2 : 1.5,
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.1),
@@ -428,9 +424,9 @@ class PermissionsSection extends StatelessWidget {
               ),
             ],
           ),
-        );
-      }),
-    );
+        ),
+      );
+    });
   }
 
   Widget _buildAdminPermissionsSection() {

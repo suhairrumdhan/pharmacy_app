@@ -8,7 +8,7 @@ import 'auth_controller.dart';
 import 'finance_controller.dart';
 import 'inventory_controller.dart';
 import 'supplier_controller.dart';
-
+import '../services/audit_log_service.dart';
 class PurchaseStockEntry {
   final String medicineId;
   final String medicineName;
@@ -82,6 +82,17 @@ class PurchaseStockEntry {
 
 class PurchaseController extends GetxController {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final AuditLogService _auditLogService = AuditLogService();
+  AuthController get _auth => _authCtrl;
+
+  Map<String, dynamic> get _actor =>
+      Map<String, dynamic>.from(_auth.actorInfo);
+
+  void _ensureCan(String permission, String message) {
+    if (!_auth.can(permission)) {
+      throw Exception(message);
+    }
+  }
 
   /// =========================
   /// Data
@@ -147,14 +158,13 @@ class PurchaseController extends GetxController {
   String get _pharmacyId => _authCtrl.pharmacyId;
   String get _currentUserId => _authCtrl.actorInfo['id'] ?? '';
 
-  bool get canCreateInvoice =>
-      _authCtrl.can('create_purchase') || _authCtrl.actorInfo['type'] == 'owner';
+  bool get canCreateInvoice => _authCtrl.can('purchases.create');
+  bool get canViewInvoices => _authCtrl.can('purchases.view');
+  bool get canMakePayment => _authCtrl.can('purchases.payment');
+  bool get canDeleteInvoice => _authCtrl.can('purchases.delete');
 
-  bool get canViewInvoices =>
-      _authCtrl.can('view_purchases') || _authCtrl.actorInfo['type'] == 'owner';
 
-  bool get canMakePayment =>
-      _authCtrl.can('make_payment') || _authCtrl.actorInfo['type'] == 'owner';
+
 
   CollectionReference<Map<String, dynamic>> get _invoicesCollection {
     return _firestore
@@ -169,7 +179,115 @@ class PurchaseController extends GetxController {
         .doc(_pharmacyId)
         .collection('medicines');
   }
+  Future<void> _logCreatePurchaseInvoice({
+    required PurchaseInvoice invoice,
+    required List<PurchaseStockEntry> stockEntries,
+  }) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: _pharmacyId,
+        action: AuditActions.createPurchaseInvoice,
+        module: AuditModules.purchases,
+        targetType: AuditTargetTypes.purchase,
+        targetId: invoice.id ?? '',
+        targetName: invoice.invoiceNumber,
+        performedBy: _actor,
+        details: {
+          'note': 'تم إنشاء فاتورة مشتريات',
+          'newValues': {
+            'invoiceNumber': invoice.invoiceNumber,
+            'supplierId': invoice.supplierId,
+            'supplierName': invoice.supplierName,
+            'itemsCount': invoice.items.length,
+            'stockEntriesCount': stockEntries.length,
+            'subtotal': invoice.subtotal,
+            'discount': invoice.discount,
+            'total': invoice.total,
+            'paymentStatus': invoice.paymentStatus.name,
+            'dueDate': invoice.dueDate?.toIso8601String(),
+            'referenceNumber': invoice.referenceNumber,
+            'receivedDate': invoice.receivedDate?.toIso8601String(),
+            'createdBy': invoice.createdBy,
+          },
+        },
+        entityPath: 'pharmacies/$_pharmacyId/purchase_invoices/${invoice.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (create_purchase_invoice): $e');
+    }
+  }
 
+  Future<void> _logPurchasePayment({
+    required PurchaseInvoice oldInvoice,
+    required PurchaseInvoice newInvoice,
+    required double amount,
+    required String paymentMethod,
+  }) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: _pharmacyId,
+        action: AuditActions.purchasePayment,
+        module: AuditModules.purchases,
+        targetType: AuditTargetTypes.purchase,
+        targetId: newInvoice.id ?? '',
+        targetName: newInvoice.invoiceNumber,
+        performedBy: _actor,
+        details: {
+          'note': 'تم تسديد دفعة على فاتورة مشتريات',
+          'oldValues': {
+            'paid': oldInvoice.paid,
+            'remaining': oldInvoice.remaining,
+            'paymentStatus': oldInvoice.paymentStatus.name,
+          },
+          'newValues': {
+            'paid': newInvoice.paid,
+            'remaining': newInvoice.remaining,
+            'paymentStatus': newInvoice.paymentStatus.name,
+            'paymentAmount': amount,
+            'paymentMethod': paymentMethod,
+          },
+        },
+        entityPath: 'pharmacies/$_pharmacyId/purchase_invoices/${newInvoice.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (purchase_payment): $e');
+    }
+  }
+
+  Future<void> _logDeletePurchaseInvoice({
+    required PurchaseInvoice invoice,
+  }) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: _pharmacyId,
+        action: AuditActions.deletePurchaseInvoice,
+        module: AuditModules.purchases,
+        targetType: AuditTargetTypes.purchase,
+        targetId: invoice.id ?? '',
+        targetName: invoice.invoiceNumber,
+        performedBy: _actor,
+        details: {
+          'note': 'تم حذف فاتورة مشتريات',
+          'deletedSnapshot': {
+            'invoiceNumber': invoice.invoiceNumber,
+            'supplierId': invoice.supplierId,
+            'supplierName': invoice.supplierName,
+            'itemsCount': invoice.items.length,
+            'subtotal': invoice.subtotal,
+            'discount': invoice.discount,
+            'total': invoice.total,
+            'paid': invoice.paid,
+            'remaining': invoice.remaining,
+            'paymentStatus': invoice.paymentStatus.name,
+            'referenceNumber': invoice.referenceNumber,
+          },
+        },
+        entityPath: 'pharmacies/$_pharmacyId/purchase_invoices/${invoice.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (delete_purchase_invoice): $e');
+    }
+  }
   /// =========================
   /// Load Invoices
   /// =========================
@@ -255,11 +373,9 @@ class PurchaseController extends GetxController {
     DateTime? dueDate,
     String? notes,
   }) async {
-    if (!canCreateInvoice) {
-      Get.snackbar('تنبيه', 'ليس لديك صلاحية إنشاء فاتورة مشتريات');
-      return;
-    }
 
+
+    _ensureCan('purchases.create', 'ليس لديك صلاحية إنشاء فاتورة مشتريات');
     if (_pharmacyId.isEmpty) {
       Get.snackbar('تنبيه', 'معرف الصيدلية غير متوفر');
       return;
@@ -313,6 +429,10 @@ class PurchaseController extends GetxController {
       });
 
       final newInvoice = invoice.copyWith(id: docRef.id);
+      await _logCreatePurchaseInvoice(
+        invoice: newInvoice,
+        stockEntries: stockEntries,
+      );
       invoices.insert(0, newInvoice);
 
       _applyFilters();
@@ -495,10 +615,7 @@ class PurchaseController extends GetxController {
 // في purchase_controller.dart - داخل class PurchaseController
 
   Future<void> makePayment(String invoiceId, double amount, String paymentMethod) async {
-    if (!canMakePayment) {
-      Get.snackbar('تنبيه', 'ليس لديك صلاحية تسديد دفعات');
-      return;
-    }
+    _ensureCan('purchases.payment', 'ليس لديك صلاحية تسديد فواتير المشتريات');
 
     if (amount <= 0) {
       Get.snackbar('تنبيه', 'أدخل مبلغ صحيح');
@@ -543,6 +660,12 @@ class PurchaseController extends GetxController {
 
       // تحديث محلي
       invoices[index] = updatedInvoice;
+      await _logPurchasePayment(
+        oldInvoice: invoice,
+        newInvoice: updatedInvoice,
+        amount: amount,
+        paymentMethod: paymentMethod,
+      );
       _applyFilters();
       _calculateFinancialMetrics();
       _generatePurchaseAlerts();
@@ -607,7 +730,19 @@ class PurchaseController extends GetxController {
   /// =======================================================
   Future<void> deleteInvoice(String invoiceId) async {
     try {
+      _ensureCan('purchases.delete', 'ليس لديك صلاحية حذف فواتير المشتريات');
+
+      final invoice = invoices.firstWhereOrNull((inv) => inv.id == invoiceId);
+      if (invoice == null) {
+        Get.snackbar('تنبيه', 'الفاتورة غير موجودة');
+        return;
+      }
+
       await _invoicesCollection.doc(invoiceId).delete();
+
+      await _logDeletePurchaseInvoice(
+        invoice: invoice,
+      );
 
       invoices.removeWhere((inv) => inv.id == invoiceId);
       _applyFilters();
@@ -629,7 +764,6 @@ class PurchaseController extends GetxController {
       );
     }
   }
-
   /// =======================================================
   /// Search / Filter
   /// =======================================================

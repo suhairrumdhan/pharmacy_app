@@ -4,10 +4,10 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import '../controllers/inventory_controller.dart';
 import '../models/inventory_model.dart';
+import 'auth_controller.dart';
 
 class AddMedicineController extends GetxController {
   final InventoryController inventoryController = Get.find();
@@ -45,15 +45,17 @@ class AddMedicineController extends GetxController {
   final RxString selectedSupplierId = RxString('');
   final RxString selectedSupplierName = RxString('');
   final RxBool isLoadingSuppliers = false.obs;
+  AuthController get _authController => Get.find<AuthController>();
 
+  bool get canCreateMedicine => _authController.can('inventory.create');
+  bool get canUpdateMedicine => _authController.can('inventory.update');
   final isEditMode = false.obs;
   String? editingMedicineId;
   bool _initialized = false;
   String? _originalBarcode;
   // Get pharmacy ID
-  String? get pharmacyId => FirebaseAuth.instance.currentUser?.uid;
+  String get pharmacyId => Get.find<AuthController>().pharmacyId;
 
-  @override
   @override
   void onInit() {
     super.onInit();
@@ -195,19 +197,13 @@ class AddMedicineController extends GetxController {
       }
       // ✅ امنع إعادة التحميل لو فعلاً جاري تحميل
       if (isLoadingSuppliers.value) return;
-
       isLoadingSuppliers.value = true;
-
-      print('📡 Loading suppliers for pharmacy: $pharmacyId');
-
       final querySnapshot = await FirebaseFirestore.instance
           .collection('pharmacies')
           .doc(pharmacyId)
           .collection('suppliers')
           .orderBy('name')
           .get();
-
-      print('📊 Found ${querySnapshot.docs.length} suppliers');
 
       // ✅ اجمعهم في Map عشان تضمن uniqueness بالـ doc.id
       final Map<String, Map<String, dynamic>> unique = {};
@@ -237,8 +233,6 @@ class AddMedicineController extends GetxController {
 
       // ✅ بدل add/insert/clear استخدم assignAll (أسرع وأنظف)
       suppliers.assignAll(result);
-
-      print('✅ Loaded ${suppliers.length} suppliers total');
 
       // ✅ مزامنة اختيار المورد (لو في edit)
       if (isEditMode.value) {
@@ -270,9 +264,6 @@ class AddMedicineController extends GetxController {
         }
       }
     } catch (e, stackTrace) {
-      print('❌ Error loading suppliers: $e');
-      print('📝 Stack trace: $stackTrace');
-
       Get.snackbar(
         'تحذير',
         'تعذر تحميل قائمة الموردين. يمكنك إدخال اسم المورد يدوياً.',
@@ -308,10 +299,6 @@ class AddMedicineController extends GetxController {
   // Load categories from Firestore
   Future<void> _loadCategories() async {
     try {
-      if (pharmacyId == null) {
-        throw Exception('غير مسجل دخول. يرجى تسجيل الدخول أولاً');
-      }
-
       final docSnapshot = await FirebaseFirestore.instance
           .collection('pharmacies')
           .doc(pharmacyId)
@@ -325,7 +312,6 @@ class AddMedicineController extends GetxController {
         }
       }
     } catch (e) {
-      print('Error loading categories: $e');
       Get.snackbar(
         'خطأ في تحميل التصنيفات',
         'تعذر تحميل قائمة التصنيفات. ${e.toString()}',
@@ -960,8 +946,26 @@ class AddMedicineController extends GetxController {
 
   Future<void> submit() async {
     if (isEditMode.value) {
+      if (!canUpdateMedicine) {
+        Get.snackbar(
+          'رفض',
+          'ليس لديك صلاحية تعديل الأدوية',
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
+        return;
+      }
       await updateMedicine();
     } else {
+      if (!canCreateMedicine) {
+        Get.snackbar(
+          'رفض',
+          'ليس لديك صلاحية إضافة الأدوية',
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
+        return;
+      }
       await addMedicine();
     }
   }

@@ -127,7 +127,26 @@ class ExpensesDialog extends GetView<FinanceController> {
                       // إحصائيات سريعة
                       _buildStatsRow(),
                       const SizedBox(height: 20),
-
+                      if (canCreateExpense) ...[
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: ElevatedButton.icon(
+                            onPressed: _showAddExpenseDialog,
+                            icon: const Icon(Iconsax.add),
+                            label: const Text('إضافة مصروف جديد'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _primary,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
                       // بحث وتصفية
                       _buildSearchBar(),
                       const SizedBox(height: 20),
@@ -146,6 +165,7 @@ class ExpensesDialog extends GetView<FinanceController> {
       ),
     );
   }
+
 
   // ==================== الإحصائيات ====================
   Widget _buildStatsRow() {
@@ -288,12 +308,24 @@ class ExpensesDialog extends GetView<FinanceController> {
               ),
             );
           }),
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: () => _showAddExpenseDialog(),
-            icon: const Icon(Iconsax.add_square, color: _primary),
-            tooltip: 'إضافة مصروف',
-          ),
+          const SizedBox(width: 12),
+          if (canCreateExpense)
+            ElevatedButton.icon(
+              onPressed: _showAddExpenseDialog,
+              icon: const Icon(Iconsax.add, size: 18),
+              label: const Text('إضافة مصروف'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+
+
         ],
       ),
     );
@@ -320,16 +352,22 @@ class ExpensesDialog extends GetView<FinanceController> {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 8),
-            ElevatedButton.icon(
-              onPressed: () => _showAddExpenseDialog(),
-              icon: const Icon(Iconsax.add),
-              label: const Text('إضافة مصروف جديد'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _primary,
-                foregroundColor: Colors.white,
+            if (canCreateExpense) ...[
+              const SizedBox(height: 8),
+              ElevatedButton.icon(
+                onPressed: _showAddExpenseDialog,
+                icon: const Icon(Iconsax.add),
+                label: const Text('إضافة مصروف جديد'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
               ),
-            ),
+            ],
           ],
         ),
       );
@@ -488,33 +526,37 @@ class ExpensesDialog extends GetView<FinanceController> {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              OutlinedButton.icon(
-                onPressed: () => _showEditExpenseDialog(expense),
-                icon: const Icon(Iconsax.edit, size: 16),
-                label: const Text('تعديل'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: _primary,
-                  side: const BorderSide(color: _cardBorder),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+              if (canUpdateExpense)
+                OutlinedButton.icon(
+                  onPressed: () => _showEditExpenseDialog(expense),
+                  icon: const Icon(Iconsax.edit, size: 16),
+                  label: const Text('تعديل'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _primary,
+                    side: const BorderSide(color: _cardBorder),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                onPressed: () => _showDeleteConfirmation(expense),
-                icon: const Icon(Iconsax.trash, size: 16),
-                label: const Text('حذف'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red,
-                  side: const BorderSide(color: Colors.red, width: 0.5),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+              if (canUpdateExpense && canDeleteExpense)
+                const SizedBox(width: 8),
+              if (canDeleteExpense)
+                OutlinedButton.icon(
+                  onPressed: () => _showDeleteConfirmation(expense),
+                  icon: const Icon(Iconsax.trash, size: 16),
+                  label: const Text('حذف'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(color: Colors.red, width: 0.5),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
+
         ],
       ),
     );
@@ -522,6 +564,17 @@ class ExpensesDialog extends GetView<FinanceController> {
 
   // ==================== نوافذ الحوار ====================
   void _showAddExpenseDialog() {
+
+    if (!canCreateExpense) {
+      Get.snackbar(
+        'غير مسموح',
+        'ليس لديك صلاحية إضافة المصروفات',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+      return;
+    }
+
     final titleCtrl = TextEditingController();
     final amountCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
@@ -716,6 +769,16 @@ class ExpensesDialog extends GetView<FinanceController> {
   }
 
   void _showEditExpenseDialog(ExpenseItem expense) {
+
+    if (!canUpdateExpense) {
+      Get.snackbar(
+        'غير مسموح',
+        'ليس لديك صلاحية تعديل المصروفات',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+      return;
+    }
     final titleCtrl = TextEditingController(text: expense.title);
     final amountCtrl = TextEditingController(text: expense.amount.toString());
     final notesCtrl = TextEditingController(text: expense.notes);
@@ -911,6 +974,17 @@ class ExpensesDialog extends GetView<FinanceController> {
   }
 
   void _showDeleteConfirmation(ExpenseItem expense) {
+
+    if (!canDeleteExpense) {
+      Get.snackbar(
+        'غير مسموح',
+        'ليس لديك صلاحية حذف المصروفات',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+      return;
+    }
+
     Get.dialog(
       AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -938,7 +1012,34 @@ class ExpensesDialog extends GetView<FinanceController> {
   }
 
   // ==================== دوال مساعدة ====================
+  bool get canCreateExpense => controller.canCreateExpense;
+  bool get canUpdateExpense => controller.canUpdateExpense;
+  bool get canDeleteExpense => controller.canDeleteExpense;
 
+  Color getCategoryColor(String category) {
+    switch (category) {
+      case 'إيجار':
+        return Colors.orange;
+      case 'رواتب':
+        return Colors.deepPurple;
+      case 'فواتير':
+        return Colors.blue;
+      case 'صيانة':
+        return Colors.brown;
+      case 'مشتريات':
+        return Colors.teal;
+      case 'تسويق':
+        return Colors.pink;
+      case 'تأمين':
+        return Colors.indigo;
+      case 'نثريات':
+        return Colors.cyan;
+      case 'أخرى':
+        return Colors.grey;
+      default:
+        return Colors.grey;
+    }
+  }
   IconData _getCategoryIcon(String category) {
     switch (category) {
       case 'إيجار':

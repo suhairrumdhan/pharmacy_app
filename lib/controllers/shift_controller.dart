@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import '../controllers/auth_controller.dart';
 import '../models/sales_model.dart';
 import '../models/shift_model.dart';
+import '../services/audit_log_service.dart';
 
 class ShiftController extends GetxController {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -17,6 +18,11 @@ class ShiftController extends GetxController {
 
   // ===================== Helpers =====================
   AuthController get _auth => Get.find<AuthController>();
+  final AuditLogService _auditLogService = AuditLogService();
+
+  Map<String, dynamic> get _actor =>
+      Map<String, dynamic>.from(_auth.actorInfo);
+
   String get pharmacyId => _auth.pharmacyId;
 
   String get actorId => (_auth.actorInfo['id'] ?? '').toString();
@@ -34,6 +40,59 @@ class ShiftController extends GetxController {
   bool get canCloseShift => _auth.can('shifts.close') || isOwner;
 
   bool get canCloseAny => _auth.can('shifts.close_any') || isOwner;
+
+
+  Future<void> _logOpenShift(Shift shift, double openingCash) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: pharmacyId,
+        action: AuditActions.openShift,
+        module: AuditModules.shifts,
+        targetType: AuditTargetTypes.shift,
+        targetId: shift.id,
+        targetName: shift.openedByName,
+        performedBy: _actor,
+        details: {
+          'note': 'تم فتح وردية',
+          'newValues': {
+            'openingCash': openingCash,
+            'openedBy': shift.openedByName,
+          },
+        },
+        entityPath: 'pharmacies/$pharmacyId/shifts/${shift.id}',
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _logCloseShift({
+    required Shift shift,
+    required double closingCash,
+  }) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: pharmacyId,
+        action: AuditActions.closeShift,
+        module: AuditModules.shifts,
+        targetType: AuditTargetTypes.shift,
+        targetId: shift.id,
+        targetName: shift.openedByName,
+        performedBy: _actor,
+        details: {
+          'note': 'تم إغلاق وردية',
+          'oldValues': {
+            'openingCash': shift.openingCash,
+            'cashTotal': shift.cashTotal,
+          },
+          'newValues': {
+            'closingCash': closingCash,
+            'expectedDrawerCash': shift.expectedDrawerCash,
+            'drawerDiff': shift.drawerDiff,
+          },
+        },
+        entityPath: 'pharmacies/$pharmacyId/shifts/${shift.id}',
+      );
+    } catch (_) {}
+  }
 
   CollectionReference<Map<String, dynamic>> get _shiftsCol {
     if (pharmacyId.isEmpty) throw Exception('pharmacyId فارغ');
@@ -228,6 +287,16 @@ class ShiftController extends GetxController {
 
       await batch.commit();
 
+      final createdShift = Shift(
+        id: shiftRef.id,
+        pharmacyId: pharmacyId,
+        status: ShiftStatus.open,
+        openedByName: displayName,
+        openingCash: openingCash,
+      );
+
+      await _logOpenShift(createdShift, openingCash);
+
       await loadShifts();
       _snack('تم', 'تم فتح وردية جديدة');
     } catch (e, st) {
@@ -313,6 +382,23 @@ class ShiftController extends GetxController {
         closingCash: closingCash,
         notes: notes,
       );
+
+      await _auditLogService.logSuccess(
+        pharmacyId: pharmacyId,
+        action: AuditActions.closeShiftByAdmin,
+        module: AuditModules.shifts,
+        targetType: AuditTargetTypes.shift,
+        targetId: activeId,
+        targetName: targetActorKey,
+        performedBy: _actor,
+        details: {
+          'note': 'تم إغلاق وردية بواسطة الإدارة',
+          'newValues': {
+            'closingCash': closingCash,
+          },
+        },
+      );
+
     } finally {
       isMutating.value = false;
     }
@@ -390,8 +476,13 @@ class ShiftController extends GetxController {
       'closedBy': actor,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
-
+    final shift = Shift.fromDoc(snap);
     await batch.commit();
+
+    await _logCloseShift(
+      shift: shift,
+      closingCash: closingCash,
+    );
     await loadShifts();
   }
 

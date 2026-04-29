@@ -5,7 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/supplier_model.dart';
 import 'auth_controller.dart';
-
+import '../services/audit_log_service.dart';
 class SupplierController extends GetxController {
   static SupplierController get instance => Get.find();
 
@@ -24,11 +24,20 @@ class SupplierController extends GetxController {
 
   // مرجع لـ AuthController
   AuthController get _authController => Get.find<AuthController>();
+  final AuditLogService _auditLogService = AuditLogService();
+
+  Map<String, dynamic> get _actor =>
+      Map<String, dynamic>.from(_authController.actorInfo);
+
+  void _ensureCan(String permission, String message) {
+    if (!_authController.can(permission)) {
+      throw Exception(message);
+    }
+  }
 
   @override
   void onInit() {
     super.onInit();
-    print('🎯 SupplierController - onInit');
     _getCurrentUserInfo();
     fetchSuppliers();
   }
@@ -42,27 +51,20 @@ class SupplierController extends GetxController {
         currentUserId.value = user.uid;
 
         // تحقق من AuthController
-        print('📱 AuthController currentEmployee: ${_authController.currentEmployee.value}');
-        print('📱 AuthController userId: ${_authController.userId}');
-        print('📱 AuthController pharmacyData: ${_authController.pharmacyData}');
 
         // استخدام userId مباشرة كـ pharmacyId (افتراضياً)
         currentPharmacyId.value = _authController.userId ?? user.uid;
-        print('🏥 Set currentPharmacyId to: ${currentPharmacyId.value}');
 
         // تحديد دور المستخدم
         currentUserRole.value = _authController.currentEmployee.value != null
             ? 'employee'
             : 'owner';
-        print('🎭 User role: ${currentUserRole.value}');
       } else {
-        print('⚠️ No user logged in');
         currentPharmacyId.value = '';
         currentUserId.value = '';
         currentUserRole.value = '';
       }
     } catch (e) {
-      print('❌ Error in _getCurrentUserInfo: $e');
       currentPharmacyId.value = '';
       currentUserId.value = '';
       currentUserRole.value = '';
@@ -72,12 +74,9 @@ class SupplierController extends GetxController {
   // دالة للحصول على المرجع الرئيسي للموردين
   CollectionReference get suppliersCollection {
     if (currentPharmacyId.isEmpty) {
-      print('🚨 ERROR: currentPharmacyId is empty!');
       throw Exception('لم يتم تحديد الصيدلية');
     }
 
-    final path = 'pharmacies/${currentPharmacyId.value}/suppliers';
-    print('📂 Firestore path: $path');
 
     return _firestore
         .collection('pharmacies')
@@ -88,19 +87,17 @@ class SupplierController extends GetxController {
   // جلب جميع الموردين للصيدلية الحالية
   Future<void> fetchSuppliers() async {
     try {
-      print('🔄 fetchSuppliers() started');
-      print('📌 currentPharmacyId: ${currentPharmacyId.value}');
-      print('📌 currentPharmacyId isEmpty: ${currentPharmacyId.isEmpty}');
 
       isLoading.value = true;
-
+      if (!_checkUserPermissions('suppliers.view')) {
+        suppliers.clear();
+        return;
+      }
       // التأكد من وجود pharmacyId
       if (currentPharmacyId.isEmpty) {
-        print('⚠️ pharmacyId is empty, refreshing...');
         await _getCurrentUserInfo();
 
         if (currentPharmacyId.isEmpty) {
-          print('🚨 Still no pharmacyId!');
           Get.snackbar(
             'خطأ',
             'لا يمكن تحديد الصيدلية',
@@ -118,52 +115,33 @@ class SupplierController extends GetxController {
             .doc(currentPharmacyId.value)
             .get();
 
-        print('✅ Pharmacy document exists: ${pharmacyDoc.exists}');
         if (!pharmacyDoc.exists) {
-          print('⚠️ Pharmacy document does not exist!');
         }
       } catch (e) {
         print('❌ Error checking pharmacy document: $e');
       }
 
-      print('📡 Fetching suppliers from Firestore...');
       final querySnapshot = await suppliersCollection.orderBy('name').get();
 
-      print('📊 Query returned ${querySnapshot.docs.length} documents');
-
       if (querySnapshot.docs.isEmpty) {
-        print('ℹ️ No suppliers found in collection');
         suppliers.clear();
       } else {
-        print('📝 Processing ${querySnapshot.docs.length} documents...');
-
         final suppliersList = <Supplier>[];
-
         for (var doc in querySnapshot.docs) {
           try {
-            print('📄 Document ID: ${doc.id}');
-            print('📄 Document data type: ${doc.data().runtimeType}');
-            print('📄 Document data: ${doc.data()}');
-
             final data = doc.data() as Map<String, dynamic>;
             final supplier = Supplier.fromMap(data, doc.id);
             suppliersList.add(supplier);
-            print('✅ Successfully converted document ${doc.id}');
           } catch (e, stackTrace) {
-            print('❌ ERROR converting document ${doc.id}: $e');
-            print('📝 Stack trace: $stackTrace');
+
             print('📝 Problematic data: ${doc.data()}');
           }
         }
 
         suppliers.assignAll(suppliersList);
-        print('✅ Successfully loaded ${suppliers.length} suppliers');
       }
 
     } catch (e, stackTrace) {
-      print('❌ ERROR in fetchSuppliers: $e');
-      print('📝 Stack trace: $stackTrace');
-      print('❌ Error type: ${e.runtimeType}');
 
       suppliers.clear();
 
@@ -183,11 +161,9 @@ class SupplierController extends GetxController {
   // إضافة مورد جديد (مع ديباجنغ)
   Future<void> addSupplier(Supplier supplier) async {
     try {
-      print('➕ addSupplier() started for: ${supplier.name}');
-      print('📌 currentPharmacyId: ${currentPharmacyId.value}');
 
       isLoading.value = true;
-
+      _ensureCan('suppliers.create', 'ليس لديك صلاحية إضافة الموردين');
       // إضافة معلومات إضافية
       final supplierData = supplier.toMap()
         ..addAll({
@@ -199,16 +175,10 @@ class SupplierController extends GetxController {
           'pharmacyId': currentPharmacyId.value,
         });
 
-      print('📝 Supplier data to save:');
-      print('  name: ${supplierData['name']}');
-      print('  phone: ${supplierData['phone']}');
-      print('  contractStartDate: ${supplierData['contractStartDate']}');
-      print('  createdAt: ${supplierData['createdAt']}');
-      print('  pharmacyId: ${supplierData['pharmacyId']}');
-
       final docRef = await suppliersCollection.add(supplierData);
-      print('✅ Supplier added with ID: ${docRef.id}');
 
+      final createdSupplier = supplier.copyWith(id: docRef.id);
+      await _logCreateSupplier(createdSupplier);
       // الانتظار قليلاً ثم إعادة الجلب
       await Future.delayed(Duration(milliseconds: 500));
       await fetchSuppliers();
@@ -325,21 +295,117 @@ class SupplierController extends GetxController {
   // التحقق من الصلاحيات
   bool _checkUserPermissions(String permission) {
     try {
-      if (_authController.currentEmployee.value == null) {
-        return true;
-      }
       return _authController.can(permission);
-    } catch (e) {
+    } catch (_) {
       return false;
     }
   }
+  Future<void> _logCreateSupplier(Supplier supplier) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: currentPharmacyId.value,
+        action: 'create_supplier',
+        module: AuditModules.suppliers,
+        targetType: AuditTargetTypes.supplier,
+        targetId: supplier.id,
+        targetName: supplier.name,
+        performedBy: _actor,
+        details: {
+          'note': 'تم إنشاء مورد جديد',
+          'newValues': {
+            'name': supplier.name,
+            'contactPerson': supplier.contactPerson,
+            'phone': supplier.phone,
+            'address': supplier.address,
+            'status': supplier.status,
+            'suppliedMedications': supplier.suppliedMedications,
+            'contractStartDate': supplier.contractStartDate.toIso8601String(),
+            'contractEndDate': supplier.contractEndDate?.toIso8601String(),
+            'notes': supplier.notes,
+          },
+        },
+        entityPath: 'pharmacies/${currentPharmacyId.value}/suppliers/${supplier.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (create_supplier): $e');
+    }
+  }
 
-  // الصلاحيات
-  static const String PERMISSION_VIEW_SUPPLIERS = 'view_suppliers';
-  static const String PERMISSION_ADD_SUPPLIERS = 'add_suppliers';
-  static const String PERMISSION_EDIT_SUPPLIERS = 'edit_suppliers';
-  static const String PERMISSION_DELETE_SUPPLIERS = 'delete_suppliers';
-  static const String PERMISSION_MANAGE_SUPPLIER_CREDIT = 'manage_supplier_credit';
+  Future<void> _logUpdateSupplier({
+    required Supplier oldSupplier,
+    required Supplier newSupplier,
+  }) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: currentPharmacyId.value,
+        action: 'update_supplier',
+        module: AuditModules.suppliers,
+        targetType: AuditTargetTypes.supplier,
+        targetId: newSupplier.id,
+        targetName: newSupplier.name,
+        performedBy: _actor,
+        details: {
+          'note': 'تم تحديث بيانات المورد',
+          'oldValues': {
+            'name': oldSupplier.name,
+            'contactPerson': oldSupplier.contactPerson,
+            'phone': oldSupplier.phone,
+            'address': oldSupplier.address,
+            'status': oldSupplier.status,
+            'suppliedMedications': oldSupplier.suppliedMedications,
+            'contractStartDate': oldSupplier.contractStartDate.toIso8601String(),
+            'contractEndDate': oldSupplier.contractEndDate?.toIso8601String(),
+            'notes': oldSupplier.notes,
+          },
+          'newValues': {
+            'name': newSupplier.name,
+            'contactPerson': newSupplier.contactPerson,
+            'phone': newSupplier.phone,
+            'address': newSupplier.address,
+            'status': newSupplier.status,
+            'suppliedMedications': newSupplier.suppliedMedications,
+            'contractStartDate': newSupplier.contractStartDate.toIso8601String(),
+            'contractEndDate': newSupplier.contractEndDate?.toIso8601String(),
+            'notes': newSupplier.notes,
+          },
+        },
+        entityPath: 'pharmacies/${currentPharmacyId.value}/suppliers/${newSupplier.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (update_supplier): $e');
+    }
+  }
+
+  Future<void> _logDeleteSupplier(Supplier supplier) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: currentPharmacyId.value,
+        action: 'delete_supplier',
+        module: AuditModules.suppliers,
+        targetType: AuditTargetTypes.supplier,
+        targetId: supplier.id,
+        targetName: supplier.name,
+        performedBy: _actor,
+        details: {
+          'note': 'تم حذف المورد',
+          'deletedSnapshot': {
+            'name': supplier.name,
+            'contactPerson': supplier.contactPerson,
+            'phone': supplier.phone,
+            'address': supplier.address,
+            'status': supplier.status,
+            'suppliedMedications': supplier.suppliedMedications,
+            'contractStartDate': supplier.contractStartDate.toIso8601String(),
+            'contractEndDate': supplier.contractEndDate?.toIso8601String(),
+            'notes': supplier.notes,
+          },
+        },
+        entityPath: 'pharmacies/${currentPharmacyId.value}/suppliers/${supplier.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (delete_supplier): $e');
+    }
+  }
 
   String _getCurrentUserName() {
     if (_authController.currentEmployee.value != null) {
@@ -351,21 +417,20 @@ class SupplierController extends GetxController {
   // باقي الدوال كما هي...
   Future<void> updateSupplier(String id, Supplier supplier) async {
     try {
-      if (!_checkUserPermissions(PERMISSION_EDIT_SUPPLIERS)) {
-        Get.snackbar('خطأ', 'ليس لديك صلاحية لتعديل الموردين');
+      _ensureCan('suppliers.update', 'ليس لديك صلاحية لتعديل الموردين');
+
+      final oldSupplier = suppliers.firstWhereOrNull((s) => s.id == id);
+      if (oldSupplier == null) {
+        Get.snackbar('تنبيه', 'المورد غير موجود');
         return;
       }
-
       isLoading.value = true;
-      final supplierData = supplier.toMap()
-        ..addAll({
-          'updatedBy': currentUserId.value,
-          'updatedByType': currentUserRole.value,
-          'updatedByName': _getCurrentUserName(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+      final updatedSupplier = supplier.copyWith(id: id);
+      await _logUpdateSupplier(
+        oldSupplier: oldSupplier,
+        newSupplier: updatedSupplier,
+      );
 
-      await suppliersCollection.doc(id).update(supplierData);
       await fetchSuppliers();
       Get.snackbar('نجاح', 'تم تحديث بيانات المورد بنجاح');
     } catch (e) {
@@ -378,13 +443,22 @@ class SupplierController extends GetxController {
 
   Future<void> deleteSupplier(String id) async {
     try {
-      if (!_checkUserPermissions(PERMISSION_DELETE_SUPPLIERS)) {
-        Get.snackbar('خطأ', 'ليس لديك صلاحية لحذف الموردين');
+      _ensureCan('suppliers.delete', 'ليس لديك صلاحية حذف الموردين');
+
+      final supplier = suppliers.firstWhereOrNull((s) => s.id == id);
+      if (supplier == null) {
+        Get.snackbar('تنبيه', 'المورد غير موجود');
         return;
       }
+
       isLoading.value = true;
+
       await suppliersCollection.doc(id).delete();
-      suppliers.removeWhere((supplier) => supplier.id == id);
+
+      await _logDeleteSupplier(supplier);
+
+      suppliers.removeWhere((s) => s.id == id);
+
       Get.snackbar('نجاح', 'تم حذف المورد بنجاح');
     } catch (e) {
       Get.snackbar('خطأ', 'فشل في حذف المورد');
@@ -393,9 +467,8 @@ class SupplierController extends GetxController {
       isLoading.value = false;
     }
   }
-
   List<Supplier> get filteredSuppliers {
-    if (!_checkUserPermissions(PERMISSION_VIEW_SUPPLIERS)) return [];
+    if (!_checkUserPermissions('suppliers.view')) return [];
     if (searchQuery.isEmpty) return suppliers;
 
     final query = searchQuery.value.toLowerCase();
@@ -422,7 +495,7 @@ class SupplierController extends GetxController {
   }
   Future<Supplier?> getSupplierById(String id) async {
     try {
-      if (!_checkUserPermissions(PERMISSION_VIEW_SUPPLIERS)) return null;
+      if (!_checkUserPermissions('suppliers.view')) return null;
       final doc = await suppliersCollection.doc(id).get();
       if (doc.exists) {
         return _safeFromMap(doc.data() as Map<String, dynamic>, doc.id);
@@ -437,9 +510,9 @@ class SupplierController extends GetxController {
     await fetchSuppliers();
   }
 
-  bool get canViewSuppliersPage => _checkUserPermissions(PERMISSION_VIEW_SUPPLIERS);
-  bool canAddSuppliers() => _checkUserPermissions(PERMISSION_ADD_SUPPLIERS);
-  bool canEditSuppliers() => _checkUserPermissions(PERMISSION_EDIT_SUPPLIERS);
-  bool canDeleteSuppliers() => _checkUserPermissions(PERMISSION_DELETE_SUPPLIERS);
-  bool canManageSupplierCredit() => _checkUserPermissions(PERMISSION_MANAGE_SUPPLIER_CREDIT);
+  bool get canViewSuppliersPage => _checkUserPermissions('suppliers.view');
+  bool canAddSuppliers() => _checkUserPermissions('suppliers.create');
+  bool canEditSuppliers() => _checkUserPermissions('suppliers.update');
+  bool canDeleteSuppliers() => _checkUserPermissions('suppliers.delete');
+  bool canManageSupplierCredit() => _checkUserPermissions('suppliers.credit.manage');
 }

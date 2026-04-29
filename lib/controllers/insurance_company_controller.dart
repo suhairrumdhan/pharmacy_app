@@ -6,7 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/insurance_company_model.dart';
 import '../services/search_index_service.dart';
 import 'auth_controller.dart';
-
+import '../services/audit_log_service.dart';
 class InsuranceCompanyController extends GetxController {
   static InsuranceCompanyController get instance => Get.find();
 
@@ -22,20 +22,136 @@ class InsuranceCompanyController extends GetxController {
   RxString currentUserId = ''.obs;
   RxString currentUserRole = ''.obs;
 
-  static const String PERMISSION_VIEW_INSURANCE = 'view_insurance_companies';
-  static const String PERMISSION_ADD_INSURANCE = 'add_insurance_companies';
-  static const String PERMISSION_EDIT_INSURANCE = 'edit_insurance_companies';
-  static const String PERMISSION_DELETE_INSURANCE = 'delete_insurance_companies';
+
+  final AuditLogService _auditLogService = AuditLogService();
+  AuthController get _authController => Get.find<AuthController>();
+
+  Map<String, dynamic> get _actor =>
+      Map<String, dynamic>.from(_authController.actorInfo);
+
+  void _ensureCan(String permission, String message) {
+    if (!_authController.can(permission)) {
+      throw Exception(message);
+    }
+  }
+
 
   bool _checkUserPermissions(String permission) {
     try {
-      final authController = Get.find<AuthController>();
-      if (authController.currentEmployee.value == null) {
-        return true;
-      }
-      return authController.can(permission);
+      return _authController.can(permission);
     } catch (_) {
       return false;
+    }
+  }
+
+
+  Future<void> _logCreateInsuranceCompany(InsuranceCompany company) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: currentPharmacyId.value,
+        action: AuditActions.createInsuranceCompany,
+        module: AuditModules.insurance,
+        targetType: AuditTargetTypes.insuranceCompany,
+        targetId: company.id,
+        targetName: company.name,
+        performedBy: _actor,
+        details: {
+          'note': 'تم إنشاء شركة تأمين جديدة',
+          'newValues': {
+            'name': company.name,
+            'code': company.code,
+            'contactPerson': company.contactPerson,
+            'phone': company.phone,
+            'discountPercentage': company.discountPercentage,
+            'status': company.status,
+            'contractStartDate': company.contractStartDate.toIso8601String(),
+            'contractEndDate': company.contractEndDate?.toIso8601String(),
+            'notes': company.notes,
+          },
+        },
+        entityPath:
+        'pharmacies/${currentPharmacyId.value}/insurance_companies/${company.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (create_insurance_company): $e');
+    }
+  }
+
+  Future<void> _logUpdateInsuranceCompany({
+    required InsuranceCompany oldCompany,
+    required InsuranceCompany newCompany,
+  }) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: currentPharmacyId.value,
+        action: AuditActions.updateInsuranceCompany,
+        module: AuditModules.insurance,
+        targetType: AuditTargetTypes.insuranceCompany,
+        targetId: newCompany.id,
+        targetName: newCompany.name,
+        performedBy: _actor,
+        details: {
+          'note': 'تم تحديث بيانات شركة التأمين',
+          'oldValues': {
+            'name': oldCompany.name,
+            'code': oldCompany.code,
+            'contactPerson': oldCompany.contactPerson,
+            'phone': oldCompany.phone,
+            'discountPercentage': oldCompany.discountPercentage,
+            'status': oldCompany.status,
+            'contractStartDate': oldCompany.contractStartDate.toIso8601String(),
+            'contractEndDate': oldCompany.contractEndDate?.toIso8601String(),
+            'notes': oldCompany.notes,
+          },
+          'newValues': {
+            'name': newCompany.name,
+            'code': newCompany.code,
+            'contactPerson': newCompany.contactPerson,
+            'phone': newCompany.phone,
+            'discountPercentage': newCompany.discountPercentage,
+            'status': newCompany.status,
+            'contractStartDate': newCompany.contractStartDate.toIso8601String(),
+            'contractEndDate': newCompany.contractEndDate?.toIso8601String(),
+            'notes': newCompany.notes,
+          },
+        },
+        entityPath:
+        'pharmacies/${currentPharmacyId.value}/insurance_companies/${newCompany.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (update_insurance_company): $e');
+    }
+  }
+
+  Future<void> _logDeleteInsuranceCompany(InsuranceCompany company) async {
+    try {
+      await _auditLogService.logSuccess(
+        pharmacyId: currentPharmacyId.value,
+        action: AuditActions.deleteInsuranceCompany,
+        module: AuditModules.insurance,
+        targetType: AuditTargetTypes.insuranceCompany,
+        targetId: company.id,
+        targetName: company.name,
+        performedBy: _actor,
+        details: {
+          'note': 'تم حذف شركة التأمين',
+          'deletedSnapshot': {
+            'name': company.name,
+            'code': company.code,
+            'contactPerson': company.contactPerson,
+            'phone': company.phone,
+            'discountPercentage': company.discountPercentage,
+            'status': company.status,
+            'contractStartDate': company.contractStartDate.toIso8601String(),
+            'contractEndDate': company.contractEndDate?.toIso8601String(),
+            'notes': company.notes,
+          },
+        },
+        entityPath:
+        'pharmacies/${currentPharmacyId.value}/insurance_companies/${company.id}',
+      );
+    } catch (e) {
+      debugPrint('❌ audit log error (delete_insurance_company): $e');
     }
   }
 
@@ -78,9 +194,15 @@ class InsuranceCompanyController extends GetxController {
   }
 
   Future<void> fetchInsuranceCompanies() async {
+
+
+
     try {
       isLoading.value = true;
-
+      if (!_checkUserPermissions('insurance.view')) {
+        companies.clear();
+        return;
+      }
       if (currentPharmacyId.isEmpty) {
         await _getCurrentUserInfo();
         if (currentPharmacyId.isEmpty) {
@@ -154,10 +276,7 @@ class InsuranceCompanyController extends GetxController {
 
   Future<void> addInsuranceCompany(InsuranceCompany company) async {
     try {
-      if (!_checkUserPermissions(PERMISSION_ADD_INSURANCE)) {
-        Get.snackbar('خطأ', 'ليس لديك صلاحية لإضافة شركات التأمين');
-        return;
-      }
+      _ensureCan('insurance.create', 'ليس لديك صلاحية لإضافة شركات التأمين');
 
       if (await isInsuranceCodeExists(company.code)) {
         Get.snackbar(
@@ -179,9 +298,10 @@ class InsuranceCompanyController extends GetxController {
           'updatedAt': FieldValue.serverTimestamp(),
         });
 
-      await insuranceCompaniesCollection.add(companyData);
+      final docRef = await insuranceCompaniesCollection.add(companyData);
 
-      // ✅ أضف هذا السطر: تحديث الـ acceptedInsuranceCodes في الصيدلية
+      final createdCompany = company.copyWith(id: docRef.id);
+      await _logCreateInsuranceCompany(createdCompany);
       await _updatePharmacyAcceptedInsuranceCodes(company.code, isAdding: true);
       await _rebuildSearchIndexForCurrentPharmacy();
       await fetchInsuranceCompanies();
@@ -201,10 +321,7 @@ class InsuranceCompanyController extends GetxController {
   }
   Future<void> updateInsuranceCompany(String id, InsuranceCompany company) async {
     try {
-      if (!_checkUserPermissions(PERMISSION_EDIT_INSURANCE)) {
-        Get.snackbar('خطأ', 'ليس لديك صلاحية لتعديل شركات التأمين');
-        return;
-      }
+      _ensureCan('insurance.update', 'ليس لديك صلاحية لتعديل شركات التأمين');
 
       // ✅ IMPORTANT: احصل على الشركة القديمة قبل التعديل
       final oldCompany = companies.firstWhere((c) => c.id == id);
@@ -229,7 +346,12 @@ class InsuranceCompanyController extends GetxController {
           'updatedAt': FieldValue.serverTimestamp(),
         });
 
-      await insuranceCompaniesCollection.doc(id).update(companyData);
+      final updatedCompany = company.copyWith(id: id);
+
+      await _logUpdateInsuranceCompany(
+        oldCompany: oldCompany,
+        newCompany: updatedCompany,
+      );
 
       // ✅ تحديث الكود في الصيدلية إذا تغير
       await _updatePharmacyAcceptedInsuranceCodeOnEdit(oldCode, company.code);
@@ -298,10 +420,7 @@ class InsuranceCompanyController extends GetxController {
   }
   Future<void> deleteInsuranceCompany(String id) async {
     try {
-      if (!_checkUserPermissions(PERMISSION_DELETE_INSURANCE)) {
-        Get.snackbar('خطأ', 'ليس لديك صلاحية لحذف شركات التأمين');
-        return;
-      }
+      _ensureCan('insurance.delete', 'ليس لديك صلاحية لحذف شركات التأمين');
 
       // ✅ احصل على الشركة قبل حذفها لمعرفة الكود
       final companyToDelete = companies.firstWhere((c) => c.id == id);
@@ -313,6 +432,7 @@ class InsuranceCompanyController extends GetxController {
       // ✅ أضف هذا السطر: حذف الكود من الصيدلية
       await _updatePharmacyAcceptedInsuranceCodes(companyToDelete.code, isAdding: false);
       await _rebuildSearchIndexForCurrentPharmacy();
+      await _logDeleteInsuranceCompany(companyToDelete);
       Get.snackbar('نجاح', 'تم حذف شركة التأمين بنجاح');
     } catch (e) {
       Get.snackbar('خطأ', 'فشل في حذف شركة التأمين');
@@ -322,7 +442,7 @@ class InsuranceCompanyController extends GetxController {
     }
   }
   List<InsuranceCompany> get filteredCompanies {
-    if (!_checkUserPermissions(PERMISSION_VIEW_INSURANCE)) return [];
+    if (!_checkUserPermissions('insurance.view')) return [];
     if (searchQuery.value.trim().isEmpty) return companies;
 
     final query = searchQuery.value.toLowerCase().trim();
@@ -350,8 +470,8 @@ class InsuranceCompanyController extends GetxController {
     }.obs;
   }
 
-  bool get canViewInsurancePage => _checkUserPermissions(PERMISSION_VIEW_INSURANCE);
-  bool canAddInsurance() => _checkUserPermissions(PERMISSION_ADD_INSURANCE);
-  bool canEditInsurance() => _checkUserPermissions(PERMISSION_EDIT_INSURANCE);
-  bool canDeleteInsurance() => _checkUserPermissions(PERMISSION_DELETE_INSURANCE);
+  bool get canViewInsurancePage => _checkUserPermissions('insurance.view');
+  bool canAddInsurance() => _checkUserPermissions('insurance.create');
+  bool canEditInsurance() => _checkUserPermissions('insurance.update');
+  bool canDeleteInsurance() => _checkUserPermissions('insurance.delete');
 }
