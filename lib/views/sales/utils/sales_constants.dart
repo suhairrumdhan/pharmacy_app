@@ -35,7 +35,7 @@ class SalesConstants {
 
   // نصوابت الدفع
   static const String cashPayment = 'نقدي';
-  static const String cardPayment = 'بطاقة';
+  static const String cardPayment = 'معاملة مصرفية';
   static const String insurancePayment = 'تأمين';
   static const String receivedAmount = 'المبلغ المستلم';
   static const String remainingAmount = 'المبلغ المتبقي';

@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/insurance_company_model.dart';
+import '../services/financial_transaction_service.dart';
 import '../services/search_index_service.dart';
 import 'auth_controller.dart';
 import '../services/audit_log_service.dart';
@@ -173,13 +174,25 @@ class InsuranceCompanyController extends GetxController {
         currentUserId.value = user.uid;
 
         final authController = Get.find<AuthController>();
-        currentPharmacyId.value = authController.userId ?? user.uid;
+        currentPharmacyId.value = authController.pharmacyId;
         currentUserRole.value =
         authController.currentEmployee.value != null ? 'employee' : 'owner';
       }
     } catch (e) {
       debugPrint('❌ Error in _getCurrentUserInfo: $e');
     }
+  }
+  CollectionReference<Map<String, dynamic>> get insuranceCollectionsCollection {
+    return _firestore
+        .collection('pharmacies')
+        .doc(currentPharmacyId.value)
+        .collection('insurance_collections');
+  }
+  CollectionReference<Map<String, dynamic>> get _salesCollection {
+    return _firestore
+        .collection('pharmacies')
+        .doc(currentPharmacyId.value)
+        .collection('sales');
   }
 
   CollectionReference<Map<String, dynamic>> get insuranceCompaniesCollection {
@@ -233,7 +246,248 @@ class InsuranceCompanyController extends GetxController {
     }
   }
 
+  Future<void> recalculateInsuranceFinancials() async {
+    if (currentPharmacyId.value.isEmpty) return;
 
+    try {
+      final salesSnapshot = await _salesCollection
+          .where('isDeleted', isEqualTo: false)
+          .get();
+
+      final Map<String, double> claimsByCompany = {};
+      final Map<String, int> invoicesCountByCompany = {};
+      final Map<String, DateTime> lastClaimDateByCompany = {};
+
+      for (final doc in salesSnapshot.docs) {
+        final data = doc.data();
+
+        final companyId = (data['insuranceCompanyId'] ?? '').toString().trim();
+        if (companyId.isEmpty) continue;
+
+        final type = (data['type'] ?? 'sale').toString();
+        if (type == 'refund') continue;
+
+        final claimAmount = _toDouble(
+          data['insuranceClaimAmount'] ??
+              data['companyBilledAmount'] ??
+              data['insuranceDiscount'],
+        );
+
+        if (claimAmount <= 0) continue;
+
+        claimsByCompany[companyId] =
+            (claimsByCompany[companyId] ?? 0.0) + claimAmount;
+
+        invoicesCountByCompany[companyId] =
+            (invoicesCountByCompany[companyId] ?? 0) + 1;
+
+        final saleDate = _parseDate(data['saleDate']) ??
+            _parseDate(data['createdAt']) ??
+            DateTime.now();
+
+        final currentLast = lastClaimDateByCompany[companyId];
+
+        if (currentLast == null || saleDate.isAfter(currentLast)) {
+          lastClaimDateByCompany[companyId] = saleDate;
+        }
+      }
+
+      if (claimsByCompany.isEmpty) return;
+
+      final batch = _firestore.batch();
+
+      for (final companyId in claimsByCompany.keys) {
+        final companyRef = insuranceCompaniesCollection.doc(companyId);
+
+        final totalClaims = claimsByCompany[companyId] ?? 0.0;
+
+        final companyDoc = await companyRef.get();
+        final companyData = companyDoc.data() ?? {};
+
+        final totalCollected = _toDouble(companyData['totalCollected']);
+        final currentReceivable =
+        (totalClaims - totalCollected).clamp(0.0, double.infinity);
+
+        batch.set(
+          companyRef,
+          {
+            'totalClaims': totalClaims,
+            'totalCollected': totalCollected,
+            'currentReceivable': currentReceivable,
+            'insuranceInvoicesCount': invoicesCountByCompany[companyId] ?? 0,
+            'lastClaimDate': lastClaimDateByCompany[companyId] != null
+                ? Timestamp.fromDate(lastClaimDateByCompany[companyId]!)
+                : null,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+
+      await batch.commit();
+      await fetchInsuranceCompanies();
+
+      debugPrint('✅ Insurance financials recalculated');
+    } catch (e, st) {
+      debugPrint('❌ recalculateInsuranceFinancials error: $e');
+      debugPrint('$st');
+    }
+  }
+
+  Future<Map<String, dynamic>?> collectInsurancePayment({
+    required String companyId,
+    required double amount,
+    required String paymentMethod,
+    required int collectionYear,
+    required int collectionMonth,
+    String? notes,
+    String? referenceNumber,
+  }) async {
+    _ensureCan('insurance.collect', 'ليس لديك صلاحية تسجيل تحصيلات التأمين');
+
+    if (amount <= 0) {
+      Get.snackbar('تنبيه', 'أدخل مبلغ صحيح');
+      return null;
+    }
+
+    try {
+      isLoading.value = true;
+
+      final index = companies.indexWhere((c) => c.id == companyId);
+      if (index < 0) {
+        Get.snackbar('خطأ', 'شركة التأمين غير موجودة');
+        return null;
+      }
+
+      final company = companies[index];
+      final currentReceivable = company.calculatedReceivable;
+
+      if (currentReceivable <= 0) {
+        Get.snackbar('تنبيه', 'لا توجد مستحقات على هذه الشركة');
+        return null;
+      }
+
+      if (amount > currentReceivable) {
+        Get.snackbar('تنبيه', 'المبلغ أكبر من المستحق الحالي');
+        return null;
+      }
+
+      final createdBy = currentUserId.value;
+      final now = DateTime.now();
+      final periodKey =
+          '$collectionYear-${collectionMonth.toString().padLeft(2, '0')}';
+
+      final collectionRef = insuranceCollectionsCollection.doc();
+
+      await collectionRef.set({
+        'pharmacyId': currentPharmacyId.value,
+        'insuranceCompanyId': company.id,
+        'insuranceCompanyName': company.name,
+        'amount': amount,
+        'paymentMethod': paymentMethod,
+        'referenceNumber': referenceNumber,
+        'notes': notes,
+        'collectionYear': collectionYear,
+        'collectionMonth': collectionMonth,
+        'periodKey': periodKey,
+        'collectionDate': Timestamp.fromDate(now),
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdBy': createdBy,
+        'financialPosted': false,
+        'financialTransactionId': null,
+        'isVoided': false,
+      });
+
+      final txId =
+      await FinancialTransactionService.instance.registerInsuranceCollection(
+        pharmacyId: currentPharmacyId.value,
+        insuranceCompanyId: company.id,
+        insuranceCompanyName: company.name,
+        amount: amount,
+        paymentMethod: paymentMethod,
+        createdBy: createdBy,
+        referenceId: collectionRef.id,
+        referenceNumber: referenceNumber,
+        notes: notes,
+      );
+
+      await collectionRef.update({
+        'financialPosted': true,
+        'financialTransactionId': txId,
+        'postedAt': FieldValue.serverTimestamp(),
+      });
+
+      final newTotalCollected = company.effectiveTotalCollected + amount;
+      final newReceivable =
+      (company.effectiveTotalClaims - newTotalCollected)
+          .clamp(0.0, double.infinity);
+
+      await insuranceCompaniesCollection.doc(company.id).update({
+        'totalCollected': newTotalCollected,
+        'currentReceivable': newReceivable,
+        'lastCollectionDate': FieldValue.serverTimestamp(),
+        'lastCollectionTransactionId': txId,
+        'lastCollectionId': collectionRef.id,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      companies[index] = company.copyWith(
+        totalCollected: newTotalCollected,
+        currentReceivable: newReceivable,
+        updatedAt: now,
+      );
+
+      companies.refresh();
+
+      Get.snackbar(
+        'نجاح',
+        'تم تسجيل تحصيل ${amount.toStringAsFixed(2)} د.ل من ${company.name}',
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+      );
+
+      return {
+        'collectionId': collectionRef.id,
+        'transactionId': txId,
+        'companyId': company.id,
+        'companyName': company.name,
+        'amount': amount,
+        'previousReceivable': currentReceivable,
+        'newReceivable': newReceivable,
+        'collectionYear': collectionYear,
+        'collectionMonth': collectionMonth,
+        'periodKey': periodKey,
+        'paymentMethod': paymentMethod,
+        'referenceNumber': referenceNumber,
+        'notes': notes,
+        'collectionDate': now,
+      };
+    } catch (e) {
+      Get.snackbar(
+        'خطأ',
+        'فشل تسجيل تحصيل التأمين: $e',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+      return null;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  double _toDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString()) ?? 0.0;
+  }
+
+  DateTime? _parseDate(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
+    return null;
+  }
   // lib/controllers/insurance_company_controller.dart
 
 // أضف هذه الدالة الجديدة

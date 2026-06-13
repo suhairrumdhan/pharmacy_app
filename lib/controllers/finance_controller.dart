@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 import '../models/finance_model.dart';
 import '../services/audit_log_service.dart';
 
+import '../services/financial_transaction_service.dart';
 import 'auth_controller.dart';
 import 'purchase_controller.dart';
 
@@ -361,6 +362,7 @@ class FinanceController extends GetxController {
     required DateTime date,
     required String paymentMethod,
     String? notes,
+    String? shiftId,
   }) async {
     try {
       _ensureCan('finance.expenses.create', 'ليس لديك صلاحية إضافة المصروفات');
@@ -373,6 +375,7 @@ class FinanceController extends GetxController {
       }
 
       final docRef = _expensesCollection.doc();
+      final createdBy = _authCtrl.userId;
 
       final payload = {
         'title': title.trim(),
@@ -381,13 +384,33 @@ class FinanceController extends GetxController {
         'date': Timestamp.fromDate(date),
         'paymentMethod': paymentMethod,
         'notes': notes,
+        'shiftId': shiftId,
+        'financialPosted': false,
+        'financialTransactionId': null,
+        'postedAt': null,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-        'createdBy': _authCtrl.userId,
-        'updatedBy': _authCtrl.userId,
+        'createdBy': createdBy,
+        'updatedBy': createdBy,
       };
 
       await docRef.set(payload);
+
+      final txId = await FinancialTransactionService.instance.registerExpense(
+        pharmacyId: _pharmacyId,
+        amount: amount,
+        title: title.trim(),
+        createdBy: createdBy!,
+        description: notes,
+        referenceId: docRef.id,
+        shiftId: shiftId,
+      );
+
+      await docRef.update({
+        'financialPosted': true,
+        'financialTransactionId': txId,
+        'postedAt': FieldValue.serverTimestamp(),
+      });
 
       final createdExpense = ExpenseItem(
         id: docRef.id,
@@ -397,6 +420,10 @@ class FinanceController extends GetxController {
         date: date,
         paymentMethod: paymentMethod,
         notes: notes,
+        createdBy: createdBy,
+        updatedBy: createdBy,
+        referenceId: txId,
+        sourceModule: 'finance',
       );
 
       await _logCreateExpense(createdExpense);
@@ -419,6 +446,7 @@ class FinanceController extends GetxController {
       );
     }
   }
+
 
   Future<void> updateExpense({
     required String expenseId,
@@ -1282,7 +1310,7 @@ class FinanceController extends GetxController {
         m == 'bank' ||
         m == 'bank_transfer' ||
         m == 'transfer' ||
-        m == 'بطاقة' ||
+        m == 'معاملة مصرفية' ||
         m == 'بنك' ||
         m == 'تحويل';
   }

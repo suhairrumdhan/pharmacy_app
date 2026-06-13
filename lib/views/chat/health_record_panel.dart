@@ -1,123 +1,58 @@
-import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+
 import '../../controllers/chat_controller.dart';
 
 class HealthRecordPanel extends StatelessWidget {
+  final VoidCallback? onClose;
   final ChatController chatController = Get.find();
 
-  HealthRecordPanel({super.key});
+  HealthRecordPanel({
+    super.key,
+    this.onClose,
+  });
+
+  static const Color primary = Color(0xFF2563A9);
+  static const Color softBg = Color(0xFFF7F9FC);
+  static const Color borderColor = Color(0xFFE5EAF0);
+  static const Color danger = Color(0xFFE5484D);
+  static const Color textDark = Color(0xFF1F2937);
+  static const Color textMuted = Color(0xFF6B7280);
 
   @override
   Widget build(BuildContext context) {
     return Obx(() {
       if (chatController.selectedChatId.value.isEmpty) {
-        return _buildEmptyState();
+        return _emptyState(
+          icon: Icons.health_and_safety_outlined,
+          title: 'اختر محادثة',
+          subtitle: 'سيظهر الملف الصحي للمستفيد هنا.',
+        );
       }
 
       return FutureBuilder<Map<String, dynamic>?>(
-        future: _getUserHealthData(),
+        future: _getHealthSnapshot(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return _buildLoadingState();
+            return _loadingState();
           }
 
           if (!snapshot.hasData || snapshot.data == null) {
-            return _buildNoDataState();
+            return _emptyState(
+              icon: Icons.info_outline,
+              title: 'لا يوجد ملف صحي',
+              subtitle: 'لا توجد بيانات صحية محفوظة مع هذا الطلب.',
+            );
           }
 
-          final userData = snapshot.data!;
-          return _buildHealthRecord(userData, context);
+          return _buildPanel(snapshot.data!);
         },
       );
     });
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.medical_services_outlined,
-            size: 64,
-            color: Colors.grey.shade400,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'اختر محادثة لعرض السجل الصحي',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey.shade600,
-              fontWeight: FontWeight.w500,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLoadingState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 40,
-            height: 40,
-            child: CircularProgressIndicator(
-              strokeWidth: 3,
-              valueColor: AlwaysStoppedAnimation<Color>(_Colors.primary),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'جاري تحميل السجل الصحي...',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNoDataState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.health_and_safety_outlined,
-            size: 64,
-            color: Colors.grey.shade400,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'لا يوجد سجل صحي',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey.shade600,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'لم يتم إضافة معلومات صحية بعد',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<Map<String, dynamic>?> _getUserHealthData() async {
+  Future<Map<String, dynamic>?> _getHealthSnapshot() async {
     try {
       final chatDoc = await FirebaseFirestore.instance
           .collection('chats')
@@ -126,151 +61,301 @@ class HealthRecordPanel extends StatelessWidget {
 
       if (!chatDoc.exists) return null;
 
-      final chatData = chatDoc.data() as Map<String, dynamic>;
+      final data = chatDoc.data();
+      final snapshot = data?['healthSnapshot'];
 
-      // 1) الأفضل: بيانات المستفيد المرتبطة بالطلب
-      final healthSnapshot = chatData['healthSnapshot'];
-      if (healthSnapshot is Map<String, dynamic>) {
-        return healthSnapshot;
-      }
-
-      // 2) fallback قديم: صاحب الحساب
-      final userId = chatData['userId'];
-      if (userId == null || userId.toString().isEmpty) return null;
-
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .get();
-
-      if (userDoc.exists) {
-        return userDoc.data() as Map<String, dynamic>;
+      if (snapshot is Map) {
+        return Map<String, dynamic>.from(snapshot);
       }
 
       return null;
     } catch (e) {
-      print('Error fetching user health data: $e');
+      debugPrint('Error loading health snapshot: $e');
       return null;
     }
   }
-  Widget _buildHealthRecord(Map<String, dynamic> userData, BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+
+  Widget _buildPanel(Map<String, dynamic> data) {
+    final selected = chatController.selectedConversation;
+    final userImage = selected == null
+        ? null
+        : chatController.getUserProfileImage(selected.userId);
+
+    final name = _clean(data['name'], fallback: selected?.userName ?? 'مريض');
+    final gender = _clean(data['gender']);
+    final age = data['age'] == null ? 'غير محدد' : '${data['age']} سنة';
+    final bloodType = _clean(data['bloodType']);
+
+    final allergies = _toList(data['allergies']);
+    final conditions = _toList(data['healthConditions']);
+    final medications = _toList(data['currentMedications']);
+
+    final hasRiskData =
+        allergies.isNotEmpty || conditions.isNotEmpty || medications.isNotEmpty;
+
+    return Container(
+      color: softBg,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildHeader(userData),
-          const SizedBox(height: 28),
-          _buildSectionTitle('المعلومات الشخصية', Icons.person_outline),
-          const SizedBox(height: 12),
-          _buildPersonalInfo(userData, context),
-          const SizedBox(height: 24),
-          _buildSectionTitle('الحساسيات', Icons.warning_outlined),
-          const SizedBox(height: 12),
-          _buildListCard(userData['allergies'] ?? [], _Colors.allergy, context),
-          const SizedBox(height: 24),
-          _buildSectionTitle('الأمراض المزمنة', Icons.medical_services_outlined),
-          const SizedBox(height: 12),
-          _buildListCard(userData['healthConditions'] ?? [], _Colors.condition, context),
-          const SizedBox(height: 24),
-          _buildSectionTitle('الأدوية الحالية', Icons.medication_outlined),
-          const SizedBox(height: 12),
-          _buildListCard(userData['currentMedications'] ?? [], _Colors.medication, context),
-          const SizedBox(height: 24),
-          _buildSectionTitle('معلومات إضافية', Icons.info_outline),
-          const SizedBox(height: 12),
-          _buildAdditionalInfo(userData, context),
+          _topHeader(
+            name: name,
+            imageUrl: userImage,
+            hasRiskData: hasRiskData,
+          ),
+
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _summaryGrid(
+                    gender: gender,
+                    age: age,
+                    bloodType: bloodType,
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  _importantNotice(allergies),
+
+                  const SizedBox(height: 14),
+
+                  _sectionCard(
+                    title: 'الحساسيات',
+                    icon: Icons.warning_amber_rounded,
+                    color: danger,
+                    items: allergies,
+                    emptyText: 'لا توجد حساسيات مسجلة',
+                    important: true,
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  _sectionCard(
+                    title: 'الأمراض المزمنة',
+                    icon: Icons.monitor_heart_outlined,
+                    color: primary,
+                    items: conditions,
+                    emptyText: 'لا توجد أمراض مزمنة مسجلة',
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  _sectionCard(
+                    title: 'الأدوية الحالية',
+                    icon: Icons.medication_outlined,
+                    color: primary,
+                    items: medications,
+                    emptyText: 'لا توجد أدوية حالية مسجلة',
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  _smallHint(),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildHeader(Map<String, dynamic> userData) {
+  Widget _topHeader({
+    required String name,
+    required String? imageUrl,
+    required bool hasRiskData,
+  }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            _Colors.primary.withOpacity(0.1),
-            _Colors.primary.withOpacity(0.05),
-          ],
+      padding: const EdgeInsets.fromLTRB(16, 16, 12, 14),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          bottom: BorderSide(color: borderColor),
         ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _Colors.primary.withOpacity(0.2)),
       ),
       child: Row(
         children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: _Colors.primary.withOpacity(0.3), width: 2),
-            ),
-            child: ClipOval(
-              child: (userData['profileImageUrl'] != null || userData['photoUrl'] != null)
-                  ? Image.network(
-                userData['profileImageUrl'] ?? userData['photoUrl']!,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => _buildPlaceholderAvatar(),
-              )
-                  : _buildPlaceholderAvatar(),
+          _avatar(imageUrl, radius: 28),
+
+          const SizedBox(width: 12),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'الملف الصحي',
+                  style: TextStyle(
+                    color: textMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: textDark,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: hasRiskData
+                        ? primary.withOpacity(.08)
+                        : Colors.grey.withOpacity(.08),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: hasRiskData
+                          ? primary.withOpacity(.16)
+                          : Colors.grey.withOpacity(.16),
+                    ),
+                  ),
+                  child: Text(
+                    hasRiskData ? 'بيانات صحية متوفرة' : 'بيانات محدودة',
+                    style: TextStyle(
+                      color: hasRiskData ? primary : textMuted,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 16),
+
+          IconButton(
+            tooltip: 'إخفاء الملف الصحي',
+            onPressed: onClose,
+            icon: const Icon(Icons.close_rounded),
+            color: textMuted,
+            splashRadius: 18,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _avatar(String? imageUrl, {required double radius}) {
+    final cleanUrl = imageUrl?.trim();
+
+    return Container(
+      width: radius * 2,
+      height: radius * 2,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: primary.withOpacity(.09),
+        border: Border.all(color: primary.withOpacity(.14)),
+      ),
+      child: ClipOval(
+        child: cleanUrl != null && cleanUrl.isNotEmpty
+            ? Image.network(
+          cleanUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _avatarFallback(radius),
+        )
+            : _avatarFallback(radius),
+      ),
+    );
+  }
+
+  Widget _avatarFallback(double radius) {
+    return Icon(
+      Icons.person_outline,
+      color: primary,
+      size: radius,
+    );
+  }
+
+  Widget _summaryGrid({
+    required String gender,
+    required String age,
+    required String bloodType,
+  }) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _summaryTile(
+                title: 'النوع',
+                value: gender,
+                icon: Icons.wc_outlined,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _summaryTile(
+                title: 'العمر',
+                value: age,
+                icon: Icons.cake_outlined,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _summaryTile(
+          title: 'فصيلة الدم',
+          value: bloodType,
+          icon: Icons.bloodtype_outlined,
+          fullWidth: true,
+        ),
+      ],
+    );
+  }
+
+  Widget _summaryTile({
+    required String title,
+    required String value,
+    required IconData icon,
+    bool fullWidth = false,
+  }) {
+    return Container(
+      width: fullWidth ? double.infinity : null,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: primary, size: 18),
+          const SizedBox(width: 9),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  userData['name'] ?? 'مريض',
+                  title,
                   style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: _Colors.primary,
+                    color: textMuted,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.bloodtype_outlined,
-                      size: 16,
-                      color: _Colors.primary,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'فصيلة الدم: ${userData['bloodType'] ?? 'غير محدد'}',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey.shade700,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                if (userData['dateOfBirth'] != null)
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.cake_outlined,
-                        size: 14,
-                        color: Colors.grey.shade600,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        _formatDate(userData['dateOfBirth']),
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: textDark,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w900,
                   ),
+                ),
               ],
             ),
           ),
@@ -279,284 +364,233 @@ class HealthRecordPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildPlaceholderAvatar() {
-    return Container(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: _Colors.primary.withOpacity(0.1),
-      ),
-      child: Icon(
-        Icons.person,
-        size: 40,
-        color: _Colors.primary,
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title, IconData icon) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: _Colors.primary.withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            icon,
-            size: 18,
-            color: _Colors.primary,
-          ),
+  Widget _importantNotice(List<String> allergies) {
+    if (allergies.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.green.withOpacity(.07),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.green.withOpacity(.16)),
         ),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: _Colors.primary,
-          ),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_outline, color: Colors.green.shade700, size: 19),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'لا توجد حساسيات مسجلة في هذا الطلب.',
+                style: TextStyle(
+                  color: textDark,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
         ),
-      ],
-    );
-  }
+      );
+    }
 
-  Widget _buildPersonalInfo(Map<String, dynamic> userData, BuildContext context) {
-    return _buildInfoCard(
-      children: [
-        _buildCopyableInfoRow('الاسم الكامل', userData['name'] ?? 'غير محدد', Icons.person, context),
-        _buildCopyableInfoRow('البريد الإلكتروني', userData['email'] ?? 'غير محدد', Icons.email_outlined, context),
-        _buildCopyableInfoRow('رقم الهاتف', userData['phone'] ?? 'غير محدد', Icons.phone_outlined, context),
-        _buildCopyableInfoRow('النوع', userData['gender'] ?? 'غير محدد', Icons.people_outlined, context),
-        _buildCopyableInfoRow('فصيلة الدم', userData['bloodType'] ?? 'غير محدد', Icons.bloodtype_outlined, context),
-        _buildCopyableInfoRow('تاريخ الميلاد', _formatDate(userData['dateOfBirth']), Icons.cake_outlined, context),
-      ],
-    );
-  }
-
-  Widget _buildAdditionalInfo(Map<String, dynamic> userData, BuildContext context) {
-    return _buildInfoCard(
-      children: [
-        _buildCopyableInfoRow(
-          'حالة السجل الصحي',
-          (userData['healthInfoCompleted'] ?? false) ? 'مكتمل' : 'غير مكتمل',
-          (userData['healthInfoCompleted'] ?? false) ? Icons.check_circle_outlined : Icons.pending_outlined,
-          context,
-          valueColor: (userData['healthInfoCompleted'] ?? false) ? Colors.green : Colors.orange,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildInfoCard({required List<Widget> children}) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.shade100,
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-        border: Border.all(color: Colors.grey.shade100),
+        color: danger.withOpacity(.07),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: danger.withOpacity(.18)),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: children,
-      ),
-    );
-  }
-
-  Widget _buildCopyableInfoRow(String label, String value, IconData icon, BuildContext context, {Color? valueColor}) {
-    return GestureDetector(
-      onTap: () {
-        _copyToClipboard(value, label, context);
-      },
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            color: Colors.transparent,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: _Colors.primary.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  icon,
-                  size: 14,
-                  color: _Colors.primary,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade700,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 3,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        value,
-                        style: TextStyle(
-                          color: valueColor ?? Colors.black87,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 2,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Icon(
-                      Icons.content_copy,
-                      size: 16,
-                      color: Colors.grey.shade400,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildListCard(List<dynamic> items, Color color, BuildContext context) {
-    if (items.isEmpty) {
-      return _buildInfoCard(
         children: [
-          Center(
+          Icon(Icons.priority_high_rounded, color: danger, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
             child: Text(
-              'لا توجد عناصر',
+              'تنبيه: تحقق من الحساسية قبل تأكيد أو صرف الدواء.',
               style: TextStyle(
-                color: Colors.grey.shade500,
-                fontStyle: FontStyle.italic,
+                color: danger,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w900,
+                height: 1.35,
               ),
             ),
           ),
         ],
-      );
-    }
-
-    return _buildInfoCard(
-      children: [
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: items.map((item) {
-            return GestureDetector(
-              onTap: () {
-                _copyToClipboard(item.toString(), "العنصر", context);
-              },
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: Container(
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.3,
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: color.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: color,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          item.toString(),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: color,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        Icons.content_copy,
-                        size: 12,
-                        color: color.withOpacity(0.7),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-  Future<void> _copyToClipboard(String text, String fieldName, BuildContext context) async {
-    if (text == 'غير محدد') return;
-
-    await Clipboard.setData(ClipboardData(text: text));
-
-    // Show snackbar confirmation
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('تم نسخ $fieldName: $text'),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: _Colors.primary,
       ),
     );
   }
 
-  String _formatDate(dynamic timestamp) {
-    if (timestamp == null) return 'غير محدد';
-    try {
-      if (timestamp is Timestamp) {
-        final date = timestamp.toDate();
-        return '${date.day}/${date.month}/${date.year}';
-      }
-      return timestamp.toString();
-    } catch (e) {
-      return 'غير محدد';
-    }
-  }
-}
+  Widget _sectionCard({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required List<String> items,
+    required String emptyText,
+    bool important = false,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: important && items.isNotEmpty
+              ? color.withOpacity(.22)
+              : borderColor,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 17),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: textDark,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                '${items.length}',
+                style: TextStyle(
+                  color: items.isEmpty ? textMuted : color,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
 
-class _Colors {
-  static const Color primary = Color(0xFF2E8B57); // Sea Green - Medical theme
-  static const Color allergy = Color(0xFFFF6B6B); // Soft Red for allergies
-  static const Color condition = Color(0xFF4ECDC4); // Teal for conditions
-  static const Color medication = Color(0xFF45B7D1); // Blue for medications
+          const SizedBox(height: 12),
+
+          if (items.isEmpty)
+            Text(
+              emptyText,
+              style: const TextStyle(
+                color: textMuted,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+              ),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: items.map((item) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(.08),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: color.withOpacity(.14)),
+                  ),
+                  child: Text(
+                    item,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _smallHint() {
+    return Text(
+      'ملاحظة: البيانات المعروضة مأخوذة من سجل الطلب وقت إنشاء المحادثة.',
+      style: TextStyle(
+        color: Colors.grey.shade500,
+        fontSize: 11.5,
+        height: 1.4,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+  }
+
+  Widget _loadingState() {
+    return Container(
+      color: softBg,
+      child: const Center(
+        child: CircularProgressIndicator(strokeWidth: 2.4),
+      ),
+    );
+  }
+
+  Widget _emptyState({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Container(
+      color: softBg,
+      padding: const EdgeInsets.all(22),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: Colors.grey),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: const TextStyle(
+                color: textDark,
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: textMuted,
+                fontSize: 13,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _clean(dynamic value, {String fallback = 'غير محدد'}) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? fallback : text;
+  }
+
+  List<String> _toList(dynamic value) {
+    if (value is List) {
+      return value
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+    return [];
+  }
 }

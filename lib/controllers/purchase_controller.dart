@@ -9,6 +9,9 @@ import 'finance_controller.dart';
 import 'inventory_controller.dart';
 import 'supplier_controller.dart';
 import '../services/audit_log_service.dart';
+
+import '../services/financial_transaction_service.dart';
+
 class PurchaseStockEntry {
   final String medicineId;
   final String medicineName;
@@ -165,6 +168,12 @@ class PurchaseController extends GetxController {
 
 
 
+  CollectionReference<Map<String, dynamic>> get _suppliersCollection {
+    return _firestore
+        .collection('pharmacies')
+        .doc(_pharmacyId)
+        .collection('suppliers');
+  }
 
   CollectionReference<Map<String, dynamic>> get _invoicesCollection {
     return _firestore
@@ -217,6 +226,124 @@ class PurchaseController extends GetxController {
     }
   }
 
+  Future<void> recalculateSupplierFinancials() async {
+    if (_pharmacyId.isEmpty) return;
+
+    try {
+      final now = DateTime.now();
+
+      final invoicesSnapshot = await _invoicesCollection.get();
+
+      final Map<String, double> totalPurchasesBySupplier = {};
+      final Map<String, double> totalPaidBySupplier = {};
+      final Map<String, double> outstandingBySupplier = {};
+      final Map<String, double> overdueBySupplier = {};
+      final Map<String, int> unpaidCountBySupplier = {};
+      final Map<String, int> overdueCountBySupplier = {};
+      final Map<String, DateTime> lastPurchaseBySupplier = {};
+      final Map<String, DateTime> lastPaymentBySupplier = {};
+
+      for (final doc in invoicesSnapshot.docs) {
+        final invoice = PurchaseInvoice.fromMap(doc.data(), doc.id);
+
+        final supplierId = invoice.supplierId.trim();
+        if (supplierId.isEmpty) continue;
+
+        totalPurchasesBySupplier[supplierId] =
+            (totalPurchasesBySupplier[supplierId] ?? 0.0) + invoice.total;
+
+        totalPaidBySupplier[supplierId] =
+            (totalPaidBySupplier[supplierId] ?? 0.0) + invoice.paid;
+
+        final remaining = invoice.remaining;
+
+        if (remaining > 0) {
+          outstandingBySupplier[supplierId] =
+              (outstandingBySupplier[supplierId] ?? 0.0) + remaining;
+
+          unpaidCountBySupplier[supplierId] =
+              (unpaidCountBySupplier[supplierId] ?? 0) + 1;
+
+          if (invoice.dueDate != null && invoice.dueDate!.isBefore(now)) {
+            overdueBySupplier[supplierId] =
+                (overdueBySupplier[supplierId] ?? 0.0) + remaining;
+
+            overdueCountBySupplier[supplierId] =
+                (overdueCountBySupplier[supplierId] ?? 0) + 1;
+          }
+        }
+
+        final invoiceDate = invoice.invoiceDate;
+        final currentLastPurchase = lastPurchaseBySupplier[supplierId];
+
+        if (currentLastPurchase == null ||
+            invoiceDate.isAfter(currentLastPurchase)) {
+          lastPurchaseBySupplier[supplierId] = invoiceDate;
+        }
+
+        if (invoice.paid > 0) {
+          final currentLastPayment = lastPaymentBySupplier[supplierId];
+          final paymentDate = invoice.postedAt ?? invoice.updatedAt ?? invoice.invoiceDate;
+
+          if (currentLastPayment == null ||
+              paymentDate.isAfter(currentLastPayment)) {
+            lastPaymentBySupplier[supplierId] = paymentDate;
+          }
+        }
+      }
+
+      final allSupplierIds = <String>{
+        ...totalPurchasesBySupplier.keys,
+        ...totalPaidBySupplier.keys,
+        ...outstandingBySupplier.keys,
+        ...overdueBySupplier.keys,
+      };
+
+      if (allSupplierIds.isEmpty) return;
+
+      final batch = _firestore.batch();
+
+      for (final supplierId in allSupplierIds) {
+        final supplierRef = _suppliersCollection.doc(supplierId);
+
+        final totalPurchases = totalPurchasesBySupplier[supplierId] ?? 0.0;
+        final totalPaid = totalPaidBySupplier[supplierId] ?? 0.0;
+        final outstanding = outstandingBySupplier[supplierId] ?? 0.0;
+        final overdue = overdueBySupplier[supplierId] ?? 0.0;
+
+        batch.set(
+          supplierRef,
+          {
+            'totalPurchases': totalPurchases,
+            'totalPaid': totalPaid,
+            'totalDue': outstanding,
+            'currentBalance': outstanding,
+            'outstandingBalance': outstanding,
+            'overdueBalance': overdue,
+            'unpaidInvoicesCount': unpaidCountBySupplier[supplierId] ?? 0,
+            'overdueInvoicesCount': overdueCountBySupplier[supplierId] ?? 0,
+            'lastPurchaseDate': lastPurchaseBySupplier[supplierId] != null
+                ? Timestamp.fromDate(lastPurchaseBySupplier[supplierId]!)
+                : null,
+            'lastPaymentDate': lastPaymentBySupplier[supplierId] != null
+                ? Timestamp.fromDate(lastPaymentBySupplier[supplierId]!)
+                : null,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+
+      await batch.commit();
+
+      await _supplierCtrl.fetchSuppliers();
+
+      debugPrint('✅ Supplier financials recalculated successfully');
+    } catch (e, st) {
+      debugPrint('❌ recalculateSupplierFinancials error: $e');
+      debugPrint('$st');
+    }
+  }
   Future<void> _logPurchasePayment({
     required PurchaseInvoice oldInvoice,
     required PurchaseInvoice newInvoice,
@@ -428,17 +555,40 @@ class PurchaseController extends GetxController {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      final newInvoice = invoice.copyWith(id: docRef.id);
+      final txId = await FinancialTransactionService.instance.registerPurchaseInvoice(
+        pharmacyId: _pharmacyId,
+        invoiceId: docRef.id,
+        invoiceNumber: invoice.invoiceNumber,
+        amount: total,
+        supplierId: supplierId,
+        supplierName: supplierName,
+        createdBy: _currentUserId,
+      );
+
+      await docRef.update({
+        'financialPosted': true,
+        'financialTransactionId': txId,
+        'postedAt': FieldValue.serverTimestamp(),
+      });
+
+      final newInvoice = invoice.copyWith(
+        id: docRef.id,
+        financialPosted: true,
+        financialTransactionId: txId,
+        postedAt: DateTime.now(),
+      );
+
       await _logCreatePurchaseInvoice(
         invoice: newInvoice,
         stockEntries: stockEntries,
       );
+
       invoices.insert(0, newInvoice);
 
       _applyFilters();
       _calculateFinancialMetrics();
       _generatePurchaseAlerts();
-
+      await recalculateSupplierFinancials();
       Get.snackbar(
         'نجاح',
         'تم إنشاء فاتورة المشتريات رقم $invoiceNumber وتحديث المخزون',
@@ -614,7 +764,11 @@ class PurchaseController extends GetxController {
   /// =======================================================
 // في purchase_controller.dart - داخل class PurchaseController
 
-  Future<void> makePayment(String invoiceId, double amount, String paymentMethod) async {
+  Future<void> makePayment(
+      String invoiceId,
+      double amount,
+      String paymentMethod,
+      ) async {
     _ensureCan('purchases.payment', 'ليس لديك صلاحية تسديد فواتير المشتريات');
 
     if (amount <= 0) {
@@ -630,12 +784,19 @@ class PurchaseController extends GetxController {
       }
 
       final invoice = invoices[index];
-      final newPaid = invoice.paid + amount;
+      final remainingBeforePayment = invoice.remaining;
 
-      if (newPaid > invoice.total) {
+      if (remainingBeforePayment <= 0) {
+        Get.snackbar('تنبيه', 'الفاتورة مسددة بالكامل');
+        return;
+      }
+
+      if (amount > remainingBeforePayment) {
         Get.snackbar('خطأ', 'المبلغ أكبر من المتبقي');
         return;
       }
+
+      final newPaid = invoice.paid + amount;
 
       PaymentStatus newStatus;
       if (newPaid >= invoice.total) {
@@ -646,66 +807,54 @@ class PurchaseController extends GetxController {
         newStatus = PaymentStatus.unpaid;
       }
 
+      final txId = await FinancialTransactionService.instance.registerSupplierPayment(
+        pharmacyId: _pharmacyId,
+        supplierId: invoice.supplierId,
+        supplierName: invoice.supplierName,
+        amount: amount,
+        paymentMethod: paymentMethod,
+        referenceId: invoice.id,
+        createdBy: _currentUserId,
+      );
+
       final updatedInvoice = invoice.copyWith(
         paid: newPaid,
         paymentStatus: newStatus,
+        paymentMethod: paymentMethod,
+        remainingAmount: (invoice.total - newPaid).clamp(0.0, double.infinity),
+        financialPosted: true,
+        postedAt: DateTime.now(),
       );
 
-      // تحديث في Firebase
       await _invoicesCollection.doc(invoiceId).update({
         'paid': newPaid,
         'paymentStatus': newStatus.name,
+        'paymentMethod': paymentMethod,
+        'remainingAmount': updatedInvoice.remaining,
+        'lastPaymentTransactionId': txId,
+        'lastPaidAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      // تحديث محلي
       invoices[index] = updatedInvoice;
+
       await _logPurchasePayment(
         oldInvoice: invoice,
         newInvoice: updatedInvoice,
         amount: amount,
         paymentMethod: paymentMethod,
       );
+
       _applyFilters();
       _calculateFinancialMetrics();
       _generatePurchaseAlerts();
-
-      // ================ 🔴 إضافة المصروف هنا ================
-      try {
-        final financeCtrl = Get.find<FinanceController>();
-
-        // إنشاء عنوان مناسب للدفعة
-        String paymentTitle;
-        if (newStatus == PaymentStatus.paid) {
-          paymentTitle = 'تسديد كامل فاتورة مشتريات #${invoice.invoiceNumber}';
-        } else {
-          paymentTitle = 'دفعة ${_getPaymentNumber(invoice)} من فاتورة مشتريات #${invoice.invoiceNumber}';
-        }
-
-        // في جزء إضافة المصروف:
-        await financeCtrl.addExpense(
-          title: paymentTitle,
-          category: 'مشتريات',
-          amount: amount,
-          date: DateTime.now(),
-          paymentMethod: paymentMethod, // استخدام طريقة الدفع المختارة
-          notes: 'فاتورة: ${invoice.invoiceNumber} - المورد: ${invoice.supplierName}',
-        );;
-
-        debugPrint('✅ تم إضافة المصروف بنجاح للدفعة: $amount');
-      } catch (e) {
-        // لا نوقف العملية إذا فشل إضافة المصروف
-        debugPrint('⚠️ فشل إضافة المصروف للدفعة: $e');
-      }
-      // ======================================================
-
+      await recalculateSupplierFinancials();
       Get.snackbar(
         'نجاح',
         'تم تسديد ${amount.toStringAsFixed(2)} د.ل',
         backgroundColor: Colors.green,
         colorText: Colors.white,
       );
-
     } catch (e) {
       Get.snackbar(
         'خطأ',
@@ -715,7 +864,6 @@ class PurchaseController extends GetxController {
       );
     }
   }
-
 // دالة مساعدة لحساب رقم الدفعة
   String _getPaymentNumber(PurchaseInvoice invoice) {
     // هنا يمكنك تخزين عدد الدفعات في الـ invoice نفسه
@@ -748,7 +896,7 @@ class PurchaseController extends GetxController {
       _applyFilters();
       _calculateFinancialMetrics();
       _generatePurchaseAlerts();
-
+      await recalculateSupplierFinancials();
       Get.snackbar(
         'نجاح',
         'تم حذف الفاتورة',

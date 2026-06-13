@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
+
 import '../../../controllers/sales_controller.dart';
 import '../../../models/insurance_company_model.dart';
 import '../../../models/sales_model.dart';
@@ -8,7 +9,10 @@ import '../../../models/sales_model.dart';
 class PaymentCard extends StatefulWidget {
   final SalesController salesController;
 
-  const PaymentCard({super.key, required this.salesController});
+  const PaymentCard({
+    super.key,
+    required this.salesController,
+  });
 
   @override
   State<PaymentCard> createState() => _PaymentCardState();
@@ -16,61 +20,82 @@ class PaymentCard extends StatefulWidget {
 
 class _PaymentCardState extends State<PaymentCard> {
   late final TextEditingController _receivedCtrl;
-  late final FocusNode _receivedFocus;
+  late final TextEditingController _discountCtrl;
+  late final TextEditingController _refundCashCtrl;
+  late final TextEditingController _refundCardCtrl;
 
+  late final FocusNode _receivedFocus;
+  late final FocusNode _discountFocus;
+  late final FocusNode _refundCashFocus;
+  late final FocusNode _refundCardFocus;
   late final FocusNode _customerNameFocus;
   late final FocusNode _customerPhoneFocus;
   late final FocusNode _notesFocus;
 
-  bool _selfChange = false; // يمنع loop لما نعدّل النص برمجيًا
-
-  String _lyd(double v) => '${v.toStringAsFixed(2)} د.ل';
+  bool _selfChange = false;
 
   SalesController get salesController => widget.salesController;
 
   @override
   void initState() {
     super.initState();
-    _receivedCtrl = TextEditingController();
-    _receivedFocus = FocusNode();
 
+    _receivedCtrl = TextEditingController();
+    _discountCtrl = TextEditingController();
+    _refundCashCtrl = TextEditingController();
+    _refundCardCtrl = TextEditingController();
+
+    _receivedFocus = FocusNode();
+    _discountFocus = FocusNode();
+    _refundCashFocus = FocusNode();
+    _refundCardFocus = FocusNode();
     _customerNameFocus = FocusNode();
     _customerPhoneFocus = FocusNode();
     _notesFocus = FocusNode();
 
-    // لما أي حقل ياخذ فوكس -> وقف auto focus search
-    void attachPauseResume(FocusNode node) {
+    for (final node in [
+      _receivedFocus,
+      _discountFocus,
+      _refundCashFocus,
+      _refundCardFocus,
+      _customerNameFocus,
+      _customerPhoneFocus,
+      _notesFocus,
+    ]) {
       node.addListener(() {
         if (!mounted) return;
 
         if (node.hasFocus) {
           salesController.pauseAutoFocus();
         } else {
-          // رجعها مسموحة + رجّع الفوكس للبحث لو ما فيش حقل ثاني مركز
-          final anyOtherFocused = _receivedFocus.hasFocus ||
+          final anyFocused = _receivedFocus.hasFocus ||
+              _discountFocus.hasFocus ||
+              _refundCashFocus.hasFocus ||
+              _refundCardFocus.hasFocus ||
               _customerNameFocus.hasFocus ||
               _customerPhoneFocus.hasFocus ||
               _notesFocus.hasFocus;
 
-          if (!anyOtherFocused) {
+          if (!anyFocused) {
             salesController.resumeAutoFocus();
             salesController.focusSearchIfAllowed();
           }
         }
       });
     }
-
-    attachPauseResume(_receivedFocus);
-    attachPauseResume(_customerNameFocus);
-    attachPauseResume(_customerPhoneFocus);
-    attachPauseResume(_notesFocus);
   }
 
   @override
   void dispose() {
     _receivedCtrl.dispose();
-    _receivedFocus.dispose();
+    _discountCtrl.dispose();
+    _refundCashCtrl.dispose();
+    _refundCardCtrl.dispose();
 
+    _receivedFocus.dispose();
+    _discountFocus.dispose();
+    _refundCashFocus.dispose();
+    _refundCardFocus.dispose();
     _customerNameFocus.dispose();
     _customerPhoneFocus.dispose();
     _notesFocus.dispose();
@@ -78,602 +103,732 @@ class _PaymentCardState extends State<PaymentCard> {
     super.dispose();
   }
 
-  void _syncReceivedWithTotalIfNotEditing() {
-    if (_receivedFocus.hasFocus) return; // لو الموظف يكتب، ما نغيّرش عليه
+  double _parse(String v) {
+    return double.tryParse(v.replaceAll(',', '.').trim()) ?? 0.0;
+  }
 
-    final total = salesController.currentSale.value.total;
-    final txt = total.toStringAsFixed(2);
+  String _lyd(double v) => '${v.toStringAsFixed(2)} د.ل';
 
-    if (_receivedCtrl.text.trim() == txt) return;
+  void _syncSaleFields(Sale sale) {
+    if (_selfChange) return;
 
-    _selfChange = true;
-    _receivedCtrl.text = txt;
-    _receivedCtrl.selection = TextSelection.fromPosition(TextPosition(offset: txt.length));
-    _selfChange = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
 
-    // نخلي cashReceived متزامن افتراضيًا مع إجمالي الزبون
-    salesController.setCashReceived(total);
+      _selfChange = true;
+
+      if (!_discountFocus.hasFocus) {
+        final discount = sale.discount ?? 0.0;
+        final text = discount > 0 ? discount.toStringAsFixed(2) : '';
+        if (_discountCtrl.text != text) {
+          _discountCtrl.text = text;
+        }
+      }
+
+      if (!_receivedFocus.hasFocus &&
+          sale.customerPaymentMethod == PaymentMethod.cash &&
+          !salesController.refundMode.value) {
+        final due = sale.customerPaidAmount;
+        final text = due.toStringAsFixed(2);
+
+        if (_receivedCtrl.text != text) {
+          _receivedCtrl.text = text;
+          salesController.setCashReceived(due);
+        }
+      }
+
+      if (!_refundCashFocus.hasFocus) {
+        final text = salesController.refundCashOut.value > 0
+            ? salesController.refundCashOut.value.toStringAsFixed(2)
+            : '';
+        if (_refundCashCtrl.text != text) {
+          _refundCashCtrl.text = text;
+        }
+      }
+
+      if (!_refundCardFocus.hasFocus) {
+        final text = salesController.refundCardOut.value > 0
+            ? salesController.refundCardOut.value.toStringAsFixed(2)
+            : '';
+        if (_refundCardCtrl.text != text) {
+          _refundCardCtrl.text = text;
+        }
+      }
+
+      _selfChange = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final viewInsets = MediaQuery.of(context).viewInsets.bottom;
-
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Container(
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 16 + viewInsets),
-          child: Obx(() {
-            final sale = salesController.currentSale.value;
-            final isRefund = salesController.refundMode.value;
-            final hasInsurance =
-                (salesController.selectedInsuranceCompany.value != null) &&
-                    (sale.insuranceCompanyId != null && sale.insuranceCompanyId!.trim().isNotEmpty) &&
-                    ((sale.insuranceDiscount ?? 0) > 0);
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Obx(() {
+          final sale = salesController.currentSale.value.recalculate();
+          final isRefund = salesController.refundMode.value;
+          final isReadOnly =
+              sale.isSaved || sale.status == InvoiceStatus.completed;
 
-            final companyBilled = hasInsurance ? (sale.insuranceDiscount ?? 0.0) : 0.0;
+          _syncSaleFields(sale);
 
-            // الزبون يدفع هذا (بعد التأمين/الخصم)
-            final customerTotal = sale.total;
-
-            // الإجمالي قبل التأمين (بعد خصم الفاتورة)
-            final grandTotal = (sale.subtotal - (sale.discount ?? 0.0)).clamp(0.0, double.infinity);
-
-            // للزبون فقط (cash/card) — back-compat: لو legacy insurance رجّعها cash
-            final currentMethod = (sale.paymentMethod == PaymentMethod.insurance)
-                ? PaymentMethod.cash
-                : sale.paymentMethod;
-
-            // ✅ مهم: نخلي حقل المستلم يتزامن مع الإجمالي كل مرة يتغير (لو مش قاعد يكتب)
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
-              if (currentMethod == PaymentMethod.cash) {
-                _syncReceivedWithTotalIfNotEditing();
-              }
-            });
-
-            return SingleChildScrollView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'الدفع',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[800]),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // طرق دفع الزبون
-                  if (!isRefund)
-
-                    Row(
-                    children: [
-                      _buildPaymentMethodChip(
-                        '💵 نقدي',
-                        currentMethod == PaymentMethod.cash,
-                            () => salesController.changePaymentMethod(PaymentMethod.cash),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildPaymentMethodChip(
-                        '💳 بطاقة',
-                        currentMethod == PaymentMethod.card,
-                            () => salesController.changePaymentMethod(PaymentMethod.card),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 14),
-                  if (isRefund) ...[
-                    const SizedBox(height: 10),
-
-                    Text(
-                      'تفاصيل الترجيع',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.orange[800],
-                      ),
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    _refundField(
-                      label: '💵 كاش خارج',
-                      onChanged: (v) {
-                        salesController.refundCashOut.value =
-                            double.tryParse(v.replaceAll(',', '.')) ?? 0;
-                      },
-                    ),
-
-                    const SizedBox(height: 8),
-
-                    _refundField(
-                      label: '💳 بطاقة خارج',
-                      onChanged: (v) {
-                        salesController.refundCardOut.value =
-                            double.tryParse(v.replaceAll(',', '.')) ?? 0;
-                      },
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    Obx(() {
-                      final total = salesController.refundTotal;
-                      final out = salesController.refundCashOut.value +
-                          salesController.refundCardOut.value;
-
-                      return Row(
-                        children: [
-                          Icon(Iconsax.info_circle, size: 16, color: Colors.orange[700]),
-                          const SizedBox(width: 6),
-                          Text(
-                            'إجمالي الترجيع: ${_lyd(total)}',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.orange[700],
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            'المدفوع: ${_lyd(out)}',
-                            style: TextStyle(color: Colors.grey[700]),
-                          ),
-                        ],
-                      );
-                    }),
-
-                    const SizedBox(height: 14),
-                  ],
-                  // تفاصيل التأمين (لو موجود)
-                  if (hasInsurance) ...[
-                    _buildSplitInfo(
-                      customerTotal: customerTotal,
-                      companyBilled: companyBilled,
-                      grandTotal: grandTotal,
-                      companyName: sale.insuranceCompanyName,
-                    ),
-                    const SizedBox(height: 14),
-                  ],
-
-                  // =========================
-                  // كاش: المبلغ المستلم default = إجمالي الزبون
-                  // وإذا تغيّر → يحسب خصم فواتير تلقائي
-                  // =========================
-                  if (!isRefund && currentMethod == PaymentMethod.cash) ...[
-                    Text('المبلغ المستلم (من الزبون)', style: TextStyle(fontSize: 14, color: Colors.grey[700])),
-                    const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.grey[50],
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey[200]!),
-                      ),
-                      child: TextField(
-                        focusNode: _receivedFocus,
-                        controller: _receivedCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        onTap: () => salesController.pauseAutoFocus(),
-                        onChanged: (value) {
-                          if (_selfChange) return;
-
-                          final entered = double.tryParse(value.replaceAll(',', '.')) ?? 0.0;
-
-                          // الصافي المطلوب (بدون خصم الموظف)
-                          final baseTotal = salesController.currentSale.value.recalculate().total;
-
-                          // خصم الموظف = الفرق (لو دخل أقل)
-                          double disc = (baseTotal - entered);
-                          if (disc < 0) disc = 0; // لو دفع أكثر، ما فيش خصم
-
-                          salesController.manualDiscount.value = disc;
-
-                          // ثم احسب cashReceived والباقي حسب الصافي بعد الخصم
-                          salesController.setCashReceived(entered);
-                        },                        onEditingComplete: () {
-                          _receivedFocus.unfocus();
-                          salesController.resumeAutoFocus();
-                          salesController.focusSearchIfAllowed();
-                        },
-                        decoration: InputDecoration(
-                          hintText: 'أدخل المبلغ المستلم',
-                          hintStyle: TextStyle(color: Colors.grey[500]),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                          suffixText: 'د.ل',
-                          suffixStyle: TextStyle(color: Colors.blue[700], fontWeight: FontWeight.bold),
-                        ),
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                    ),
-
-                    // فرق الباقي/الناقص
-                    Obx(() {
-                      final received = salesController.cashReceived.value;
-
-                      final baseTotal = salesController.currentSale.value.recalculate().total; // الإجمالي الثابت
-                      final disc = salesController.manualDiscount.value;                      // خصم الموظف
-                      final payable = (baseTotal - disc).clamp(0.0, double.infinity);         // الصافي المطلوب
-
-                      final diff = received - payable;
-
-                      if (diff > 0) {
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Row(
-                            children: [
-                              Icon(Iconsax.money_send, color: Colors.green[700], size: 16),
-                              const SizedBox(width: 4),
-                              Text(
-                                'الباقي للزبون: ${_lyd(diff)}',
-                                style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                        );
-                      } else if (received > 0 && received < payable) {
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Row(
-                            children: [
-                              Icon(Iconsax.info_circle, color: Colors.orange[700], size: 16),
-                              const SizedBox(width: 4),
-                              Text(
-                                'ناقص من الزبون: ${_lyd(payable - received)}',
-                                style: TextStyle(color: Colors.orange[700]),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-
-                      return const SizedBox.shrink();
-                    }),
-                    // عرض خصم الموظف (لو صار)
-                    const SizedBox(height: 10),
-                    if ((sale.discount ?? 0) > 0)
-                      Row(
-                        children: [
-                          Icon(Iconsax.discount_shape, size: 16, color: Colors.red[700]),
-                          const SizedBox(width: 6),
-                          Text(
-                            'خصم موظف: ${_lyd(sale.discount ?? 0)}',
-                            style: TextStyle(color: Colors.red[700], fontWeight: FontWeight.w700),
-                          ),
-                        ],
-                      ),
-
-                    const SizedBox(height: 14),
-                  ],
-
-                  // =========================
-                  // التأمين (اختياري)
-                  // =========================
-
-                  if (!isRefund)
-                    _buildInsuranceSection(hasInsurance: hasInsurance),
-
-                  const SizedBox(height: 16),
-
-                  // =========================
-                  // معلومات الزبون (سكرول موجود فوق)
-                  // =========================
-                  ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
-                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-                    leading: Icon(Iconsax.user, color: Colors.blue[700], size: 20),
-                    title: Text('معلومات الزبون (اختياري)', style: TextStyle(fontSize: 14, color: Colors.grey[700])),
-                    children: [
-                      Column(
-                        children: [
-                          _buildCustomerField(
-                            '👤 اسم الزبون',
-                            salesController.customerNameController,
-                            focusNode: _customerNameFocus,
-                          ),
-                          const SizedBox(height: 8),
-                          _buildCustomerField(
-                            '📞 رقم الهاتف',
-                            salesController.customerPhoneController,
-                            focusNode: _customerPhoneFocus,
-                          ),
-                          const SizedBox(height: 8),
-
-                          // ✅ ملاحظات: صغّر padding + حدّد maxLines
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.grey[50],
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey[200]!),
-                            ),
-                            child: TextField(
-                              focusNode: _notesFocus,
-                              controller: salesController.notesController,
-                              maxLines: 3,
-                              minLines: 2,
-                              onTap: () => salesController.pauseAutoFocus(),
-                              onEditingComplete: () {
-                                _notesFocus.unfocus();
-                                salesController.resumeAutoFocus();
-                                salesController.focusSearchIfAllowed();
-                              },
-                              decoration: InputDecoration(
-                                hintText: '💬 ملاحظات إضافية',
-                                hintStyle: TextStyle(color: Colors.grey[500]),
-                                border: InputBorder.none,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                              ),
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          }),
-        ),
+          return SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            child: isRefund
+                ? _buildRefundPanel(sale, isReadOnly: isReadOnly)
+                : _buildSalePanel(sale, isReadOnly: isReadOnly),
+          );
+        }),
       ),
     );
   }
 
-  // --------- UI Helpers ---------
+  Widget _buildSalePanel(Sale sale, {required bool isReadOnly}) {
+    final subtotal = sale.subtotal;
+    final discount = (sale.discount ?? 0.0).clamp(0.0, subtotal);
+    final insuranceAmount = sale.companyBilledAmount;
+    final customerDue = sale.customerPaidAmount;
+    final currentMethod = sale.customerPaymentMethod;
+    final received = salesController.cashReceived.value;
+    final change = received > customerDue ? received - customerDue : 0.0;
+    final remaining = customerDue > received ? customerDue - received : 0.0;
 
-  Widget _buildInsuranceSection({required bool hasInsurance}) {
-    return Obx(() {
-      final sale = salesController.currentSale.value;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _title(
+          isReadOnly ? 'الدفع - عرض فقط' : 'الدفع',
+          Iconsax.wallet_3,
+          isReadOnly ? Colors.grey : Colors.blue,
+        ),
 
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Iconsax.shield_tick, color: Colors.blue[700], size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'التأمين (اختياري)',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[800], fontWeight: FontWeight.w600),
-                ),
+        const SizedBox(height: 14),
+
+        _summaryBox(
+          children: [
+            _summaryRow('إجمالي الأصناف', _lyd(subtotal)),
+            _summaryRow('خصم الفاتورة', _lyd(discount), color: Colors.red),
+            if (insuranceAmount > 0)
+              _summaryRow(
+                'على شركة التأمين',
+                _lyd(insuranceAmount),
+                color: Colors.indigo,
               ),
-
-              // ✅ إلغاء/تفعيل بدون ما يرجع "insurance method"
-              TextButton.icon(
-                onPressed: () {
-                  // لو مفيش تأمين -> افتح الدروب داون بس (تفعيل)
-                  if (!hasInsurance) return;
-
-                  salesController.selectInsuranceCompany(null);
-
-                  // لو كانت legacy insurance رجّعها كاش
-                  if (sale.paymentMethod == PaymentMethod.insurance) {
-                    salesController.changePaymentMethod(PaymentMethod.cash);
-                  }
-
-                  // رجّع الفوكس للبحث لو مسموح
-                  salesController.resumeAutoFocus();
-                  salesController.focusSearchIfAllowed();
-                },
-                icon: Icon(
-                  hasInsurance ? Iconsax.close_circle : Iconsax.add_circle,
-                  size: 18,
-                  color: hasInsurance ? Colors.red[700] : Colors.blue[700],
-                ),
-                label: Text(
-                  hasInsurance ? 'إلغاء' : 'تفعيل',
-                  style: TextStyle(
-                    color: hasInsurance ? Colors.red[700] : Colors.blue[700],
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-
-          if (salesController.insuranceCompanies.isEmpty) ...[
-            Text(
-              salesController.isLoading.value ? 'جاري التحميل...' : 'لا توجد شركات تأمين',
-              style: TextStyle(color: Colors.grey[500], fontSize: 13),
+            const Divider(height: 18),
+            _summaryRow(
+              'المطلوب من الزبون',
+              _lyd(customerDue),
+              bold: true,
+              large: true,
+              color: Colors.green,
             ),
-          ] else ...[
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.grey[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey[200]!),
+          ],
+        ),
+
+        const SizedBox(height: 14),
+
+        _title('طريقة الدفع', Iconsax.card, Colors.blue),
+        const SizedBox(height: 10),
+
+        Row(
+          children: [
+            Expanded(
+              child: _methodButton(
+                label: 'نقدي',
+                icon: Iconsax.money,
+                selected: currentMethod == PaymentMethod.cash,
+                enabled: !isReadOnly,
+                onTap: () {
+                  salesController.changePaymentMethod(PaymentMethod.cash);
+                  salesController.setCashReceived(customerDue);
+                },
               ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<InsuranceCompany>(
-                    value: hasInsurance ? salesController.selectedInsuranceCompany.value : null,
-                    items: salesController.insuranceCompanies.map((company) {
-                      return DropdownMenuItem(
-                        value: company,
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 24,
-                              height: 24,
-                              decoration: BoxDecoration(
-                                color: Colors.blue[50],
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Icon(Iconsax.shield_tick, size: 12, color: Colors.blue[700]),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(company.name, style: const TextStyle(fontSize: 13)),
-                                  Text(
-                                    'تغطية ${company.discountPercentage}%',
-                                    style: TextStyle(fontSize: 11, color: Colors.green[700]),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (company) => salesController.selectInsuranceCompany(company),
-                    isExpanded: true,
-                    hint: Text('اختر شركة التأمين', style: TextStyle(color: Colors.grey[500])),
-                    dropdownColor: Colors.white,
-                    icon: Icon(Iconsax.arrow_down_1, color: Colors.grey[500]),
-                  ),
-                ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _methodButton(
+                label: 'معاملة مصرفية',
+                icon: Iconsax.card,
+                selected: currentMethod == PaymentMethod.card,
+                enabled: !isReadOnly,
+                onTap: () {
+                  salesController.changePaymentMethod(PaymentMethod.card);
+                  salesController.setCashReceived(customerDue);
+                },
               ),
             ),
           ],
-        ],
-      );
-    });
-  }
+        ),
 
-  Widget _buildSplitInfo({
-    required double customerTotal,
-    required double companyBilled,
-    required double grandTotal,
-    String? companyName,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.blue[50],
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.blue[100]!),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Iconsax.receipt_2, color: Colors.blue[700], size: 18),
-              const SizedBox(width: 8),
-              Text('تفاصيل التأمين', style: TextStyle(color: Colors.blue[800], fontWeight: FontWeight.w700)),
-            ],
+        const SizedBox(height: 16),
+
+        _moneyField(
+          label: 'خصم الفاتورة',
+          controller: _discountCtrl,
+          focusNode: _discountFocus,
+          icon: Iconsax.discount_shape,
+          enabled: !isReadOnly,
+          onChanged: (value) {
+            if (_selfChange) return;
+
+            final discountValue = _parse(value).clamp(0.0, subtotal);
+            salesController.applyDiscount(discountValue);
+
+            final updatedDue =
+                salesController.currentSale.value.recalculate().customerPaidAmount;
+
+            if (currentMethod == PaymentMethod.cash) {
+              salesController.setCashReceived(updatedDue);
+            }
+          },
+        ),
+
+        const SizedBox(height: 14),
+
+        if (currentMethod == PaymentMethod.cash) ...[
+          _moneyField(
+            label: 'المبلغ المستلم من الزبون',
+            controller: _receivedCtrl,
+            focusNode: _receivedFocus,
+            icon: Iconsax.money_recive,
+            enabled: !isReadOnly,
+            onChanged: (value) {
+              if (_selfChange) return;
+              salesController.setCashReceived(_parse(value));
+            },
           ),
+
           const SizedBox(height: 10),
-          _splitRow(label: 'الإجمالي قبل التأمين', value: grandTotal, icon: Iconsax.wallet_1),
-          const SizedBox(height: 6),
-          _splitRow(label: 'الزبون يدفع', value: customerTotal, icon: Iconsax.money, valueColor: Colors.green[800]),
-          const SizedBox(height: 6),
-          _splitRow(
-            label: 'الشركة تتحمّل${(companyName ?? '').trim().isNotEmpty ? ' ($companyName)' : ''}',
-            value: companyBilled,
-            icon: Iconsax.shield_tick,
-            valueColor: Colors.orange[800],
-          ),
+
+          if (change > 0)
+            _statusLine(
+              icon: Iconsax.money_send,
+              text: 'الباقي للزبون: ${_lyd(change)}',
+              color: Colors.green,
+            )
+          else if (remaining > 0)
+            _statusLine(
+              icon: Iconsax.warning_2,
+              text: 'الناقص من الزبون: ${_lyd(remaining)}',
+              color: Colors.orange,
+            )
+          else
+
+
+          const SizedBox(height: 16),
         ],
-      ),
+
+        _buildInsuranceSection(sale, isReadOnly: isReadOnly),
+
+        const SizedBox(height: 16),
+
+        _buildCustomerSection(isReadOnly: isReadOnly),
+      ],
     );
   }
 
-  Widget _splitRow({
-    required String label,
-    required double value,
-    required IconData icon,
-    Color? valueColor,
-  }) {
-    return Row(
+  Widget _buildRefundPanel(Sale sale, {required bool isReadOnly}) {
+    final refundTotal = sale.items.fold<double>(
+      0.0,
+          (sum, item) => sum + item.total,
+    );
+
+    final cashOut = salesController.refundCashOut.value;
+    final cardOut = salesController.refundCardOut.value;
+    final paidOut = cashOut + cardOut;
+    final remaining = refundTotal > paidOut ? refundTotal - paidOut : 0.0;
+    final over = paidOut > refundTotal ? paidOut - refundTotal : 0.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 16, color: Colors.grey[700]),
-        const SizedBox(width: 8),
-        Expanded(child: Text(label, style: TextStyle(fontSize: 13, color: Colors.grey[800]))),
-        Text(
-          _lyd(value),
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: valueColor ?? Colors.grey[900]),
+        _title(
+          isReadOnly ? 'تفاصيل الترجيع - عرض فقط' : 'تفاصيل الترجيع',
+          Iconsax.undo,
+          Colors.orange,
+        ),
+
+        const SizedBox(height: 14),
+
+        _summaryBox(
+          color: Colors.orange.shade50,
+          borderColor: Colors.orange.shade200,
+          children: [
+            _summaryRow('قيمة الأصناف المرجعة', _lyd(refundTotal)),
+            _summaryRow('كاش خارج', _lyd(cashOut)),
+            _summaryRow('مصرفي خارج', _lyd(cardOut)),
+            const Divider(height: 18),
+            _summaryRow(
+              'إجمالي المصروف',
+              _lyd(paidOut),
+              bold: true,
+              large: true,
+              color: Colors.orange,
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 14),
+
+        _moneyField(
+          label: 'كاش خارج',
+          controller: _refundCashCtrl,
+          focusNode: _refundCashFocus,
+          icon: Iconsax.money_send,
+          color: Colors.orange,
+          enabled: !isReadOnly,
+          onChanged: (value) {
+            salesController.refundCashOut.value = _parse(value);
+          },
+        ),
+
+        const SizedBox(height: 10),
+
+        _moneyField(
+          label: 'معاملة مصرفية خارجة',
+          controller: _refundCardCtrl,
+          focusNode: _refundCardFocus,
+          icon: Iconsax.card_remove,
+          color: Colors.orange,
+          enabled: !isReadOnly,
+          onChanged: (value) {
+            salesController.refundCardOut.value = _parse(value);
+          },
+        ),
+
+        const SizedBox(height: 12),
+
+        if (over > 0)
+          _statusLine(
+            icon: Iconsax.warning_2,
+            text: 'المبلغ الخارج أكبر من قيمة الترجيع بـ ${_lyd(over)}',
+            color: Colors.red,
+          )
+        else if (remaining > 0)
+          _statusLine(
+            icon: Iconsax.info_circle,
+            text: 'متبقي من قيمة الترجيع: ${_lyd(remaining)}',
+            color: Colors.orange,
+          )
+        else if (refundTotal > 0)
+            _statusLine(
+              icon: Iconsax.tick_circle,
+              text: 'العملية صحيحة',
+              color: Colors.green,
+            ),
+
+        const SizedBox(height: 16),
+
+        _buildCustomerSection(isReadOnly: isReadOnly),
+      ],
+    );
+  }
+
+  Widget _buildInsuranceSection(
+      Sale sale, {
+        required bool isReadOnly,
+      }) {
+    final selected = salesController.selectedInsuranceCompany.value;
+    final companies = salesController.insuranceCompanies;
+    final hasInsurance = selected != null && sale.companyBilledAmount > 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _title('التأمين اختياري', Iconsax.shield_tick, Colors.indigo),
+        const SizedBox(height: 10),
+
+        if (hasInsurance) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.indigo.withOpacity(.06),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.indigo.withOpacity(.18)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Iconsax.shield_tick,
+                  size: 18,
+                  color: Colors.indigo.shade700,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    selected.name,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.indigo.shade700,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: isReadOnly
+                      ? null
+                      : () {
+                    salesController.selectInsuranceCompany(null);
+
+                    final due = salesController.currentSale.value
+                        .recalculate()
+                        .customerPaidAmount;
+
+                    if (salesController
+                        .currentSale.value.customerPaymentMethod ==
+                        PaymentMethod.cash) {
+                      salesController.setCashReceived(due);
+                    }
+                  },
+                  icon: const Icon(Icons.close, size: 16),
+                  label: const Text('إلغاء'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: isReadOnly
+                        ? Colors.grey
+                        : Colors.red.shade700,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          _statusLine(
+            icon: Iconsax.shield_tick,
+            text:
+            'على التأمين: ${_lyd(sale.companyBilledAmount)} | على الزبون: ${_lyd(sale.customerPaidAmount)}',
+            color: Colors.indigo,
+          ),
+
+          const SizedBox(height: 10),
+        ],
+
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: isReadOnly ? Colors.grey.shade100 : Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<InsuranceCompany>(
+              value: selected,
+              isExpanded: true,
+              hint: const Text('اختر شركة التأمين'),
+              items: companies.map(
+                    (company) {
+                  return DropdownMenuItem<InsuranceCompany>(
+                    value: company,
+                    child: Text(
+                      '${company.name} - ${company.discountPercentage.toStringAsFixed(1)}%',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  );
+                },
+              ).toList(),
+              onChanged: isReadOnly
+                  ? null
+                  : (company) {
+                if (company == null) return;
+
+                salesController.selectInsuranceCompany(company);
+
+                final due = salesController.currentSale.value
+                    .recalculate()
+                    .customerPaidAmount;
+
+                if (salesController
+                    .currentSale.value.customerPaymentMethod ==
+                    PaymentMethod.cash) {
+                  salesController.setCashReceived(due);
+                }
+              },
+            ),
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildPaymentMethodChip(String label, bool selected, VoidCallback onTap) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          // لما يختار طريقة دفع، نخلي البحث يرجع فوكس (لو مسموح)
-          onTap();
-          salesController.resumeAutoFocus();
-          salesController.focusSearchIfAllowed();
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: selected ? Colors.blue[700] : Colors.grey[50],
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: selected ? Colors.blue[700]! : Colors.grey[200]!, width: selected ? 2 : 1),
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(color: selected ? Colors.white : Colors.grey[700], fontWeight: FontWeight.w500),
-            ),
-          ),
+  Widget _buildCustomerSection({
+    required bool isReadOnly,
+  }) {
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: EdgeInsets.zero,
+      leading: Icon(Iconsax.user, color: Colors.blue.shade700, size: 20),
+      title: Text(
+        isReadOnly ? 'معلومات الزبون' : 'معلومات الزبون (اختياري)',
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+          color: Colors.grey.shade700,
         ),
       ),
+      children: [
+        const SizedBox(height: 8),
+
+        _textField(
+          label: 'اسم الزبون',
+          controller: salesController.customerNameController,
+          focusNode: _customerNameFocus,
+          icon: Iconsax.user,
+          enabled: !isReadOnly,
+        ),
+
+        const SizedBox(height: 10),
+
+        _textField(
+          label: 'رقم الهاتف',
+          controller: salesController.customerPhoneController,
+          focusNode: _customerPhoneFocus,
+          icon: Iconsax.call,
+          keyboardType: TextInputType.phone,
+          enabled: !isReadOnly,
+        ),
+
+        const SizedBox(height: 10),
+
+        _textField(
+          label: 'ملاحظات',
+          controller: salesController.notesController,
+          focusNode: _notesFocus,
+          icon: Iconsax.note_text,
+          maxLines: 3,
+          enabled: !isReadOnly,
+        ),
+      ],
     );
   }
-  Widget _refundField({
-    required String label,
-    required Function(String) onChanged,
+
+  Widget _title(String text, IconData icon, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 8),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w900,
+            color: Colors.grey.shade800,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _summaryBox({
+    required List<Widget> children,
+    Color? color,
+    Color? borderColor,
   }) {
     return Container(
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.orange[50],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.orange[200]!),
+        color: color ?? Colors.blue.shade50.withOpacity(.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: borderColor ?? Colors.blue.shade100,
+        ),
       ),
-      child: TextField(
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        onChanged: onChanged,
-        decoration: InputDecoration(
-          hintText: label,
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          suffixText: 'د.ل',
+      child: Column(children: children),
+    );
+  }
+
+  Widget _summaryRow(
+      String label,
+      String value, {
+        bool bold = false,
+        bool large = false,
+        Color? color,
+      }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: large ? 14 : 13,
+                fontWeight: bold ? FontWeight.w900 : FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: large ? 17 : 13,
+              fontWeight: bold ? FontWeight.w900 : FontWeight.w700,
+              color: color ?? Colors.grey.shade900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _methodButton({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+    bool enabled = true,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: enabled ? onTap : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        height: 48,
+        decoration: BoxDecoration(
+          color: selected
+              ? (enabled ? Colors.blue.shade700 : Colors.grey.shade400)
+              : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected
+                ? (enabled ? Colors.blue.shade700 : Colors.grey.shade400)
+                : Colors.grey.shade200,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: selected ? Colors.white : Colors.grey.shade600,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: selected ? Colors.white : Colors.grey.shade700,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
-  Widget _buildCustomerField(
-      String hint,
-      TextEditingController controller, {
-        TextInputType keyboardType = TextInputType.text,
-        FocusNode? focusNode,
-      }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey[200]!),
-      ),
-      child: TextField(
-        focusNode: focusNode,
-        controller: controller,
-        keyboardType: keyboardType,
-        onTap: () => salesController.pauseAutoFocus(),
-        onEditingComplete: () {
-          focusNode?.unfocus();
-          salesController.resumeAutoFocus();
-          salesController.focusSearchIfAllowed();
-        },
-        decoration: InputDecoration(
-          hintText: hint,
-          hintStyle: TextStyle(color: Colors.grey[500]),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+
+  Widget _moneyField({
+    required String label,
+    required TextEditingController controller,
+    required FocusNode focusNode,
+    required IconData icon,
+    required ValueChanged<String> onChanged,
+    Color color = Colors.blue,
+    bool enabled = true,
+  }) {
+    return TextField(
+      enabled: enabled,
+      controller: controller,
+      focusNode: focusNode,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      onTap: enabled ? salesController.pauseAutoFocus : null,
+      onChanged: enabled ? onChanged : null,
+// في _moneyField نحّي prefixIcon بالكامل
+      decoration: InputDecoration(
+        labelText: label,
+        suffixText: 'د.ل',
+        filled: true,
+        fillColor: enabled ? Colors.grey.shade50 : Colors.grey.shade100,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 13,
         ),
-        style: const TextStyle(fontSize: 13),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        disabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+      ),
+    );
+  }
+
+  Widget _textField({
+    required String label,
+    required TextEditingController controller,
+    required FocusNode focusNode,
+    required IconData icon,
+    TextInputType? keyboardType,
+    int maxLines = 1,
+    bool enabled = true,
+  }) {
+    return TextField(
+      enabled: enabled,
+      controller: controller,
+      focusNode: focusNode,
+      keyboardType: keyboardType,
+      maxLines: maxLines,
+      onTap: enabled ? salesController.pauseAutoFocus : null,
+// في _textField نحّي prefixIcon بالكامل
+      decoration: InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: enabled ? Colors.grey.shade50 : Colors.grey.shade100,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 13,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        disabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+      ),
+
+    );
+  }
+
+  // في _statusLine خليه بدون أيقونة
+  Widget _statusLine({
+    required IconData icon,
+    required String text,
+    required Color color,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: color.withOpacity(.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(.25)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w800,
+          color: color,
+        ),
       ),
     );
   }

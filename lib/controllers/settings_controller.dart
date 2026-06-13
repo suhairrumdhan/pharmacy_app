@@ -382,13 +382,16 @@ class SettingsController extends GetxController {
 
   Future<void> saveBusinessHours(BusinessHours newHours) async {
     final currentSettings = settings.value;
-    final docRef = _firestore
+
+    final pharmacyRef = _firestore
         .collection('pharmacies')
-        .doc(pharmacyId)
+        .doc(pharmacyId);
+
+    final businessHoursRef = pharmacyRef
         .collection('settings')
         .doc('businessHours');
 
-    final toSave = currentSettings.is24Hours == true
+    final Map<String, dynamic> toSave = currentSettings.is24Hours == true
         ? {
       'sunday': '24 Hours',
       'monday': '24 Hours',
@@ -408,12 +411,29 @@ class SettingsController extends GetxController {
       'saturday': newHours.saturday,
     };
 
-    await docRef.set({
+    await businessHoursRef.set({
       ...toSave,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    settings.value = currentSettings.copyWith(businessHours: newHours);
+    // مهم جدًا: هذا يخلي تطبيق المستخدم يسمع التغيير
+    await pharmacyRef.update({
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    settings.value = currentSettings.copyWith(
+      businessHours: currentSettings.is24Hours == true
+          ? BusinessHours(
+        sunday: '24 Hours',
+        monday: '24 Hours',
+        tuesday: '24 Hours',
+        wednesday: '24 Hours',
+        thursday: '24 Hours',
+        friday: '24 Hours',
+        saturday: '24 Hours',
+      )
+          : newHours,
+    );
   }
 
   Future<void> toggleDayStatus(String dayKey) async {

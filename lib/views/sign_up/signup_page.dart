@@ -1067,19 +1067,6 @@ class _SignUpPageState extends State<SignUpPage> {
                 ),
               ),
             ),
-            if (selectedLocation != null)
-              TextButton(
-                onPressed: () => locationService.copyToClipboard(
-                    "${selectedLocation.latitude.toStringAsFixed(6)}, ${selectedLocation.longitude.toStringAsFixed(6)}"
-                ),
-                child: Text(
-                  "نسخ الإحداثيات",
-                  style: TextStyle(
-                    color: Colors.blue.shade700,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
           ],
         ),
       );

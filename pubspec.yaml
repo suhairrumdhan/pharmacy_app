@@ -82,6 +82,8 @@ flutter:
   assets:
     - assets/images/bg.jpg
     - assets/images/no_image.png
+    - assets/fonts/Cairo-Regular.ttf
+    - assets/fonts/Cairo-Bold.ttf
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

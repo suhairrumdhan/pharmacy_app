@@ -43,6 +43,8 @@ class PharmacyOrderModel {
 
   final String requestSource; // manual / prescription
 
+  final String? orderNumber;
+  final int? dailySequence;
   final double? totalPrice;
 
   final String? prescriptionImageUrl;
@@ -80,6 +82,8 @@ class PharmacyOrderModel {
     this.userNote,
     this.pharmacyNote,
     required this.requestSource,
+    this.orderNumber,
+    this.dailySequence,
     this.totalPrice,
     this.prescriptionImageUrl,
     this.prescriptionText,
@@ -149,6 +153,9 @@ class PharmacyOrderModel {
 
       requestSource: map['requestSource'] ?? 'manual',
 
+      orderNumber: map['orderNumber']?.toString(),
+      dailySequence: _toInt(map['dailySequence']),
+
       totalPrice: _toDouble(map['estimatedTotalPrice']),
 
       prescriptionImageUrl: map['prescriptionImageUrl'],
@@ -176,33 +183,58 @@ class PharmacyOrderModel {
 }
 class PharmacyOrderItem {
   final String name;
+  final String requestedName;
+  final String? matchedMedicineId;
+  final String? matchedMedicineName;
   final String? strength;
   final String? dosageForm;
   final int quantity;
   final double? price;
   final bool? available;
+  final bool soldByPiece;
+  final String? unit;
+  final String? imageUrl;
 
   PharmacyOrderItem({
     required this.name,
+    required this.requestedName,
+    this.matchedMedicineId,
+    this.matchedMedicineName,
     this.strength,
     this.dosageForm,
     required this.quantity,
     this.price,
     this.available,
+    this.soldByPiece = false,
+    this.unit,
+    this.imageUrl,
   });
 
   factory PharmacyOrderItem.fromMap(Map<String, dynamic> map) {
+    final requestedName = (map['requestedName'] ?? '').toString().trim();
+    final matchedName =
+    (map['matchedMedicineName'] ?? '').toString().trim();
+
     return PharmacyOrderItem(
-      name: map['requestedName'] ?? '',
-      strength: map['strength'],
-      dosageForm: map['dosageForm'],
+      // ✅ المهم: اعرض صنف المخزون، وليس نص البحث
+      name: matchedName.isNotEmpty ? matchedName : requestedName,
+
+      // ✅ احتفظ باسم البحث لو تحتاجيه في التفاصيل فقط
+      requestedName: requestedName,
+
+      matchedMedicineId: map['matchedMedicineId']?.toString(),
+      matchedMedicineName: matchedName.isNotEmpty ? matchedName : null,
+      strength: map['strength']?.toString(),
+      dosageForm: map['dosageForm']?.toString(),
       quantity: _toInt(map['quantity']) ?? 1,
       price: _toDouble(map['estimatedPrice']),
-      available: map['availableAtSelection'],
+      available: map['availableAtSelection'] == true,
+      soldByPiece: map['soldByPiece'] == true,
+      unit: map['unit']?.toString(),
+      imageUrl: map['imageUrl']?.toString(),
     );
   }
 }
-
 
 DateTime? _toDate(dynamic value) {
   if (value == null) return null;

@@ -10,7 +10,7 @@ class MessageBubble extends StatelessWidget {
   const MessageBubble({
     super.key,
     required this.message,
-    this.showAvatar = true,
+    this.showAvatar = false,
   });
 
   @override
@@ -18,124 +18,70 @@ class MessageBubble extends StatelessWidget {
     final ChatController chatController = Get.find();
     final isMe = message.senderId == chatController.pharmacyId;
 
-    // Your custom color
-    const primaryColor = Color(0xFF5EABD6);
-    const receivedMessageColor = Color(0xFFF5F5F5);
+    // أغمق من الأزرق السابق
+    const sentMessageColor = Color(0xFF2563A9);
+
+    // لون مختلف لرسائل المستخدم
+    const receivedMessageColor = Color(0xFFEFF3F8);
 
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+      margin: EdgeInsets.only(
+        top: 6,
+        bottom: 6,
+        left: isMe ? 70 : 8,
+        right: isMe ? 8 : 70,
+      ),
       child: Row(
-        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisAlignment:
+        isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: [
-          // Sender Avatar (for received messages)
-          if (!isMe && showAvatar)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withAlpha(25),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: CircleAvatar(
-                  radius: 18,
-                  backgroundColor: primaryColor.withAlpha(200),
-                  child: Icon(
-                    Icons.person,
-                    size: 18,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-
-          // Message Content
           Flexible(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: isMe ? primaryColor : receivedMessageColor,
+                color: isMe ? sentMessageColor : receivedMessageColor,
                 borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(20),
-                  topRight: const Radius.circular(20),
-                  bottomLeft: Radius.circular(isMe ? 20 : 4),
-                  bottomRight: Radius.circular(isMe ? 4 : 20),
+                  topLeft: const Radius.circular(18),
+                  topRight: const Radius.circular(18),
+                  bottomLeft: Radius.circular(isMe ? 18 : 4),
+                  bottomRight: Radius.circular(isMe ? 4 : 18),
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withAlpha(25),
+                    color: Colors.black.withOpacity(.06),
                     blurRadius: 8,
-                    offset: const Offset(0, 2),
+                    offset: const Offset(0, 3),
                   ),
                 ],
               ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                 children: [
-                  // Message Text
                   Text(
                     message.message,
                     style: TextStyle(
                       fontSize: 15,
                       color: isMe ? Colors.white : Colors.black87,
-                      height: 1.4,
+                      height: 1.45,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-
                   const SizedBox(height: 6),
-
-                  // Time and Status Row
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Time
-                      Text(
-                        _formatTime(message.timestamp),
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: isMe ? Colors.white.withAlpha(180) : Colors.black54,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ],
+                  Text(
+                    _formatTime(message.timestamp),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isMe
+                          ? Colors.white.withOpacity(.75)
+                          : Colors.black.withOpacity(.45),
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ],
               ),
             ),
           ),
-
-          // Sender Avatar (for sent messages)
-          if (isMe && showAvatar)
-            Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withAlpha(25),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: CircleAvatar(
-                  radius: 18,
-                  backgroundColor: primaryColor,
-                  child: Icon(
-                    Icons.medical_services,
-                    size: 18,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );

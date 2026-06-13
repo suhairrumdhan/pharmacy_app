@@ -1333,10 +1333,10 @@ class _MakePaymentDialog extends StatefulWidget {
 
 class _MakePaymentDialogState extends State<_MakePaymentDialog> {
   final TextEditingController amountCtrl = TextEditingController();
-  String selectedPaymentMethod = 'كاش'; // القيمة الافتراضية
+  String selectedPaymentMethod = 'نقدي'; // القيمة الافتراضية
   bool loading = false;
 
-  final List<String> paymentMethods = ['كاش', 'بطاقة', 'تحويل بنكي', 'شيك'];
+  final List<String> paymentMethods = ['نقدي', 'معاملة مصرفية', ];
 
   @override
   void dispose() {

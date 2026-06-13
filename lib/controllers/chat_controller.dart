@@ -9,7 +9,7 @@ class ChatController extends GetxController {
 
   RxList<ChatConversation> conversations = <ChatConversation>[].obs;
   RxList<ChatMessage> currentMessages = <ChatMessage>[].obs;
-
+  final RxMap<String, String> userImages = <String, String>{}.obs;
   RxString selectedChatId = ''.obs;
 
   /// ✅ العداد الكلي Reactive
@@ -43,6 +43,9 @@ class ChatController extends GetxController {
         return ChatConversation.fromMap(doc.id, data);
       }).toList();
 
+      for (final chat in conversations) {
+        loadUserProfileImage(chat.userId);
+      }
       /// ✅ تحديث العداد الكلي
       totalUnreadCount.value = conversations.fold(
         0,
@@ -52,7 +55,68 @@ class ChatController extends GetxController {
       print('❌ Error listening to conversations: $error');
     });
   }
+  Future<void> loadUserProfileImage(String userId) async {
+    final cleanUserId = userId.trim();
+    if (cleanUserId.isEmpty) return;
 
+    // لو عندي صورة فعلية فقط لا نعيد القراءة
+    final cachedImage = userImages[cleanUserId];
+    if (cachedImage != null && cachedImage.trim().isNotEmpty) return;
+
+    try {
+      final doc = await _firestore
+          .collection('users')
+          .doc(cleanUserId)
+          .get();
+
+      if (!doc.exists) {
+        print('User doc not found: users/$cleanUserId');
+        return;
+      }
+
+      final data = doc.data();
+      final imageUrl = data?['profileImageUrl']?.toString().trim();
+
+      print('Loaded image for $cleanUserId = $imageUrl');
+
+      if (imageUrl != null && imageUrl.isNotEmpty) {
+        userImages[cleanUserId] = imageUrl;
+      }
+    } catch (e) {
+      print('Error loading user profile image: $e');
+    }
+  }
+
+  String? getUserProfileImage(String userId) {
+    final cleanUserId = userId.trim();
+    if (cleanUserId.isEmpty) return null;
+
+    final imageUrl = userImages[cleanUserId];
+    if (imageUrl != null && imageUrl.trim().isNotEmpty) {
+      return imageUrl;
+    }
+
+    final conversation = conversations.firstWhereOrNull(
+          (c) => c.userId == cleanUserId,
+    );
+
+    final fallback = conversation?.userImage;
+    if (fallback != null && fallback.trim().isNotEmpty) {
+      return fallback;
+    }
+
+    // مهم: لو ما فيش صورة محملة، اطلب تحميلها
+    loadUserProfileImage(cleanUserId);
+
+    return null;
+  }
+  ChatConversation? get selectedConversation {
+    if (selectedChatId.value.isEmpty) return null;
+
+    return conversations.firstWhereOrNull(
+          (c) => c.id == selectedChatId.value,
+    );
+  }
   /// 🔥 Stream للعداد الكلي لو احتجتيه في مكان ثاني
   Stream<int> getUnreadCountStream() {
     return _firestore

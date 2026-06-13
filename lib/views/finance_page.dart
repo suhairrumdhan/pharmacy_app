@@ -750,7 +750,7 @@ class _CashBankSection extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         _FlowCard(
-          title: 'الحساب البنكي / البطاقة',
+          title: 'الحساب البنكي / معاملات مصرفية',
           icon: Iconsax.card,
           color: _FinanceColors.primary,
           opening: bank.openingBalance,

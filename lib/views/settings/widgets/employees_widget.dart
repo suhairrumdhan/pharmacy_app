@@ -54,8 +54,9 @@ Widget buildEmployeesCard() {
                 ),
               ],
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 20),
             // تقسيم الأزرار إلى صفوف كل صف يحتوي على زرين
+// تقسيم الأزرار إلى 3 صفوف
             Column(
               children: [
                 // الصف الأول
@@ -63,41 +64,37 @@ Widget buildEmployeesCard() {
                   children: [
                     Expanded(
                       child: _buildManagementButton(
-                        title: 'إضافة/حذف/تعديل الموظفين',
-                        icon: Iconsax.profile_add, // Changed from Icons.person_add_rounded
+                        title: 'الموظفون والصلاحيات',
+                        icon: Iconsax.profile_2user,
                         onTap: () => _showEmployeeDialog(),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildManagementButton(
-                        title: 'الصلاحيات والأدوار',
-                        icon: Iconsax.security_user, // Changed from Icons.admin_panel_settings_rounded
                       ),
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 12),
+
                 // الصف الثاني
                 Row(
                   children: [
                     Expanded(
                       child: _buildManagementButton(
-                        title: 'الحضور والشفتات',
-                        icon: Iconsax.calendar, // Changed from Icons.calendar_today_rounded
-
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildManagementButton(
                         title: 'الرواتب',
-                        icon: Iconsax.dollar_circle, // Changed from Icons.payments_rounded
+                        icon: Iconsax.money_recive,
+                        onTap: () {
+                          Get.snackbar(
+                            'قريباً',
+                            'سيتم إضافة نظام الرواتب لاحقاً',
+                            backgroundColor: Colors.orange.shade100,
+                          );
+                        },
                       ),
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 12),
+
                 // الصف الثالث
                 Row(
                   children: [
@@ -108,18 +105,10 @@ Widget buildEmployeesCard() {
                         onTap: () => _showAuditLogsDialog(),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildManagementButton(
-                        title: 'الأمن والصلاحيات',
-                        icon: Iconsax.shield_security, // Changed from Icons.security_rounded
-                      ),
-                    ),
                   ],
                 ),
               ],
-            ),
-            const SizedBox(height: 16),
+            ),            const SizedBox(height: 16),
           ],
         ),
       ),

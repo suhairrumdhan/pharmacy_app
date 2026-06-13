@@ -5,39 +5,77 @@ import 'health_record_panel.dart';
 import 'conversation_area.dart';
 import 'conversation_tile.dart';
 
-class ChatPage extends StatelessWidget {
-  ChatPage({super.key});
+class ChatPage extends StatefulWidget {
+  const ChatPage({super.key});
+
+  @override
+  State<ChatPage> createState() => _ChatPageState();
+}
+
+class _ChatPageState extends State<ChatPage> {
   final ChatController chatController = Get.put(ChatController());
   final TextEditingController messageController = TextEditingController();
   final TextEditingController searchController = TextEditingController();
+
+  bool showHealthPanel = true;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        // Conversations List
         _buildConversationsList(),
 
-        // Conversation Area
         Expanded(
           child: ConversationArea(messageController: messageController),
         ),
 
-        // Health Record Panel
-        Container(
-          width: 400,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border(
-              left: BorderSide(color: Colors.grey.shade200),
+        if (showHealthPanel)
+          Container(
+            width: 360,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border(
+                left: BorderSide(color: Colors.grey.shade200),
+              ),
             ),
-          ),
-          child: HealthRecordPanel(),
-        ),
+            child: HealthRecordPanel(
+              onClose: () {
+                setState(() {
+                  showHealthPanel = false;
+                });
+              },
+            ),
+          )
+        else
+          _collapsedHealthButton(),
       ],
     );
   }
-
+  Widget _collapsedHealthButton() {
+    return Container(
+      width: 46,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          left: BorderSide(color: Colors.grey.shade200),
+        ),
+      ),
+      child: Center(
+        child: Tooltip(
+          message: 'عرض الملف الصحي',
+          child: IconButton(
+            onPressed: () {
+              setState(() {
+                showHealthPanel = true;
+              });
+            },
+            icon: const Icon(Icons.health_and_safety_outlined),
+            color: const Color(0xFF2563A9),
+          ),
+        ),
+      ),
+    );
+  }
   Widget _buildConversationsList() {
     return Container(
       width: 350,

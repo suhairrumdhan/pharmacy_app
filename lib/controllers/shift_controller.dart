@@ -274,6 +274,15 @@ class ShiftController extends GetxController {
         'drawerDiff': null,
         'notes': (notes?.trim().isEmpty ?? true) ? null : notes!.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
+        'cashRefunds': 0.0,
+        'cardRefunds': 0.0,
+        'shiftExpenses': 0.0,
+        'supplierPayments': 0.0,
+        'salaryPayments': 0.0,
+        'manualCashIn': 0.0,
+        'manualCashOut': 0.0,
+        'isFinanciallyClosed': false,
+        'financiallyClosedAt': null,
       });
 
       batch.set(stateDoc, {
@@ -298,10 +307,8 @@ class ShiftController extends GetxController {
       await _logOpenShift(createdShift, openingCash);
 
       await loadShifts();
-      _snack('تم', 'تم فتح وردية جديدة');
     } catch (e, st) {
       debugPrint('❌ openShift: $e\n$st');
-      _snack('خطأ', 'فشل فتح الوردية');
     } finally {
       isMutating.value = false;
     }
@@ -441,8 +448,25 @@ class ShiftController extends GetxController {
     final openingCash = _toDouble(data['openingCash']);
     final cashTotal = _toDouble(data['cashTotal']);
 
-    final expectedDrawerCash = openingCash + cashTotal;
+    final cashRefunds = _toDouble(data['cashRefunds']);
+    final shiftExpenses = _toDouble(data['shiftExpenses']);
+    final supplierPayments = _toDouble(data['supplierPayments']);
+    final salaryPayments = _toDouble(data['salaryPayments']);
+    final manualCashIn = _toDouble(data['manualCashIn']);
+    final manualCashOut = _toDouble(data['manualCashOut']);
+
+    final expectedDrawerCash =
+        openingCash +
+            cashTotal -
+            cashRefunds -
+            shiftExpenses -
+            supplierPayments -
+            salaryPayments +
+            manualCashIn -
+            manualCashOut;
+
     final drawerDiff = closingCash - expectedDrawerCash;
+
 
     final noteTrim = (notes ?? '').trim();
     if (drawerDiff.abs() >= 0.01 && noteTrim.isEmpty) {
@@ -510,7 +534,6 @@ class ShiftController extends GetxController {
     if (activeId.isEmpty) return;
 
     final ref = _shiftsCol.doc(activeId);
-    final incTotal = isRefund ? -total : total;
 
     final updates = <String, dynamic>{
       'salesCount': FieldValue.increment(isRefund ? 0 : 1),
@@ -518,16 +541,30 @@ class ShiftController extends GetxController {
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
-    switch (method) {
-      case PaymentMethod.cash:
-        updates['cashTotal'] = FieldValue.increment(incTotal);
-        break;
-      case PaymentMethod.card:
-        updates['cardTotal'] = FieldValue.increment(incTotal);
-        break;
-      case PaymentMethod.insurance:
-        updates['insuranceBilledTotal'] = FieldValue.increment(incTotal);
-        break;
+    if (isRefund) {
+      switch (method) {
+        case PaymentMethod.cash:
+          updates['cashRefunds'] = FieldValue.increment(total);
+          break;
+        case PaymentMethod.card:
+          updates['cardRefunds'] = FieldValue.increment(total);
+          break;
+        case PaymentMethod.insurance:
+          updates['insuranceBilledTotal'] = FieldValue.increment(-total);
+          break;
+      }
+    } else {
+      switch (method) {
+        case PaymentMethod.cash:
+          updates['cashTotal'] = FieldValue.increment(total);
+          break;
+        case PaymentMethod.card:
+          updates['cardTotal'] = FieldValue.increment(total);
+          break;
+        case PaymentMethod.insurance:
+          updates['insuranceBilledTotal'] = FieldValue.increment(total);
+          break;
+      }
     }
 
     try {
@@ -537,4 +574,5 @@ class ShiftController extends GetxController {
       debugPrint('❌ registerSaleOnShift: $e\n$st');
     }
   }
+
 }

@@ -195,28 +195,8 @@ class PharmacyOrdersController extends GetxController {
         _settingsController.currentSettings.name.trim().isNotEmpty
             ? _settingsController.currentSettings.name.trim()
             : 'الصيدلية';
-
-        final pharmacyImageUrl = _settingsController.currentSettings.imageUrl;
-
-        await PharmacyOrderNotificationsService.instance.notifyOrderStatusChanged(
-          userId: order.userId,
-          orderId: order.id,
-          pharmacyId: pharmacyId.value,
-          pharmacyName: pharmacyName,
-          imageUrl: pharmacyImageUrl,
-          status: newStatus,
-          statusLabel: _statusLabel(newStatus),
-          beneficiaryId: order.beneficiaryId,
-          beneficiaryName: order.beneficiaryName,
-          beneficiaryType: order.beneficiaryType,
-          beneficiaryRelationLabel: order.relationLabel,
-          note: note,
-          deliveredMedicines:
-          newStatus == 'completed' ? _buildDeliveredMedicinesPayload(order) : const [],
-        );
       }
 
-      Get.snackbar('تم', 'تم تحديث حالة الطلب');
     } catch (e) {
       Get.snackbar('خطأ', 'فشل تحديث حالة الطلب: $e');
     }
@@ -226,10 +206,14 @@ class PharmacyOrdersController extends GetxController {
       PharmacyOrderModel order,
       ) {
     return order.medicines.map((m) {
+      final requestedName = m.requestedName.trim();
+      final matchedName = (m.matchedMedicineName ?? m.name).trim();
+
       return {
-        'requestedName': m.name,
-        'medicineName': m.name,
-        'matchedMedicineName': m.name,
+        'requestedName': requestedName.isNotEmpty ? requestedName : matchedName,
+        'medicineId': m.matchedMedicineId,
+        'medicineName': matchedName.isNotEmpty ? matchedName : requestedName,
+        'matchedMedicineName': matchedName.isNotEmpty ? matchedName : requestedName,
         'strength': m.strength,
         'dosage': m.strength,
         'dosageForm': m.dosageForm,
@@ -237,6 +221,9 @@ class PharmacyOrdersController extends GetxController {
         'quantity': m.quantity,
         'estimatedPrice': m.price,
         'availableAtSelection': m.available ?? true,
+        'soldByPiece': m.soldByPiece,
+        'unit': m.unit,
+        'imageUrl': m.imageUrl,
         'source': 'pharmacy_completed_order',
       };
     }).toList();
@@ -338,47 +325,6 @@ class PharmacyOrdersController extends GetxController {
       changedByType: 'pharmacy',
       note: note,
     );
-  }
-
-  Future<void> updatePharmacyNote({
-    required String orderId,
-    required String note,
-  }) async {
-    try {
-      final cleanedNote = note.trim();
-      final order = allOrders.firstWhereOrNull((o) => o.id == orderId);
-
-      await _service.updatePharmacyNote(
-        orderId: orderId,
-        note: cleanedNote,
-      );
-
-      if (order != null &&
-          order.userId.trim().isNotEmpty &&
-          cleanedNote.isNotEmpty) {
-        final pharmacyName = _settingsController.currentSettings.name.trim().isNotEmpty
-            ? _settingsController.currentSettings.name.trim()
-            : 'الصيدلية';
-
-        final pharmacyImageUrl = _settingsController.currentSettings.imageUrl;
-
-        await PharmacyOrderNotificationsService.instance.notifyPharmacyNoteAdded(
-          userId: order.userId,
-          orderId: order.id,
-          pharmacyId: pharmacyId.value,
-          pharmacyName: pharmacyName,
-          imageUrl: pharmacyImageUrl,
-          beneficiaryId: order.beneficiaryId,
-          beneficiaryName: order.beneficiaryName,
-          beneficiaryType: order.beneficiaryType,
-          note: cleanedNote,
-        );
-      }
-
-      Get.snackbar('تم', 'تم حفظ ملاحظة الصيدلية');
-    } catch (e) {
-      Get.snackbar('خطأ', 'فشل حفظ ملاحظة الصيدلية: $e');
-    }
   }
 
   String _statusLabel(String status) {

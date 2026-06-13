@@ -648,7 +648,7 @@ class _PurchaseInvoiceDialogState extends State<PurchaseInvoiceDialog> {
         spacing: 8,
         runSpacing: 8,
         children: [
-          _miniInfoChip(Iconsax.box_1, 'عدد الأسطر', '$totalLines'),
+          _miniInfoChip(Iconsax.box_1, 'عدد الأصناف', '$totalLines'),
           _miniInfoChip(Iconsax.archive, 'عبوات', '$totalPackages'),
           _miniInfoChip(Iconsax.category, 'قطاعي', '$totalPieces'),
           _miniInfoChip(Iconsax.money_4, 'الإجمالي الحالي', _currency(subtotal)),
@@ -1023,7 +1023,7 @@ class _PurchaseInvoiceDialogState extends State<PurchaseInvoiceDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _summaryTile(
-              title: 'عدد الأسطر',
+              title: 'عدد الأصناف',
               value: '$totalLines',
               icon: Iconsax.box_1,
               color: const Color(0xFF2563EB),

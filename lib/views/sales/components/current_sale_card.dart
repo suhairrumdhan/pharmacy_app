@@ -140,7 +140,7 @@ class _CurrentSaleCardState extends State<CurrentSaleCard> {
 
     return Obx(() {
       final currentSale = salesController.currentSale.value;
-      final activeInvoices = salesController.activeInvoices; // ✅ pending فقط
+      final activeInvoices = salesController.visibleInvoices;
       final items = currentSale.items;
       final isRefund = salesController.refundMode.value;
       final originalSale = salesController.originalSale.value;
@@ -456,7 +456,7 @@ Widget _pendingInvoicesTabsBar({
   currentIdx != -1 ? currentIdx : safeIndex(currentInvoiceIndex);
 
   bool canCloseInvoice(Sale inv) {
-    if (inv.isSaved) return false;
+    if (inv.isSaved || inv.status == InvoiceStatus.completed) return true;
     if (inv.status != InvoiceStatus.pending) return false;
     return activeInvoices.length > 1;
   }
@@ -593,8 +593,12 @@ Widget _pendingInvoicesTabsBar({
                                         InkWell(
                                           borderRadius: BorderRadius.circular(999),
                                           onTap: () {
-                                            if (inv.invoiceNumber ==
-                                                currentSale.invoiceNumber) {
+                                            if (inv.isSaved || inv.status == InvoiceStatus.completed) {
+                                              salesController.closeSavedInvoiceTab(inv);
+                                              return;
+                                            }
+
+                                            if (inv.invoiceNumber == currentSale.invoiceNumber) {
                                               salesController.deleteCurrentInvoice();
                                             } else {
                                               salesController.loadInvoiceForEditing(inv);

@@ -5,13 +5,11 @@ enum UnitType {
 }
 
 class Medicine {
-  // ===== Required Fields =====
   final String id;
   final String name;
-  final String scientificName; // سيتم استخدام الاسم التجاري إذا فارغ
+  final String scientificName;
   final int quantity;
 
-  // ===== Optional Fields =====
   String? description;
   String? category;
 
@@ -21,8 +19,8 @@ class Medicine {
   UnitType? unit;
   int? unitsPerPackage;
 
-  bool sellByPiece; // بدل sellByStrip
-  double? piecePrice; // سعر القطعة محسوب أو مخصص
+  bool sellByPiece;
+  double? piecePrice;
 
   int? minStockLevel;
   String? supplier;
@@ -33,6 +31,19 @@ class Medicine {
 
   DateTime? lastUpdated;
   final int pieceQuantity;
+
+  /// =========================
+  /// New financial fields
+  /// =========================
+  final double? averageCost;
+  final double? lastPurchasePrice;
+  final double? retailValue;
+  final double? costValue;
+
+  final String? supplierId;
+  final String? supplierName;
+
+  final bool isActive;
 
   Medicine({
     required this.id,
@@ -53,23 +64,92 @@ class Medicine {
     this.barcode,
     this.imageUrl,
     this.lastUpdated,
-    this.pieceQuantity =0,
-  }) : scientificName = (scientificName != null && scientificName.isNotEmpty) ? scientificName : name {
-    if (sellByPiece && unitsPerPackage != null && unitsPerPackage! > 0 && sellingPrice != null) {
+    this.pieceQuantity = 0,
+    this.averageCost,
+    this.lastPurchasePrice,
+    this.retailValue,
+    this.costValue,
+    this.supplierId,
+    this.supplierName,
+    this.isActive = true,
+  }) : scientificName =
+  (scientificName != null && scientificName.isNotEmpty)
+      ? scientificName
+      : name {
+    if (sellByPiece &&
+        unitsPerPackage != null &&
+        unitsPerPackage! > 0 &&
+        sellingPrice != null) {
       piecePrice ??= sellingPrice! / unitsPerPackage!;
     }
   }
 
+  bool get isLowStock =>
+      (minStockLevel != null) ? quantity <= minStockLevel! : false;
 
-  // ===== Computed Properties =====
-  bool get isLowStock => (minStockLevel != null) ? quantity <= minStockLevel! : false;
-  bool get isExpired => expiryDate != null ? expiryDate!.isBefore(DateTime.now()) : false;
+  bool get isExpired =>
+      expiryDate != null ? expiryDate!.isBefore(DateTime.now()) : false;
 
-  // ===== From Map =====
+  int get totalPiecesEquivalent {
+    final units = unitsPerPackage ?? 0;
+    return (quantity * units) + pieceQuantity;
+  }
+
+  double get effectivePackageCost {
+    if (averageCost != null && averageCost! > 0) return averageCost!;
+    if (purchasePrice != null && purchasePrice! > 0) return purchasePrice!;
+    if (lastPurchasePrice != null && lastPurchasePrice! > 0) {
+      return lastPurchasePrice!;
+    }
+    return 0.0;
+  }
+
+  double get effectivePieceCost {
+    final units = unitsPerPackage ?? 0;
+    if (units <= 0) return 0.0;
+    return effectivePackageCost / units;
+  }
+
+  double get effectiveSellingPrice => sellingPrice ?? 0.0;
+
+  double get effectivePiecePrice {
+    if (piecePrice != null && piecePrice! > 0) return piecePrice!;
+    final units = unitsPerPackage ?? 0;
+    if (units <= 0 || effectiveSellingPrice <= 0) return 0.0;
+    return effectiveSellingPrice / units;
+  }
+
+  double get calculatedCostValue {
+    final packageValue = quantity * effectivePackageCost;
+    final pieceValue = pieceQuantity * effectivePieceCost;
+    return (costValue ?? (packageValue + pieceValue))
+        .clamp(0.0, double.infinity);
+  }
+
+  double get calculatedRetailValue {
+    final packageValue = quantity * effectiveSellingPrice;
+    final pieceValue = pieceQuantity * effectivePiecePrice;
+    return (retailValue ?? (packageValue + pieceValue))
+        .clamp(0.0, double.infinity);
+  }
+
+  double get potentialGrossProfit =>
+      calculatedRetailValue - calculatedCostValue;
+
+  double get potentialMarginPercent {
+    if (calculatedRetailValue <= 0) return 0.0;
+    return (potentialGrossProfit / calculatedRetailValue) * 100;
+  }
+
   factory Medicine.fromMap(Map<String, dynamic> data, String id) {
     int safeInt(dynamic value) => int.tryParse(value?.toString() ?? '') ?? 0;
-    double safeDouble(dynamic value) => double.tryParse(value?.toString() ?? '') ?? 0;
-    final pieceQty = safeInt(data['pieceQuantity']);
+    double? safeNullableDouble(dynamic value) {
+      if (value == null) return null;
+      return double.tryParse(value.toString());
+    }
+
+    double safeDouble(dynamic value) =>
+        double.tryParse(value?.toString() ?? '') ?? 0;
 
     UnitType? safeUnit(String? value) {
       if (value == null) return null;
@@ -85,37 +165,51 @@ class Medicine {
       return DateTime.tryParse(value.toString());
     }
 
-    bool sellByPiece = data['sellByPiece'] ?? false;
-    int? units = safeInt(data['unitsPerPackage']);
-    double? sellingPrice = safeDouble(data['sellingPrice']);
-    double? piecePrice;
-    if (sellByPiece && units > 0 && sellingPrice > 0) {
+    final sellByPiece = data['sellByPiece'] == true;
+    final units = safeInt(data['unitsPerPackage']);
+    final sellingPrice = safeNullableDouble(data['sellingPrice']);
+
+    double? piecePrice = safeNullableDouble(data['piecePrice']);
+    if ((piecePrice == null || piecePrice <= 0) &&
+        sellByPiece &&
+        units > 0 &&
+        sellingPrice != null &&
+        sellingPrice > 0) {
       piecePrice = sellingPrice / units;
     }
 
     return Medicine(
-      id: id,  // استخدام الـ id المستلم كمعامل
+      id: id,
       name: data['name']?.toString() ?? '',
       scientificName: data['scientificName']?.toString(),
       quantity: safeInt(data['quantity']),
       description: data['description']?.toString(),
       category: data['category']?.toString(),
-      purchasePrice: safeDouble(data['purchasePrice']),
+      purchasePrice: safeNullableDouble(data['purchasePrice']),
       sellingPrice: sellingPrice,
       unit: safeUnit(data['unit']?.toString()),
       unitsPerPackage: units,
       sellByPiece: sellByPiece,
       piecePrice: piecePrice,
-      pieceQuantity: pieceQty,
+      pieceQuantity: safeInt(data['pieceQuantity']),
       minStockLevel: safeInt(data['minStockLevel']),
       supplier: data['supplier']?.toString(),
       expiryDate: parseDate(data['expiryDate']),
       barcode: data['barcode']?.toString(),
       imageUrl: data['imageUrl']?.toString(),
       lastUpdated: parseDate(data['lastUpdated']) ?? DateTime.now(),
+
+      // New fields
+      averageCost: safeNullableDouble(data['averageCost']),
+      lastPurchasePrice: safeNullableDouble(data['lastPurchasePrice']),
+      retailValue: safeNullableDouble(data['retailValue']),
+      costValue: safeNullableDouble(data['costValue']),
+      supplierId: data['supplierId']?.toString(),
+      supplierName: data['supplierName']?.toString(),
+      isActive: data['isActive'] == null ? true : data['isActive'] == true,
     );
   }
-  // ===== Copy With =====
+
   Medicine copyWith({
     String? id,
     String? name,
@@ -136,15 +230,29 @@ class Medicine {
     String? barcode,
     String? imageUrl,
     DateTime? lastUpdated,
+    double? averageCost,
+    double? lastPurchasePrice,
+    double? retailValue,
+    double? costValue,
+    String? supplierId,
+    String? supplierName,
+    bool? isActive,
+    bool clearSupplierLink = false,
   }) {
     final int? finalUnits = unitsPerPackage ?? this.unitsPerPackage;
     final double? finalSelling = sellingPrice ?? this.sellingPrice;
     final bool finalSellByPiece = sellByPiece ?? this.sellByPiece;
     double? finalPiecePrice = piecePrice ?? this.piecePrice;
-    // لو البيع بالقطعة مفعّل والسعر مش موجود، نحسبه
-    if (finalSellByPiece && finalUnits != null && finalUnits > 0 && finalSelling != null) {
-      finalPiecePrice ??= finalSelling / finalUnits;
+
+    if (finalSellByPiece &&
+        finalUnits != null &&
+        finalUnits > 0 &&
+        finalSelling != null &&
+        finalSelling > 0 &&
+        (finalPiecePrice == null || finalPiecePrice <= 0)) {
+      finalPiecePrice = finalSelling / finalUnits;
     }
+
     return Medicine(
       id: id ?? this.id,
       name: name ?? this.name,
@@ -152,7 +260,7 @@ class Medicine {
           ? scientificName
           : (name ?? this.name),
       quantity: quantity ?? this.quantity,
-      pieceQuantity: pieceQuantity ?? this.pieceQuantity ?? 0,
+      pieceQuantity: pieceQuantity ?? this.pieceQuantity,
       description: description ?? this.description,
       category: category ?? this.category,
       purchasePrice: purchasePrice ?? this.purchasePrice,
@@ -167,11 +275,17 @@ class Medicine {
       barcode: barcode ?? this.barcode,
       imageUrl: imageUrl ?? this.imageUrl,
       lastUpdated: lastUpdated ?? this.lastUpdated,
+      averageCost: averageCost ?? this.averageCost,
+      lastPurchasePrice: lastPurchasePrice ?? this.lastPurchasePrice,
+      retailValue: retailValue ?? this.retailValue,
+      costValue: costValue ?? this.costValue,
+      supplierId: clearSupplierLink ? null : (supplierId ?? this.supplierId),
+      supplierName:
+      clearSupplierLink ? null : (supplierName ?? this.supplierName),
+      isActive: isActive ?? this.isActive,
     );
   }
 
-
-  // ===== To Map =====
   Map<String, dynamic> toMap({bool forFirestore = false}) {
     final map = {
       'id': id,
@@ -180,7 +294,6 @@ class Medicine {
       'quantity': quantity,
       'description': description,
       'pieceQuantity': pieceQuantity,
-
       'category': category,
       'purchasePrice': purchasePrice,
       'sellingPrice': sellingPrice,
@@ -193,6 +306,15 @@ class Medicine {
       'expiryDate': expiryDate?.toIso8601String(),
       'barcode': barcode,
       'imageUrl': imageUrl,
+
+      // New financial fields
+      'averageCost': averageCost,
+      'lastPurchasePrice': lastPurchasePrice,
+      'retailValue': calculatedRetailValue,
+      'costValue': calculatedCostValue,
+      'supplierId': supplierId,
+      'supplierName': supplierName,
+      'isActive': isActive,
     };
 
     if (forFirestore) {
@@ -200,7 +322,8 @@ class Medicine {
           ? Timestamp.fromDate(lastUpdated!)
           : FieldValue.serverTimestamp();
     } else {
-      map['lastUpdated'] = lastUpdated?.toIso8601String() ?? DateTime.now().toIso8601String();
+      map['lastUpdated'] =
+          lastUpdated?.toIso8601String() ?? DateTime.now().toIso8601String();
     }
 
     return map;

@@ -1,4 +1,3 @@
-// views/expenses/expenses_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -679,7 +678,7 @@ class ExpensesDialog extends GetView<FinanceController> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      items: ['كاش', 'بطاقة', 'تحويل بنكي', 'شيك'].map((method) {
+                      items: ['كاش', 'معاملة مصرفية', 'تحويل بنكي', 'شيك'].map((method) {
                         return DropdownMenuItem(
                           value: method,
                           child: Text(method),
@@ -883,7 +882,7 @@ class ExpensesDialog extends GetView<FinanceController> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      items: ['كاش', 'بطاقة', 'تحويل بنكي', 'شيك'].map((method) {
+                      items: ['كاش', 'معاملة مصرفية', 'تحويل بنكي', 'شيك'].map((method) {
                         return DropdownMenuItem(
                           value: method,
                           child: Text(method),

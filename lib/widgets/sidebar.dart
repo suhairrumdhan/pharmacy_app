@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
 import 'package:pharmacy_desktop/controllers/auth_controller.dart';
-
+import '../controllers/pharmacy_notifications_controller.dart';
 import '../controllers/chat_controller.dart';
 
 class SidebarItem {
@@ -206,10 +206,12 @@ class SidebarWidget extends StatelessWidget {
     final icon = isSelected ? (item.activeIcon ?? item.icon) : item.icon;
     final iconColor = isSelected ? activeTextColor : textColor.withOpacity(0.85);
 
-    // ✅ إذا كان العنصر هو "المراسلات"، استخدم Obx
-    if (item.label == "المراسلات") {
+    // ✅ عداد الطلبات الجديدة
+    if (item.label == "الطلبات") {
       return Obx(() {
-        final unreadCount = Get.find<ChatController>().totalUnreadCount.value;
+        final unreadCount =
+            Get.find<PharmacyNotificationsController>().orderUnreadCount.value;
+
         return _buildSidebarItemContent(
           icon: icon,
           iconColor: iconColor,
@@ -221,7 +223,22 @@ class SidebarWidget extends StatelessWidget {
       });
     }
 
-    // للعناصر العادية
+    // ✅ عداد المراسلات كما هو عندك
+    if (item.label == "المراسلات") {
+      return Obx(() {
+        final unreadCount = Get.find<ChatController>().totalUnreadCount.value;
+
+        return _buildSidebarItemContent(
+          icon: icon,
+          iconColor: iconColor,
+          label: item.label,
+          isSelected: isSelected,
+          notificationCount: unreadCount,
+          onTap: () => onItemSelected(index),
+        );
+      });
+    }
+
     return _buildSidebarItemContent(
       icon: icon,
       iconColor: iconColor,
@@ -231,7 +248,6 @@ class SidebarWidget extends StatelessWidget {
       onTap: () => onItemSelected(index),
     );
   }
-
 // ✅ أضف هذه الدالة الجديدة لتجميع الكود المتكرر
   Widget _buildSidebarItemContent({
     required IconData icon,

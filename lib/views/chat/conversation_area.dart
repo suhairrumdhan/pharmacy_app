@@ -23,6 +23,14 @@ class ConversationArea extends StatelessWidget {
   }
 
   Widget _buildChatHeader(ChatController chatController) {
+    final selectedConversation = chatController.selectedConversation;
+
+    final userName = selectedConversation?.userName ?? 'مستخدم';
+
+    final imageUrl = selectedConversation == null
+        ? null
+        : chatController.getUserProfileImage(selectedConversation.userId);
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -34,42 +42,29 @@ class ConversationArea extends StatelessWidget {
       child: Row(
         children: [
           CircleAvatar(
+            radius: 22,
             backgroundColor: chatController.selectedChatId.value.isEmpty
                 ? Colors.grey
-                : Colors.blue,
-            child: const Icon(Icons.person, color: Colors.white),
+                : Colors.blue.shade100,
+            backgroundImage: imageUrl != null && imageUrl.trim().isNotEmpty
+                ? NetworkImage(imageUrl)
+                : null,
+            child: imageUrl == null || imageUrl.trim().isEmpty
+                ? const Icon(Icons.person, color: Colors.blue)
+                : null,
           ),
+
           const SizedBox(width: 12),
+
           Expanded(
-            child: chatController.selectedChatId.value.isEmpty
-                ? const Text(
-              'اختر محادثة',
-              style: TextStyle(
+            child: Text(
+              chatController.selectedChatId.value.isEmpty
+                  ? 'اختر محادثة'
+                  : userName,
+              style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
-            )
-                : FutureBuilder<Map<String, dynamic>?>(
-              future: _getChatData(chatController.selectedChatId.value),
-              builder: (context, snapshot) {
-                if (snapshot.hasData && snapshot.data != null) {
-                  final userName = snapshot.data!['userName'] ?? 'مستخدم';
-                  return Text(
-                    userName,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  );
-                }
-                return const Text(
-                  'جاري التحميل...',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                );
-              },
             ),
           ),
         ],

@@ -25,6 +25,48 @@ class PharmacyOrdersService {
   /// =========================
   /// Update status
   /// =========================
+  Future<void> markOrderReadyWithInvoice({
+    required String orderId,
+    required String saleId,
+    required String invoiceNumber,
+    required String changedById,
+    String? note,
+  }) async {
+    final docRef = _ordersRef.doc(orderId);
+    final doc = await docRef.get();
+
+    if (!doc.exists) {
+      throw Exception('الطلب غير موجود');
+    }
+
+    final data = doc.data() ?? {};
+    final history = (data['statusHistory'] as List<dynamic>? ?? []).map((e) {
+      return Map<String, dynamic>.from(e as Map);
+    }).toList();
+
+    history.add({
+      'status': 'ready',
+      'label': 'جاهز',
+      'changedById': changedById,
+      'changedByType': 'pharmacy',
+      'note': note,
+      'changedAt': Timestamp.now(),
+    });
+
+    await docRef.update({
+      'status': 'ready',
+      'statusLabel': 'جاهز',
+      'saleId': saleId,
+      'invoiceNumber': invoiceNumber,
+      'invoicedAt': FieldValue.serverTimestamp(),
+      'readyAt': FieldValue.serverTimestamp(),
+      'statusHistory': history,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+
+
   Future<void> updateOrderStatus({
     required String orderId,
     required String newStatus,
@@ -79,13 +121,4 @@ class PharmacyOrdersService {
   /// =========================
   /// Update pharmacy note
   /// =========================
-  Future<void> updatePharmacyNote({
-    required String orderId,
-    required String note,
-  }) async {
-    await _ordersRef.doc(orderId).update({
-      'pharmacyNote': note.trim().isEmpty ? null : note.trim(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
 }

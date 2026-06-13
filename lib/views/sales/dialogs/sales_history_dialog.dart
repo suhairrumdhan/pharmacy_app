@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-
+import '../../../services/receipt_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
@@ -51,6 +51,31 @@ class _SalesHistoryDialogState extends State<SalesHistoryDialog> {
 
   final _fmt = DateFormat('yyyy-MM-dd  HH:mm');
   final _money = NumberFormat('#,##0.00');
+
+  Future<void> _previewInvoicePdf(Sale inv) async {
+    final pharmacyData = auth.pharmacyData;
+
+    await ReceiptService.previewReceipt(
+      context: context,
+      sale: inv,
+      pharmacyName: pharmacyData['pharmacyName']?.toString() ?? 'الصيدلية',
+      pharmacyPhone: pharmacyData['phone']?.toString() ?? '',
+      pharmacyAddress: pharmacyData['address']?.toString() ?? '',
+      cashierName: inv.employeeName ?? auth.userName,
+    );
+  }
+
+  Future<void> _printInvoiceDirect(Sale inv) async {
+    final pharmacyData = auth.pharmacyData;
+
+    await ReceiptService.printReceipt(
+      sale: inv,
+      pharmacyName: pharmacyData['pharmacyName']?.toString() ?? 'الصيدلية',
+      pharmacyPhone: pharmacyData['phone']?.toString() ?? '',
+      pharmacyAddress: pharmacyData['address']?.toString() ?? '',
+      cashierName: inv.employeeName ?? auth.userName,
+    );
+  }
 
   bool get isOwner => auth.actorInfo['type'] == 'owner';
 
@@ -145,7 +170,6 @@ class _SalesHistoryDialogState extends State<SalesHistoryDialog> {
   }
 
   _FilteredData _computeFiltered() {
-    // ✅ هنا الإصلاح الكبير: نقرأ من historyInvoices بدل allUserInvoices
     final all = salesController.historyInvoices;
 
     final q = query.value.trim();
@@ -155,18 +179,39 @@ class _SalesHistoryDialogState extends State<SalesHistoryDialog> {
 
     final list = all.where((inv) {
       if (st != null && inv.status != st) return false;
-      if (pm != null && inv.paymentMethod != pm) return false;
 
-      if (pm == PaymentMethod.insurance && insId != null) {
-        if ((inv.insuranceCompanyId ?? '') != insId) return false;
+      final hasInsurance = (inv.insuranceDiscount ?? 0) > 0 &&
+          (inv.insuranceCompanyId ?? '').trim().isNotEmpty;
+
+      if (pm == PaymentMethod.cash) {
+        if (inv.type == SaleType.refund) {
+          if (inv.cashOut <= 0) return false;
+        } else {
+          if (inv.customerPaymentMethod != PaymentMethod.cash) return false;
+        }
+      }
+
+      if (pm == PaymentMethod.card) {
+        if (inv.type == SaleType.refund) {
+          if (inv.cardOut <= 0) return false;
+        } else {
+          if (inv.customerPaymentMethod != PaymentMethod.card) return false;
+        }
+      }
+
+      if (pm == PaymentMethod.insurance) {
+        if (!hasInsurance) return false;
+        if (insId != null && (inv.insuranceCompanyId ?? '') != insId) {
+          return false;
+        }
       }
 
       if (q.isEmpty) return true;
 
       final invNo = inv.invoiceNumber.toString();
-      final cust = (inv.customerName ?? '');
+      final cust = inv.customerName ?? '';
       final itemsText = inv.items.map((e) => e.name).join(' ');
-      final empName = (inv.employeeName ?? '');
+      final empName = inv.employeeName ?? '';
 
       return invNo.contains(q) ||
           cust.contains(q) ||
@@ -174,40 +219,61 @@ class _SalesHistoryDialogState extends State<SalesHistoryDialog> {
           empName.contains(q);
     }).toList();
 
-    double cash = 0, card = 0, ins = 0;
-    int completedCount = 0, pendingCount = 0;
+    double cash = 0;
+    double card = 0;
+    double insurance = 0;
+    double refundCash = 0;
+    double refundCard = 0;
+
+    int completedCount = 0;
+    int pendingCount = 0;
+    int refundCount = 0;
+    int saleCount = 0;
 
     for (final s in list) {
       if (s.status == InvoiceStatus.pending) {
         pendingCount++;
         continue;
       }
-      if (s.status == InvoiceStatus.completed && !s.isDeleted) {
-        completedCount++;
-        switch (s.paymentMethod) {
-          case PaymentMethod.cash:
-            cash += s.total;
-            break;
-          case PaymentMethod.card:
-            card += s.total;
-            break;
-          case PaymentMethod.insurance:
-            ins += s.total;
-            break;
-        }
+
+      if (s.status != InvoiceStatus.completed || s.isDeleted) continue;
+
+      completedCount++;
+
+      if (s.type == SaleType.refund) {
+        refundCount++;
+        refundCash += s.cashOut;
+        refundCard += s.cardOut;
+        continue;
       }
+
+      saleCount++;
+
+      final customerPaid = s.customerPaidAmount;
+      final companyBilled = s.companyBilledAmount;
+
+      if (s.customerPaymentMethod == PaymentMethod.cash) {
+        cash += customerPaid;
+      } else if (s.customerPaymentMethod == PaymentMethod.card) {
+        card += customerPaid;
+      }
+
+      insurance += companyBilled;
     }
 
     return _FilteredData(
       list: list,
       cash: cash,
       card: card,
-      insurance: ins,
+      insurance: insurance,
+      refundCash: refundCash,
+      refundCard: refundCard,
       completedCount: completedCount,
       pendingCount: pendingCount,
+      saleCount: saleCount,
+      refundCount: refundCount,
     );
   }
-
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -517,7 +583,7 @@ class _SalesHistoryDialogState extends State<SalesHistoryDialog> {
 
           _chip('كل الدفع', selected: pm == null, onTap: () => pay.value = null),
           _chip('نقدي', selected: pm == PaymentMethod.cash, onTap: () => pay.value = PaymentMethod.cash),
-          _chip('بطاقة', selected: pm == PaymentMethod.card, onTap: () => pay.value = PaymentMethod.card),
+          _chip('معاملة مصرفية', selected: pm == PaymentMethod.card, onTap: () => pay.value = PaymentMethod.card),
           _chip('تأمين', selected: pm == PaymentMethod.insurance, onTap: () => pay.value = PaymentMethod.insurance),
 
           if (pm == PaymentMethod.insurance) ...[
@@ -555,63 +621,110 @@ class _SalesHistoryDialogState extends State<SalesHistoryDialog> {
   }
 
   Widget _summaryBar(_FilteredData d) {
-    final grand = d.cash + d.card + d.insurance;
+    final grossIn = d.cash + d.card + d.insurance;
+    final refunds = d.refundCash + d.refundCard;
+    final net = grossIn - refunds;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.blue.withOpacity(.06),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.blue.withOpacity(.15)),
+        color: Colors.blue.withOpacity(.055),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.blue.withOpacity(.14)),
       ),
       child: Wrap(
-        spacing: 14,
-        runSpacing: 8,
+        spacing: 10,
+        runSpacing: 10,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Iconsax.clipboard_text, size: 18),
-              const SizedBox(width: 8),
-              Text('عدد الفواتير: ${d.list.length}', style: const TextStyle(fontWeight: FontWeight.w900)),
-            ],
-          ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Iconsax.tick_circle, size: 18),
-              const SizedBox(width: 8),
-              Text('مكتملة: ${d.completedCount}', style: const TextStyle(fontWeight: FontWeight.w900)),
-            ],
-          ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Iconsax.clock, size: 18),
-              const SizedBox(width: 8),
-              Text('قيد التنفيذ: ${d.pendingCount}', style: const TextStyle(fontWeight: FontWeight.w900)),
-            ],
-          ),
-          Text('نقدي: ${_money.format(d.cash)}', style: const TextStyle(fontWeight: FontWeight.w900)),
-          Text('بطاقة: ${_money.format(d.card)}', style: const TextStyle(fontWeight: FontWeight.w900)),
-          Text('تأمين: ${_money.format(d.insurance)}', style: const TextStyle(fontWeight: FontWeight.w900)),
-          Text('الإجمالي: ${_money.format(grand)}', style: const TextStyle(fontWeight: FontWeight.w900)),
+          _statChip('الفواتير', '${d.list.length}', Iconsax.receipt_text),
+          _statChip('مبيعات', '${d.saleCount}', Iconsax.arrow_up_3, color: Colors.green),
+          _statChip('مرتجعات', '${d.refundCount}', Iconsax.arrow_down_2, color: Colors.orange),
+          _statChip('نقدي', _money.format(d.cash), Iconsax.money, color: Colors.green),
+          _statChip('مصرفي', _money.format(d.card), Iconsax.card, color: Colors.blue),
+          _statChip('تأمين', _money.format(d.insurance), Iconsax.shield_tick, color: Colors.purple),
+          _statChip('ترجيع كاش', '-${_money.format(d.refundCash)}', Iconsax.undo, color: Colors.orange),
+          _statChip('ترجيع مصرفي', '-${_money.format(d.refundCard)}', Iconsax.undo, color: Colors.red),
+          _statChip('الصافي', _money.format(net), Iconsax.chart_success, color: Colors.blue, strong: true),
         ],
       ),
     );
   }
 
+  Widget _statChip(
+      String label,
+      String value,
+      IconData icon, {
+        Color color = Colors.blueGrey,
+        bool strong = false,
+      }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+      decoration: BoxDecoration(
+        color: strong ? color.withOpacity(.14) : Colors.white.withOpacity(.82),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withOpacity(.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade700,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: strong ? 13 : 12,
+              color: strong ? color : Colors.grey.shade900,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  Widget _sumText(String label, String value, {bool strong = false}) {
+    return Text(
+      '$label: $value',
+      style: TextStyle(
+        fontWeight: FontWeight.w900,
+        color: strong ? Colors.blue.shade800 : Colors.grey.shade900,
+      ),
+    );
+  }
   Widget _invoiceTile(BuildContext context, Sale inv) {
     final isPending = inv.status == InvoiceStatus.pending;
-    final isCompleted = inv.status == InvoiceStatus.completed && !inv.isDeleted;
+    final isCompleted =
+        inv.status == InvoiceStatus.completed && !inv.isDeleted;
+
+    final isRefund = inv.type == SaleType.refund;
+
+    final hasInsurance =
+        (inv.insuranceDiscount ?? 0) > 0 &&
+            (inv.insuranceCompanyId ?? '').trim().isNotEmpty;
+
+    final customerPaid = inv.customerPaidAmount;
+    final companyBilled = inv.companyBilledAmount;
+    final refundTotal = inv.refundPaidOut;
 
     Color tint = Colors.grey[50]!;
     Color badge = Colors.grey;
     String badgeText = 'غير معروف';
     IconData icon = Iconsax.receipt;
 
-    if (isPending) {
+    if (isRefund) {
+      tint = Colors.orange.withOpacity(.07);
+      badge = Colors.orange;
+      badgeText = 'ترجيع';
+      icon = Iconsax.undo;
+    } else if (isPending) {
       tint = Colors.orange.withOpacity(.06);
       badge = Colors.orange;
       badgeText = 'قيد التنفيذ';
@@ -619,7 +732,7 @@ class _SalesHistoryDialogState extends State<SalesHistoryDialog> {
     } else if (isCompleted) {
       tint = Colors.green.withOpacity(.06);
       badge = Colors.green;
-      badgeText = 'مكتملة';
+      badgeText = hasInsurance ? 'بيع + تأمين' : 'بيع';
       icon = Iconsax.receipt;
     } else if (inv.status == InvoiceStatus.cancelled || inv.isDeleted) {
       tint = Colors.red.withOpacity(.06);
@@ -652,7 +765,9 @@ class _SalesHistoryDialogState extends State<SalesHistoryDialog> {
             children: [
               Expanded(
                 child: Text(
-                  'فاتورة #${inv.invoiceNumber}',
+                  isRefund
+                      ? 'فاتورة ترجيع #${inv.invoiceNumber}'
+                      : 'فاتورة #${inv.invoiceNumber}',
                   style: const TextStyle(fontWeight: FontWeight.w900),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -665,34 +780,71 @@ class _SalesHistoryDialogState extends State<SalesHistoryDialog> {
                 ),
                 child: Text(
                   badgeText,
-                  style: TextStyle(color: badge, fontWeight: FontWeight.w900, fontSize: 12),
+                  style: TextStyle(
+                    color: badge,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
                 ),
               ),
               const SizedBox(width: 6),
-
               PopupMenuButton<String>(
                 tooltip: 'إجراءات',
                 itemBuilder: (_) => [
-                  if (canOpen) const PopupMenuItem(value: 'open', child: Text('فتح')),
-                  if (canDelete) const PopupMenuItem(value: 'delete', child: Text('حذف (Soft)')),
+                  if (canOpen)
+                    const PopupMenuItem(
+                      value: 'open',
+                      child: Text('عرض داخل الشاشة'),
+                    ),
+                  if (canOpen)
+                    const PopupMenuItem(
+                      value: 'preview',
+                      child: Text('معاينة PDF'),
+                    ),
+                  if (canOpen)
+                    const PopupMenuItem(
+                      value: 'print',
+                      child: Text('طباعة مباشرة'),
+                    ),
+                  if (canDelete)
+                    const PopupMenuDivider(),
+                  if (canDelete)
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Text('حذف (Soft)'),
+                    ),
                 ],
                 onSelected: (v) async {
                   if (v == 'open') {
-                    widget.onOpenInvoice(inv);
-                    Get.back();
+                    salesController.openSavedInvoiceAsTab(inv);
+                   // Get.back();
                     return;
                   }
+
+                  if (v == 'preview') {
+                    await _previewInvoicePdf(inv);
+                    return;
+                  }
+
+                  if (v == 'print') {
+                    await _printInvoiceDirect(inv);
+                    return;
+                  }
+
                   if (v == 'delete') {
                     if (!canDelete) {
                       Get.snackbar('صلاحيات', 'ليس لديك صلاحية للحذف');
                       return;
                     }
 
-                    if (inv.id != null && inv.status == InvoiceStatus.completed) {
-                      await salesController.deleteSale(inv.id!);
+                    if (inv.status == InvoiceStatus.completed) {
+                      await salesController.deleteSale(inv.id);
                       await _reloadAccordingToMode();
                     } else {
-                      Get.snackbar('غير مسموح', 'الحذف هنا للفواتير المكتملة فقط');
+                      Get.snackbar(
+                        'غير مسموح',
+                        'الحذف هنا للفواتير المكتملة فقط',
+                      );
                     }
                   }
                 },
@@ -703,71 +855,311 @@ class _SalesHistoryDialogState extends State<SalesHistoryDialog> {
           subtitle: Padding(
             padding: const EdgeInsets.only(top: 6),
             child: Text(
-              '${_fmt.format(inv.saleDate)}  •  ${inv.items.length} صنف  •  ${_money.format(inv.total)}'
+              isRefund
+                  ? '${_fmt.format(inv.saleDate)}  •  ${inv.items.length} صنف  •  ترجيع: ${_money.format(refundTotal)}'
+                  '${isOwner ? '  •  ${(inv.employeeName ?? inv.employeeId ?? '')}' : ''}'
+                  : '${_fmt.format(inv.saleDate)}  •  ${inv.items.length} صنف  •  الزبون: ${_money.format(customerPaid)}'
+                  '${hasInsurance ? '  •  التأمين: ${_money.format(companyBilled)}' : ''}'
                   '${isOwner ? '  •  ${(inv.employeeName ?? inv.employeeId ?? '')}' : ''}',
               style: TextStyle(color: Colors.grey[700], fontSize: 12),
             ),
           ),
           children: [
-            if ((inv.customerName ?? '').trim().isNotEmpty) ...[
-              _kv('الزبون', inv.customerName!.trim()),
-              const SizedBox(height: 6),
-            ],
-            _kv('الدفع', inv.paymentMethod.name),
-            if (inv.paymentMethod == PaymentMethod.insurance && (inv.insuranceCompanyName ?? '').isNotEmpty)
-              _kv('شركة التأمين', inv.insuranceCompanyName ?? ''),
-            const SizedBox(height: 10),
-
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(.65),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.grey[200]!),
-              ),
-              child: Column(
-                children: inv.items.map((it) {
-                  final line = (it.unitPrice * it.quantity);
-                  return ListTile(
-                    dense: true,
-                    title: Text(it.name, style: const TextStyle(fontWeight: FontWeight.w800)),
-                    subtitle: Text('الكمية: ${it.quantity}  •  السعر: ${_money.format(it.unitPrice)}'),
-                    trailing: Text(_money.format(line), style: const TextStyle(fontWeight: FontWeight.w900)),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: Icon(isPending ? Iconsax.edit : Iconsax.eye, size: 18),
-                    label: Text(
-                      isPending ? 'فتح وتعديل' : 'عرض الفاتورة',
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                    onPressed: !canOpen
-                        ? null
-                        : () {
-                      widget.onOpenInvoice(inv);
-                      Get.back();
-                    },
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.grey[900],
-                      side: BorderSide(color: Colors.grey[300]!),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
-                  ),
-                ),
-              ],
+            _invoiceDetailsPanel(
+              inv: inv,
+              isRefund: isRefund,
+              hasInsurance: hasInsurance,
+              customerPaid: customerPaid,
+              companyBilled: companyBilled,
+              refundTotal: refundTotal,
             ),
           ],
         ),
       ),
     );
   }
+
+
+  Widget _invoiceDetailsPanel({
+    required Sale inv,
+    required bool isRefund,
+    required bool hasInsurance,
+    required double customerPaid,
+    required double companyBilled,
+    required double refundTotal,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(.82),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _receiptInfoBlock(
+                  title: 'بيانات الفاتورة',
+                  children: [
+                    if ((inv.customerName ?? '').trim().isNotEmpty)
+                      _receiptRow('الزبون', inv.customerName!.trim()),
+                    _receiptRow('الموظف', inv.employeeName ?? inv.employeeId ?? '--'),
+                    _receiptRow('التاريخ', _fmt.format(inv.saleDate)),
+                    if (isRefund)
+                      _receiptRow('فاتورة أصلية', inv.refInvoiceNumber ?? '--'),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _receiptInfoBlock(
+                  title: isRefund ? 'ملخص الترجيع' : 'ملخص الدفع',
+                  children: isRefund
+                      ? [
+                    _receiptRow('كاش خارج', _money.format(inv.cashOut), danger: inv.cashOut > 0),
+                    _receiptRow('ترجيع مصرفي', _money.format(inv.cardOut), danger: inv.cardOut > 0),
+                    const Divider(height: 16),
+                    _receiptRow('إجمالي الترجيع', _money.format(refundTotal), strong: true, danger: true),
+                  ]
+                      : [
+                    _receiptRow(
+                      'طريقة الدفع',
+                      inv.customerPaymentMethod == PaymentMethod.cash
+                          ? 'نقدي'
+                          : 'معاملة مصرفية',
+                    ),
+                    _receiptRow('دفع الزبون', _money.format(customerPaid), strong: true),
+                    if (hasInsurance) ...[
+                      _receiptRow('شركة التأمين', inv.insuranceCompanyName ?? '--'),
+                      _receiptRow('على شركة التأمين', _money.format(companyBilled), strong: true),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          _itemsReceiptList(inv),
+
+          const SizedBox(height: 12),
+
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Iconsax.eye, size: 18),
+                  label: const Text(
+                    'عرض',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  onPressed: !canOpen
+                      ? null
+                      : () {
+                    salesController.openSavedInvoiceAsTab(inv);
+                    //Get.back();
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.grey[900],
+                    side: BorderSide(color: Colors.grey[300]!),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Iconsax.document_text, size: 18),
+                  label: const Text(
+                    'PDF',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  onPressed: !canOpen ? null : () => _previewInvoicePdf(inv),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.blue.shade700,
+                    side: BorderSide(color: Colors.blue.shade200),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  icon: const Icon(Iconsax.printer, size: 18),
+                  label: const Text(
+                    'طباعة',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  onPressed: !canOpen ? null : () => _printInvoiceDirect(inv),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _receiptInfoBlock({
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.blueGrey.shade800,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _receiptRow(
+      String label,
+      String value, {
+        bool strong = false,
+        bool danger = false,
+      }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: strong ? 13 : 12,
+                color: danger ? Colors.orange.shade800 : Colors.grey.shade900,
+                fontWeight: strong ? FontWeight.w900 : FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _itemsReceiptList(Sale inv) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(.045),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+            ),
+            child: Row(
+              children: const [
+                Expanded(flex: 4, child: Text('الصنف', style: TextStyle(fontWeight: FontWeight.w900))),
+                Expanded(child: Text('كمية', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w900))),
+                Expanded(child: Text('سعر', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w900))),
+                Expanded(child: Text('إجمالي', textAlign: TextAlign.end, style: TextStyle(fontWeight: FontWeight.w900))),
+              ],
+            ),
+          ),
+          ...inv.items.map((it) {
+            final line = it.unitPrice * it.quantity;
+
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: Colors.grey.shade100),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 4,
+                    child: Text(
+                      it.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      '${it.quantity}',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      _money.format(it.unitPrice),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      _money.format(line),
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
 
   Future<void> _exportCsv(List<Sale> list) async {
     try {
@@ -848,15 +1240,6 @@ class _SalesHistoryDialogState extends State<SalesHistoryDialog> {
     );
   }
 
-  Widget _kv(String k, String v) {
-    return Row(
-      children: [
-        Expanded(child: Text(k, style: TextStyle(color: Colors.grey[700]))),
-        Text(v, style: const TextStyle(fontWeight: FontWeight.w900)),
-      ],
-    );
-  }
-
   Widget _empty() {
     return Center(
       child: Padding(
@@ -878,18 +1261,29 @@ class _SalesHistoryDialogState extends State<SalesHistoryDialog> {
 
 class _FilteredData {
   final List<Sale> list;
+
   final double cash;
   final double card;
   final double insurance;
+
+  final double refundCash;
+  final double refundCard;
+
   final int completedCount;
   final int pendingCount;
+  final int saleCount;
+  final int refundCount;
 
   _FilteredData({
     required this.list,
     required this.cash,
     required this.card,
     required this.insurance,
+    required this.refundCash,
+    required this.refundCard,
     required this.completedCount,
     required this.pendingCount,
+    required this.saleCount,
+    required this.refundCount,
   });
 }

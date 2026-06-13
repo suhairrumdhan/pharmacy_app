@@ -111,6 +111,7 @@ class PharmacySettings {
     );
   }
 
+
   Map<String, dynamic> toMap() {
     return {
       'id': uid,

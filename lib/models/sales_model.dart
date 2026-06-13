@@ -65,7 +65,7 @@ SaleType _saleTypeFromString(dynamic v, {SaleType fallback = SaleType.sale}) {
 /// insurance موجود فقط للتوافق مع الداتا القديمة (Legacy)
 enum PaymentMethod {
   cash('نقدي'),
-  card('بطاقة'),
+  card('معاملة مصرفية'),
   insurance('تأمين'); // legacy only
 
   final String arabicName;
@@ -105,14 +105,18 @@ InvoiceStatus _statusFromString(dynamic value,
 /// SaleItem (Immutable + Safe)
 /// =========================
 @immutable
+@immutable
 class SaleItem {
   final String medicineId;
   final String name;
   final String? scientificName;
   final String? barcode;
 
-  /// سعر وحدة البيع (قطعة أو علبة)
+  /// سعر وحدة البيع وقت الفاتورة: قطعة أو علبة
   final double unitPrice;
+
+  /// تكلفة وحدة البيع وقت الفاتورة: قطعة أو علبة
+  final double? unitCost;
 
   /// عدد الوحدات المباعة
   final int quantity;
@@ -120,7 +124,14 @@ class SaleItem {
   /// true = بيع بالقطعة | false = بيع بالعلبة
   final bool sellAsPiece;
 
-  /// خصم بالنسبة المئوية (0 - 100)
+  /// Snapshot من المخزون وقت البيع
+  final int? unitsPerPackageSnapshot;
+  final String? batchNumber;
+  final DateTime? expiryDate;
+  final String? supplierId;
+  final String? supplierName;
+
+  /// خصم بالنسبة المئوية 0 - 100
   final double? discountPercentage;
 
   /// خصم بمبلغ ثابت
@@ -132,8 +143,14 @@ class SaleItem {
     this.scientificName,
     this.barcode,
     required this.unitPrice,
+    this.unitCost,
     required this.quantity,
     required this.sellAsPiece,
+    this.unitsPerPackageSnapshot,
+    this.batchNumber,
+    this.expiryDate,
+    this.supplierId,
+    this.supplierName,
     this.discountPercentage,
     this.discountAmount,
   });
@@ -145,15 +162,29 @@ class SaleItem {
     if (sub <= 0) return 0.0;
 
     if (discountAmount != null) {
-      return discountAmount!.clamp(0, sub);
+      return discountAmount!.clamp(0.0, sub);
     }
+
     if (discountPercentage != null) {
-      return (sub * discountPercentage! / 100).clamp(0, sub);
+      return (sub * discountPercentage! / 100).clamp(0.0, sub);
     }
+
     return 0.0;
   }
 
-  double get total => (subtotal - discountValue).clamp(0, double.infinity);
+  double get total => (subtotal - discountValue).clamp(0.0, double.infinity);
+
+  /// تكلفة العنصر كامل
+  double get totalCost => ((unitCost ?? 0.0) * quantity).clamp(0.0, double.infinity);
+
+  /// ربح العنصر بعد الخصم
+  double get grossProfit => (total - totalCost);
+
+  /// هامش ربح العنصر
+  double get grossMarginPercent {
+    if (total <= 0) return 0.0;
+    return (grossProfit / total) * 100;
+  }
 
   String get displayName => sellAsPiece ? '$name (قطعة)' : name;
 
@@ -163,11 +194,20 @@ class SaleItem {
     String? scientificName,
     String? barcode,
     double? unitPrice,
+    double? unitCost,
     int? quantity,
     bool? sellAsPiece,
+    int? unitsPerPackageSnapshot,
+    String? batchNumber,
+    DateTime? expiryDate,
+    String? supplierId,
+    String? supplierName,
     double? discountPercentage,
     double? discountAmount,
     bool clearDiscount = false,
+    bool clearCost = false,
+    bool clearBatch = false,
+    bool clearSupplier = false,
   }) {
     return SaleItem(
       medicineId: medicineId ?? this.medicineId,
@@ -175,8 +215,15 @@ class SaleItem {
       scientificName: scientificName ?? this.scientificName,
       barcode: barcode ?? this.barcode,
       unitPrice: unitPrice ?? this.unitPrice,
+      unitCost: clearCost ? null : (unitCost ?? this.unitCost),
       quantity: quantity ?? this.quantity,
       sellAsPiece: sellAsPiece ?? this.sellAsPiece,
+      unitsPerPackageSnapshot:
+      unitsPerPackageSnapshot ?? this.unitsPerPackageSnapshot,
+      batchNumber: clearBatch ? null : (batchNumber ?? this.batchNumber),
+      expiryDate: clearBatch ? null : (expiryDate ?? this.expiryDate),
+      supplierId: clearSupplier ? null : (supplierId ?? this.supplierId),
+      supplierName: clearSupplier ? null : (supplierName ?? this.supplierName),
       discountPercentage:
       clearDiscount ? null : (discountPercentage ?? this.discountPercentage),
       discountAmount:
@@ -191,10 +238,19 @@ class SaleItem {
       'scientificName': scientificName,
       'barcode': barcode,
       'unitPrice': unitPrice,
+      'unitCost': unitCost,
       'quantity': quantity,
       'sellAsPiece': sellAsPiece,
+      'unitsPerPackageSnapshot': unitsPerPackageSnapshot,
+      'batchNumber': batchNumber,
+      'expiryDate': expiryDate != null ? Timestamp.fromDate(expiryDate!) : null,
+      'supplierId': supplierId,
+      'supplierName': supplierName,
       'discountPercentage': discountPercentage,
       'discountAmount': discountAmount,
+      'totalCost': totalCost,
+      'grossProfit': grossProfit,
+      'grossMarginPercent': grossMarginPercent,
     };
   }
 
@@ -204,11 +260,12 @@ class SaleItem {
 
     final dp = map['discountPercentage'];
     final da = map['discountAmount'];
+
     final discountPercentage = dp != null ? _asDouble(dp) : null;
     final discountAmount = da != null ? _asDouble(da) : null;
 
     final normalizedDiscountPercentage =
-    (discountAmount != null) ? null : discountPercentage;
+    discountAmount != null ? null : discountPercentage;
 
     return SaleItem(
       medicineId: (map['medicineId'] ?? '').toString(),
@@ -216,19 +273,22 @@ class SaleItem {
       scientificName: _asString(map['scientificName']),
       barcode: _asString(map['barcode']),
       unitPrice: unitPrice,
+      unitCost: map['unitCost'] == null ? null : _asDouble(map['unitCost']),
       quantity: quantity <= 0 ? 1 : quantity,
       sellAsPiece: (map['sellAsPiece'] ?? false) == true,
+      unitsPerPackageSnapshot: map['unitsPerPackageSnapshot'] == null
+          ? null
+          : _asInt(map['unitsPerPackageSnapshot']),
+      batchNumber: _asString(map['batchNumber']),
+      expiryDate: map['expiryDate'] == null ? null : _parseDateTime(map['expiryDate']),
+      supplierId: _asString(map['supplierId']),
+      supplierName: _asString(map['supplierName']),
       discountPercentage: normalizedDiscountPercentage,
       discountAmount: discountAmount,
     );
   }
 }
 
-/// =========================
-/// Sale (Invoice)
-/// =========================
-/// ✅ التأمين هنا يمثل "جزء على الشركة" في insuranceDiscount
-/// ✅ total هنا يمثل "اللي يدفعه الزبون فعلاً"
 class Sale {
   String id;
 
@@ -246,23 +306,25 @@ class Sale {
 
   final String? deviceId;
 
+  final String source;
+  final String? orderId;
+  final String? orderNumber;
+
   final List<SaleItem> items;
 
   final double subtotal;
 
-  /// خصم فاتورة (مبلغ ثابت)
+  /// خصم فاتورة بمبلغ ثابت
   final double? discount;
 
-  /// ✅ insuranceDiscount = مبلغ على الشركة (Company billed)
+  /// مبلغ على شركة التأمين
   final double? insuranceDiscount;
   final String? insuranceCompanyId;
   final String? insuranceCompanyName;
 
-  /// ✅ total = مبلغ الزبون بعد الخصومات وبعد جزء الشركة
+  /// مبلغ الزبون بعد الخصم والتأمين
   final double total;
 
-  /// ✅ طريقة دفع الزبون فقط (cash/card)
-  /// insurance legacy فقط
   final PaymentMethod paymentMethod;
   final String? paymentDetails;
 
@@ -279,13 +341,46 @@ class Sale {
   final bool isSaved;
   final DateTime? completedAt;
 
-  final SaleType type;             // sale / refund
-  final String? refSaleId;         // doc id of original sale (refund only)
-  final String? refInvoiceNumber;  // invoiceNumber of original sale (refund only)
+  final SaleType type;
+  final String? refSaleId;
+  final String? refInvoiceNumber;
 
-// Money out (refund payout)
-  final double cashOut;            // returned cash
+  /// Money out في حالة الترجيع
+  final double cashOut;
   final double cardOut;
+
+  /// =========================
+  /// Financial snapshot fields
+  /// =========================
+
+  /// إجمالي تكلفة البضاعة المباعة
+  final double? cogsTotal;
+
+  /// إجمالي الربح = صافي قيمة الأصناف - COGS
+  final double? grossProfit;
+
+  /// صافي الربح المبدئي قبل المصاريف العامة
+  final double? netProfit;
+
+  /// المبلغ المدفوع فعليًا من الزبون
+  final double? paidAmount;
+
+  /// المتبقي على الزبون إن وجد
+  final double? remainingAmount;
+
+  /// الداخل للكاش
+  final double? cashIn;
+
+  /// الداخل للبطاقة/المصرف
+  final double? cardIn;
+
+  /// مطالبة التأمين
+  final double? insuranceClaimAmount;
+
+  /// ربط لاحق مع financial_transactions
+  final String? financialTransactionId;
+  final bool financialPosted;
+  final DateTime? postedAt;
 
   Sale({
     this.id = '',
@@ -298,6 +393,9 @@ class Sale {
     this.performedById,
     this.performedByName,
     this.deviceId,
+    this.source = 'pos',
+    this.orderId,
+    this.orderNumber,
     required this.items,
     required this.subtotal,
     this.discount,
@@ -321,6 +419,17 @@ class Sale {
     this.refInvoiceNumber,
     this.cashOut = 0.0,
     this.cardOut = 0.0,
+    this.cogsTotal,
+    this.grossProfit,
+    this.netProfit,
+    this.paidAmount,
+    this.remainingAmount,
+    this.cashIn,
+    this.cardIn,
+    this.insuranceClaimAmount,
+    this.financialTransactionId,
+    this.financialPosted = false,
+    this.postedAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
   factory Sale.empty({
@@ -334,6 +443,9 @@ class Sale {
       pharmacyId: pharmacyId,
       employeeId: employeeId,
       employeeName: employeeName,
+      source: 'pos',
+      orderId: null,
+      orderNumber: null,
       items: const [],
       subtotal: 0.0,
       total: 0.0,
@@ -342,21 +454,54 @@ class Sale {
       createdAt: now,
       status: InvoiceStatus.pending,
       isSaved: false,
-      type: SaleType.sale,  // افتراضي: عملية بيع
+      type: SaleType.sale,
       refSaleId: null,
       refInvoiceNumber: null,
       cashOut: 0.0,
       cardOut: 0.0,
+      cogsTotal: 0.0,
+      grossProfit: 0.0,
+      netProfit: 0.0,
+      paidAmount: 0.0,
+      remainingAmount: 0.0,
+      cashIn: 0.0,
+      cardIn: 0.0,
+      insuranceClaimAmount: 0.0,
+      financialPosted: false,
+      financialTransactionId: null,
+      postedAt: null,
     );
   }
 
-  /// =========================
-  /// Calculations (Pure)
-  /// =========================
   Sale recalculate() {
     final itemsSubtotal = items.fold(0.0, (sum, item) => sum + item.total);
 
+    final computedCogs = items.fold(
+      0.0,
+          (sum, item) => sum + item.totalCost,
+    );
+
+    if (type == SaleType.refund) {
+      final refundOut = (cashOut + cardOut).clamp(0.0, double.infinity);
+
+      return copyWith(
+        subtotal: itemsSubtotal,
+        total: 0.0,
+        discount: 0.0,
+        clearInsurance: true,
+        cogsTotal: computedCogs,
+        grossProfit: -computedCogs,
+        netProfit: -refundOut,
+        paidAmount: 0.0,
+        remainingAmount: 0.0,
+        cashIn: 0.0,
+        cardIn: 0.0,
+        insuranceClaimAmount: 0.0,
+      );
+    }
+
     final invoiceDiscount = (discount ?? 0.0).clamp(0.0, itemsSubtotal);
+
     final remainingAfterInvoiceDiscount =
     (itemsSubtotal - invoiceDiscount).clamp(0.0, double.infinity);
 
@@ -364,32 +509,70 @@ class Sale {
     (insuranceDiscount ?? 0.0).clamp(0.0, remainingAfterInvoiceDiscount);
 
     final computedCustomerTotal =
-    (remainingAfterInvoiceDiscount - companyBilled).clamp(0.0, double.infinity);
+    (remainingAfterInvoiceDiscount - companyBilled)
+        .clamp(0.0, double.infinity);
+
+    final computedGrossProfit =
+    (remainingAfterInvoiceDiscount - computedCogs);
+
+    final computedPaidAmount = computedCustomerTotal;
+
+    final computedCashIn =
+    customerPaymentMethod == PaymentMethod.cash ? computedPaidAmount : 0.0;
+
+    final computedCardIn =
+    customerPaymentMethod == PaymentMethod.card ? computedPaidAmount : 0.0;
 
     return copyWith(
       subtotal: itemsSubtotal,
       total: computedCustomerTotal,
+      cogsTotal: computedCogs,
+      grossProfit: computedGrossProfit,
+      netProfit: computedGrossProfit,
+      paidAmount: computedPaidAmount,
+      remainingAmount: 0.0,
+      cashIn: computedCashIn,
+      cardIn: computedCardIn,
+      insuranceClaimAmount: companyBilled,
     );
   }
 
-  /// =========================
-  /// Convenience getters
-  /// =========================
   bool get hasInsurance =>
-      (insuranceCompanyId ?? '').trim().isNotEmpty && (insuranceDiscount ?? 0) > 0;
+      (insuranceCompanyId ?? '').trim().isNotEmpty &&
+          (insuranceDiscount ?? 0) > 0;
 
   double get companyBilledAmount =>
       hasInsurance ? (insuranceDiscount ?? 0.0).clamp(0.0, double.infinity) : 0.0;
 
-  double get customerPaidAmount => total.clamp(0.0, double.infinity);
+  double get customerPaidAmount =>
+      type == SaleType.refund ? 0.0 : total.clamp(0.0, double.infinity);
 
-  /// ✅ طريقة دفع الزبون (مع Back-compat)
+  double get refundPaidOut =>
+      type == SaleType.refund
+          ? (cashOut + cardOut).clamp(0.0, double.infinity)
+          : 0.0;
+
   PaymentMethod get customerPaymentMethod =>
       paymentMethod == PaymentMethod.insurance ? PaymentMethod.cash : paymentMethod;
 
-  /// =========================
-  /// CopyWith (Deep)
-  /// =========================
+  double get effectiveCogs =>
+      cogsTotal ?? items.fold(0.0, (sum, item) => sum + item.totalCost);
+
+  double get effectiveGrossProfit =>
+      grossProfit ?? ((subtotal - (discount ?? 0.0)) - effectiveCogs);
+
+  double get effectiveCashIn {
+    if (type == SaleType.refund) return 0.0;
+    if (cashIn != null) return cashIn!;
+    return customerPaymentMethod == PaymentMethod.cash ? total : 0.0;
+  }
+
+  double get effectiveCardIn {
+    if (type == SaleType.refund) return 0.0;
+    if (cardIn != null) return cardIn!;
+    return customerPaymentMethod == PaymentMethod.card ? total : 0.0;
+  }
+
   Sale copyWith({
     String? id,
     String? invoiceNumber,
@@ -401,6 +584,9 @@ class Sale {
     String? performedById,
     String? performedByName,
     String? deviceId,
+    String? source,
+    String? orderId,
+    String? orderNumber,
     List<SaleItem>? items,
     double? subtotal,
     double? discount,
@@ -423,7 +609,24 @@ class Sale {
     String? refSaleId,
     String? refInvoiceNumber,
     double? cashOut,
-    double? cardOut,            // returned to card
+    double? cardOut,
+    double? cogsTotal,
+    double? grossProfit,
+    double? netProfit,
+    double? paidAmount,
+    double? remainingAmount,
+    double? cashIn,
+    double? cardIn,
+    double? insuranceClaimAmount,
+    String? financialTransactionId,
+    bool? financialPosted,
+    DateTime? postedAt,
+    bool clearInsurance = false,
+    bool clearPaymentDetails = false,
+    bool clearCustomerName = false,
+    bool clearCustomerPhone = false,
+    bool clearNotes = false,
+    bool clearFinancialLink = false,
   }) {
     return Sale(
       id: id ?? this.id,
@@ -436,18 +639,25 @@ class Sale {
       performedById: performedById ?? this.performedById,
       performedByName: performedByName ?? this.performedByName,
       deviceId: deviceId ?? this.deviceId,
+      source: source ?? this.source,
+      orderId: orderId ?? this.orderId,
+      orderNumber: orderNumber ?? this.orderNumber,
       items: items ?? List<SaleItem>.from(this.items),
       subtotal: subtotal ?? this.subtotal,
       discount: discount ?? this.discount,
-      insuranceDiscount: insuranceDiscount ?? this.insuranceDiscount,
-      insuranceCompanyId: insuranceCompanyId ?? this.insuranceCompanyId,
-      insuranceCompanyName: insuranceCompanyName ?? this.insuranceCompanyName,
+      insuranceDiscount:
+      clearInsurance ? null : (insuranceDiscount ?? this.insuranceDiscount),
+      insuranceCompanyId:
+      clearInsurance ? null : (insuranceCompanyId ?? this.insuranceCompanyId),
+      insuranceCompanyName:
+      clearInsurance ? null : (insuranceCompanyName ?? this.insuranceCompanyName),
       total: total ?? this.total,
       paymentMethod: paymentMethod ?? this.paymentMethod,
-      paymentDetails: paymentDetails ?? this.paymentDetails,
-      customerName: customerName ?? this.customerName,
-      customerPhone: customerPhone ?? this.customerPhone,
-      notes: notes ?? this.notes,
+      paymentDetails:
+      clearPaymentDetails ? null : (paymentDetails ?? this.paymentDetails),
+      customerName: clearCustomerName ? null : (customerName ?? this.customerName),
+      customerPhone: clearCustomerPhone ? null : (customerPhone ?? this.customerPhone),
+      notes: clearNotes ? null : (notes ?? this.notes),
       saleDate: saleDate ?? this.saleDate,
       createdAt: createdAt ?? this.createdAt,
       isDeleted: isDeleted ?? this.isDeleted,
@@ -459,6 +669,20 @@ class Sale {
       refInvoiceNumber: refInvoiceNumber ?? this.refInvoiceNumber,
       cashOut: cashOut ?? this.cashOut,
       cardOut: cardOut ?? this.cardOut,
+      cogsTotal: cogsTotal ?? this.cogsTotal,
+      grossProfit: grossProfit ?? this.grossProfit,
+      netProfit: netProfit ?? this.netProfit,
+      paidAmount: paidAmount ?? this.paidAmount,
+      remainingAmount: remainingAmount ?? this.remainingAmount,
+      cashIn: cashIn ?? this.cashIn,
+      cardIn: cardIn ?? this.cardIn,
+      insuranceClaimAmount:
+      insuranceClaimAmount ?? this.insuranceClaimAmount,
+      financialTransactionId: clearFinancialLink
+          ? null
+          : (financialTransactionId ?? this.financialTransactionId),
+      financialPosted: financialPosted ?? this.financialPosted,
+      postedAt: clearFinancialLink ? null : (postedAt ?? this.postedAt),
     );
   }
 
@@ -477,9 +701,6 @@ class Sale {
     return copyWith(items: newItems).recalculate();
   }
 
-  /// =========================
-  /// Serialization (Firebase)
-  /// =========================
   Map<String, dynamic> toMap() {
     final computed = recalculate();
     return {
@@ -492,6 +713,9 @@ class Sale {
       'performedById': computed.performedById,
       'performedByName': computed.performedByName,
       'deviceId': computed.deviceId,
+      'source': computed.source,
+      'orderId': computed.orderId,
+      'orderNumber': computed.orderNumber,
       'items': computed.items.map((e) => e.toMap()).toList(),
       'subtotal': computed.subtotal,
       'discount': computed.discount,
@@ -506,17 +730,30 @@ class Sale {
       'notes': computed.notes,
       'saleDate': Timestamp.fromDate(computed.saleDate),
       'createdAt': Timestamp.fromDate(computed.createdAt),
-      'completedAt': computed.completedAt != null
-          ? Timestamp.fromDate(computed.completedAt!)
-          : null,
+      'completedAt':
+      computed.completedAt != null ? Timestamp.fromDate(computed.completedAt!) : null,
       'status': computed.status.name,
       'isSaved': computed.isSaved,
       'isDeleted': computed.isDeleted,
-      'type': type.name,
-      'refSaleId': refSaleId,
-      'refInvoiceNumber': refInvoiceNumber,
-      'cashOut': cashOut,
-      'cardOut': cardOut,
+      'type': computed.type.name,
+      'refSaleId': computed.refSaleId,
+      'refInvoiceNumber': computed.refInvoiceNumber,
+      'cashOut': computed.cashOut,
+      'cardOut': computed.cardOut,
+
+      // Financial snapshot
+      'cogsTotal': computed.cogsTotal,
+      'grossProfit': computed.grossProfit,
+      'netProfit': computed.netProfit,
+      'paidAmount': computed.paidAmount,
+      'remainingAmount': computed.remainingAmount,
+      'cashIn': computed.cashIn,
+      'cardIn': computed.cardIn,
+      'insuranceClaimAmount': computed.insuranceClaimAmount,
+      'financialTransactionId': computed.financialTransactionId,
+      'financialPosted': computed.financialPosted,
+      'postedAt':
+      computed.postedAt != null ? Timestamp.fromDate(computed.postedAt!) : null,
     };
   }
 
@@ -558,11 +795,15 @@ class Sale {
       employeeName: _asString(map['employeeName']),
       shiftId: _asString(map['shiftId']),
       performedBy: performedBy,
-      performedById: _asString(map['performedById']) ?? _asString(performedBy?['id']),
+      performedById:
+      _asString(map['performedById']) ?? _asString(performedBy?['id']),
       performedByName: _asString(map['performedByName']) ??
           _asString(performedBy?['name']) ??
           _asString(performedBy?['username']),
       deviceId: _asString(map['deviceId']),
+      source: _asString(map['source']) ?? 'pos',
+      orderId: _asString(map['orderId']),
+      orderNumber: _asString(map['orderNumber']),
       items: itemsList,
       subtotal: _asDouble(map['subtotal']),
       discount: map['discount'] == null ? null : _asDouble(map['discount']),
@@ -581,20 +822,35 @@ class Sale {
       isDeleted: map['isDeleted'] == true,
       status: status,
       isSaved: isSaved,
-      completedAt: completedAt,type: _saleTypeFromString(map['type']),
+      completedAt: completedAt,
+      type: _saleTypeFromString(map['type']),
       refSaleId: _asString(map['refSaleId']),
       refInvoiceNumber: _asString(map['refInvoiceNumber']),
       cashOut: _asDouble(map['cashOut']),
       cardOut: _asDouble(map['cardOut']),
-    );
 
+      cogsTotal: map['cogsTotal'] == null ? null : _asDouble(map['cogsTotal']),
+      grossProfit:
+      map['grossProfit'] == null ? null : _asDouble(map['grossProfit']),
+      netProfit: map['netProfit'] == null ? null : _asDouble(map['netProfit']),
+      paidAmount:
+      map['paidAmount'] == null ? null : _asDouble(map['paidAmount']),
+      remainingAmount: map['remainingAmount'] == null
+          ? null
+          : _asDouble(map['remainingAmount']),
+      cashIn: map['cashIn'] == null ? null : _asDouble(map['cashIn']),
+      cardIn: map['cardIn'] == null ? null : _asDouble(map['cardIn']),
+      insuranceClaimAmount: map['insuranceClaimAmount'] == null
+          ? null
+          : _asDouble(map['insuranceClaimAmount']),
+      financialTransactionId: _asString(map['financialTransactionId']),
+      financialPosted: map['financialPosted'] == true,
+      postedAt: map['postedAt'] == null ? null : _parseDateTime(map['postedAt']),
+    );
 
     return sale.recalculate();
   }
 
-  /// =========================
-  /// Local (SharedPreferences / JSON safe)
-  /// =========================
   Map<String, dynamic> toLocalMap() {
     final computed = recalculate();
     return {
@@ -608,6 +864,9 @@ class Sale {
       'performedById': computed.performedById,
       'performedByName': computed.performedByName,
       'deviceId': computed.deviceId,
+      'source': computed.source,
+      'orderId': computed.orderId,
+      'orderNumber': computed.orderNumber,
       'items': computed.items.map((e) => e.toMap()).toList(),
       'subtotal': computed.subtotal,
       'discount': computed.discount,
@@ -631,6 +890,19 @@ class Sale {
       'refInvoiceNumber': computed.refInvoiceNumber,
       'cashOut': computed.cashOut,
       'cardOut': computed.cardOut,
+
+      // Financial snapshot
+      'cogsTotal': computed.cogsTotal,
+      'grossProfit': computed.grossProfit,
+      'netProfit': computed.netProfit,
+      'paidAmount': computed.paidAmount,
+      'remainingAmount': computed.remainingAmount,
+      'cashIn': computed.cashIn,
+      'cardIn': computed.cardIn,
+      'insuranceClaimAmount': computed.insuranceClaimAmount,
+      'financialTransactionId': computed.financialTransactionId,
+      'financialPosted': computed.financialPosted,
+      'postedAt': computed.postedAt?.toIso8601String(),
     };
   }
 
@@ -643,7 +915,8 @@ class Sale {
         .toList()
         : <SaleItem>[];
 
-    final status = _statusFromString(map['status'], fallback: InvoiceStatus.pending);
+    final status =
+    _statusFromString(map['status'], fallback: InvoiceStatus.pending);
 
     final saleDate = _parseDateTime(map['saleDate']);
     final createdAt = _parseDateTime(map['createdAt'], fallback: saleDate);
@@ -668,11 +941,15 @@ class Sale {
       employeeName: _asString(map['employeeName']),
       shiftId: _asString(map['shiftId']),
       performedBy: performedBy,
-      performedById: _asString(map['performedById']) ?? _asString(performedBy?['id']),
+      performedById:
+      _asString(map['performedById']) ?? _asString(performedBy?['id']),
       performedByName: _asString(map['performedByName']) ??
           _asString(performedBy?['name']) ??
           _asString(performedBy?['username']),
       deviceId: _asString(map['deviceId']),
+      source: _asString(map['source']) ?? 'pos',
+      orderId: _asString(map['orderId']),
+      orderNumber: _asString(map['orderNumber']),
       items: itemsList,
       subtotal: _asDouble(map['subtotal']),
       discount: map['discount'] == null ? null : _asDouble(map['discount']),
@@ -697,6 +974,24 @@ class Sale {
       refInvoiceNumber: _asString(map['refInvoiceNumber']),
       cashOut: _asDouble(map['cashOut']),
       cardOut: _asDouble(map['cardOut']),
+
+      cogsTotal: map['cogsTotal'] == null ? null : _asDouble(map['cogsTotal']),
+      grossProfit:
+      map['grossProfit'] == null ? null : _asDouble(map['grossProfit']),
+      netProfit: map['netProfit'] == null ? null : _asDouble(map['netProfit']),
+      paidAmount:
+      map['paidAmount'] == null ? null : _asDouble(map['paidAmount']),
+      remainingAmount: map['remainingAmount'] == null
+          ? null
+          : _asDouble(map['remainingAmount']),
+      cashIn: map['cashIn'] == null ? null : _asDouble(map['cashIn']),
+      cardIn: map['cardIn'] == null ? null : _asDouble(map['cardIn']),
+      insuranceClaimAmount: map['insuranceClaimAmount'] == null
+          ? null
+          : _asDouble(map['insuranceClaimAmount']),
+      financialTransactionId: _asString(map['financialTransactionId']),
+      financialPosted: map['financialPosted'] == true,
+      postedAt: map['postedAt'] == null ? null : _parseDateTime(map['postedAt']),
     );
 
     return sale.recalculate();

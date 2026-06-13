@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../controllers/chat_controller.dart';
@@ -12,10 +13,21 @@ class ConversationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: Colors.blue.shade100,
-        child: const Icon(Icons.person, color: Colors.blue),
-      ),
+
+      leading: Obx(() {
+        final imageUrl = chatController.getUserProfileImage(conversation.userId);
+
+        return CircleAvatar(
+          radius: 24,
+          backgroundColor: Colors.blue.shade100,
+          backgroundImage: imageUrl != null && imageUrl.trim().isNotEmpty
+              ? NetworkImage(imageUrl)
+              : null,
+          child: imageUrl == null || imageUrl.trim().isEmpty
+              ? const Icon(Icons.person, color: Colors.blue)
+              : null,
+        );
+      }),
       title: Text(
         conversation.userName,
         style: const TextStyle(fontWeight: FontWeight.bold),

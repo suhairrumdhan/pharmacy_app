@@ -1,3 +1,4 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -6,6 +7,8 @@ import 'package:intl/intl.dart';
 import '../../controllers/auth_controller.dart';
 import '../../controllers/shift_controller.dart';
 import '../../models/shift_model.dart';
+import '../../../controllers/sales_controller.dart';
+import '../../../models/sales_model.dart';
 
 class ShiftsPage extends StatefulWidget {
   const ShiftsPage({super.key});
@@ -192,9 +195,15 @@ class _ShiftsPageState extends State<ShiftsPage> {
                         loading: loading,
                         mutating: mutating,
                         onRefresh: () => shiftCtrl.loadShifts(),
-                        canOpen: auth.can('shifts.open'),
-                        canClose: auth.can('shifts.close'),
+                        canOpen: shiftCtrl.canOpenShift,
+                        canClose: shiftCtrl.canCloseShift,
                         onOpen: _openShiftDialog,
+                        onDrawerDetails: active != null
+                            ? () => showDialog(
+                          context: context,
+                          builder: (_) => _CashDrawerDialog(shift: active),
+                        )
+                            : null,
                         onClose: active != null ? () => _closeMyShiftDialog(active) : null,
                       ),
                       const SizedBox(height: 12),
@@ -208,6 +217,12 @@ class _ShiftsPageState extends State<ShiftsPage> {
                       ] else ...[
                         _ShiftKpisRow(shift: active),
                         const SizedBox(height: 12),
+
+                        Expanded(
+                          child: ShiftSalesMiniChart(
+                            shift: active,
+                          ),
+                        ),
                       ],
                     ],
                   ),
@@ -263,18 +278,13 @@ class _ShiftsPageState extends State<ShiftsPage> {
                           statusFilter: statusFilter,
                           onPresetChanged: (p) async {
                             if (p == _RangePreset.custom) {
-                              final now = DateTime.now();
-                              final picked = await showDateRangePicker(
+                              final picked = await showDialog<DateTimeRange>(
                                 context: context,
-                                firstDate: DateTime(now.year - 3),
-                                lastDate: DateTime(now.year + 1),
-                                initialDateRange: customRange ??
-                                    DateTimeRange(
-                                      start: DateTime(now.year, now.month, now.day),
-                                      end: DateTime(now.year, now.month, now.day)
-                                          .add(const Duration(days: 1)),
-                                    ),
+                                builder: (_) => _SmallDateRangeDialog(
+                                  initialRange: customRange,
+                                ),
                               );
+
                               if (picked != null) {
                                 setState(() {
                                   customRange = picked;
@@ -467,6 +477,7 @@ class _DiffPill extends StatelessWidget {
     );
   }
 }
+
 class _ActiveShiftHeader extends StatelessWidget {
   const _ActiveShiftHeader({
     required this.active,
@@ -477,6 +488,7 @@ class _ActiveShiftHeader extends StatelessWidget {
     required this.canClose,
     required this.onOpen,
     required this.onClose,
+    required this.onDrawerDetails,
   });
 
   final Shift? active;
@@ -484,7 +496,7 @@ class _ActiveShiftHeader extends StatelessWidget {
   final bool mutating;
 
   final VoidCallback onRefresh;
-
+  final VoidCallback? onDrawerDetails;
   final bool canOpen;
   final bool canClose;
 
@@ -523,11 +535,6 @@ class _ActiveShiftHeader extends StatelessWidget {
               const Expanded(
                 child: Text('الوردية النشطة',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
-              ),
-              IconButton(
-                onPressed: loading ? null : onRefresh,
-                icon: const Icon(Icons.refresh_rounded),
-                tooltip: 'تحديث',
               ),
             ],
           ),
@@ -603,6 +610,17 @@ class _ActiveShiftHeader extends StatelessWidget {
               ),
             ],
           ),
+
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 42,
+            child: OutlinedButton.icon(
+              onPressed: isOpen ? onDrawerDetails : null,
+              icon: const Icon(Icons.point_of_sale_rounded),
+              label: const Text('تفاصيل الدرج'),
+            ),
+          ),
+
         ],
       ),
     );
@@ -617,16 +635,42 @@ class _ShiftKpisRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final drawerCash = shift.openingCash + shift.cashTotal;
+
     return Wrap(
       runSpacing: 10,
       spacing: 10,
       children: [
-        _KpiCard(label: 'الإجمالي', value: '${_money(shift.grandTotal)} د.ل', icon: Icons.summarize_rounded),
-        _KpiCard(label: 'كاش', value: '${_money(shift.cashTotal)} د.ل', icon: Icons.payments_rounded),
-        _KpiCard(label: 'بطاقة', value: '${_money(shift.cardTotal)} د.ل', icon: Icons.credit_card_rounded),
-        _KpiCard(label: 'تأمين', value: '${_money(shift.insuranceBilledTotal)} د.ل', icon: Icons.health_and_safety_rounded),
-        _KpiCard(label: 'فواتير', value: '${shift.salesCount}', icon: Icons.receipt_long_rounded),
-        _KpiCard(label: 'مرتجعات', value: '${shift.refundsCount}', icon: Icons.keyboard_return_rounded),
+        _KpiCard(
+          label: 'إجمالي المبيعات',
+          value: '${_money(shift.grandTotal)} د.ل',
+          icon: Icons.summarize_rounded,
+        ),
+        _KpiCard(
+          label: 'داخل الدرج',
+          value: '${_money(drawerCash)} د.ل',
+          icon: Icons.point_of_sale_rounded,
+        ),
+        _KpiCard(
+          label: 'في المصرف',
+          value: '${_money(shift.cardTotal)} د.ل',
+          icon: Icons.account_balance_rounded,
+        ),
+        _KpiCard(
+          label: 'على شركات التأمين',
+          value: '${_money(shift.insuranceBilledTotal)} د.ل',
+          icon: Icons.health_and_safety_rounded,
+        ),
+        _KpiCard(
+          label: '  فواتير مبيعات',
+          value: '${shift.salesCount}',
+          icon: Icons.receipt_long_rounded,
+        ),
+        _KpiCard(
+          label: 'فواتير مرتجعات ',
+          value: '${shift.refundsCount}',
+          icon: Icons.keyboard_return_rounded,
+        ),
       ],
     );
   }
@@ -676,7 +720,6 @@ class _KpiCard extends StatelessWidget {
     );
   }
 }
-
 
 enum _RangePreset { all, today, week, month, custom }
 
@@ -743,6 +786,484 @@ class _HistoryFiltersBar extends StatelessWidget {
   }
 }
 
+
+
+class ShiftSalesMiniChart extends StatefulWidget {
+  const ShiftSalesMiniChart({
+    super.key,
+    required this.shift,
+  });
+
+  final Shift shift;
+
+  @override
+  State<ShiftSalesMiniChart> createState() => _ShiftSalesMiniChartState();
+}
+
+class _ShiftSalesMiniChartState extends State<ShiftSalesMiniChart> {
+  final SalesController salesController = Get.find<SalesController>();
+
+  bool loading = true;
+  List<_HourPoint> points = [];
+  double maxAmount = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant ShiftSalesMiniChart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.shift.id != widget.shift.id ||
+        oldWidget.shift.salesCount != widget.shift.salesCount ||
+        oldWidget.shift.refundsCount != widget.shift.refundsCount ||
+        oldWidget.shift.grandTotal != widget.shift.grandTotal) {
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    if (mounted) {
+      setState(() => loading = true);
+    }
+
+    try {
+      final sales = await salesController.fetchSalesByShiftId(widget.shift.id);
+
+      final start = widget.shift.openedAt ?? DateTime.now();
+      final end = widget.shift.closedAt ?? DateTime.now();
+
+      final grouped = <int, _HourPoint>{};
+
+      DateTime cursor = DateTime(
+        start.year,
+        start.month,
+        start.day,
+        start.hour,
+      );
+
+      final lastHour = DateTime(
+        end.year,
+        end.month,
+        end.day,
+        end.hour,
+      );
+
+      while (!cursor.isAfter(lastHour)) {
+        grouped[cursor.hour] = _HourPoint(hour: cursor.hour);
+        cursor = cursor.add(const Duration(hours: 1));
+
+        if (grouped.length > 24) break;
+      }
+
+      for (final sale in sales) {
+        final hour = sale.saleDate.hour;
+
+        grouped.putIfAbsent(
+          hour,
+              () => _HourPoint(hour: hour),
+        );
+
+        if (sale.type == SaleType.refund) {
+          final refundValue = (sale.cashOut + sale.cardOut).abs();
+
+          grouped[hour]!.refundAmount += refundValue;
+          grouped[hour]!.refunds += 1;
+        } else {
+          final saleValue = sale.total + (sale.insuranceDiscount ?? 0);
+
+          grouped[hour]!.salesAmount += saleValue;
+          grouped[hour]!.sales += 1;
+        }
+      }
+
+      final result = grouped.values.toList()
+        ..sort((a, b) => a.hour.compareTo(b.hour));
+
+      final localMax = result.fold<double>(1, (max, p) {
+        final biggest = p.salesAmount > p.refundAmount
+            ? p.salesAmount
+            : p.refundAmount;
+
+        return biggest > max ? biggest : max;
+      });
+
+      if (!mounted) return;
+
+      setState(() {
+        points = result;
+        maxAmount = localMax;
+        loading = false;
+      });
+    } catch (e) {
+      debugPrint('❌ Shift chart load error: $e');
+
+      if (!mounted) return;
+      setState(() => loading = false);
+    }
+  }
+
+  String _formatHour(int h) {
+    final dt = DateTime(2025, 1, 1, h);
+    return DateFormat('hh a').format(dt);
+  }
+
+  String _money(num v) {
+    final value = v.abs();
+
+    if (value >= 1000) {
+      return '${(value / 1000).toStringAsFixed(1)}K';
+    }
+
+    return value.toStringAsFixed(0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(
+        minHeight: 190,
+      ),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: Colors.blue.withOpacity(.10),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(.03),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: loading
+          ? const Center(
+        child: CircularProgressIndicator(strokeWidth: 2),
+      )
+          : points.isEmpty
+          ? Center(
+        child: Text(
+          'لا توجد بيانات مبيعات لهذه الوردية',
+          style: TextStyle(
+            color: Colors.grey.shade600,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      )
+          : Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildHeader(),
+          const SizedBox(height: 14),
+          Expanded(
+            child: _buildChartArea(),
+          ),
+          const SizedBox(height: 10),
+          _buildLegend(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+
+    return Row(
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: Colors.blue.withOpacity(.10),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(
+            Icons.insights_rounded,
+            color: Color(0xFF1976D2),
+          ),
+        ),
+        const SizedBox(width: 10),
+        const Expanded(
+          child: Text(
+            'نشاط المبيعات خلال الوردية',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChartArea() {
+    const double groupWidth = 74;
+    final chartWidth = (points.length * groupWidth).clamp(520.0, double.infinity);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SizedBox(
+          width: chartWidth,
+          child: BarChart(
+            BarChartData(
+              minY: -maxAmount,
+              maxY: maxAmount,
+              alignment: BarChartAlignment.start,
+              groupsSpace: 22,
+
+              gridData: FlGridData(
+                show: true,
+                horizontalInterval: maxAmount / 4,
+                drawVerticalLine: false,
+                getDrawingHorizontalLine: (value) {
+                  return FlLine(
+                    color: value == 0
+                        ? Colors.grey.withOpacity(.28)
+                        : Colors.grey.withOpacity(.10),
+                    strokeWidth: value == 0 ? 1.4 : 1,
+                  );
+                },
+              ),
+
+              borderData: FlBorderData(show: false),
+
+              titlesData: FlTitlesData(
+                topTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                rightTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    reservedSize: 44,
+                    interval: maxAmount / 4,
+                    showTitles: true,
+                    getTitlesWidget: (value, meta) {
+                      if (value == 0) return const SizedBox();
+
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: Text(
+                          _money(value.abs()),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey.shade500,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    reservedSize: 0,
+                    showTitles: true,
+                    getTitlesWidget: (value, meta) {
+                      final index = value.toInt();
+
+                      if (index < 0 || index >= points.length) {
+                        return const SizedBox();
+                      }
+
+                      final p = points[index];
+
+                      return Transform.translate(
+                        offset: const Offset(0, -30), // يرفع النص على محور X
+                        child: Text(
+                          _formatHour(p.hour), // ساعات فقط
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey.shade700,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+              ),
+
+              extraLinesData: ExtraLinesData(
+                horizontalLines: [
+                  HorizontalLine(
+                    y: 0,
+                    color: Colors.grey.withOpacity(.28),
+                    strokeWidth: 1.4,
+                  ),
+                ],
+              ),
+
+              barTouchData: BarTouchData(
+                enabled: true,
+                touchTooltipData: BarTouchTooltipData(
+                  tooltipRoundedRadius: 14,
+                  tooltipPadding: const EdgeInsets.all(12),
+                  getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                    final p = points[group.x.toInt()];
+                    final isRefund = rod.toY < 0;
+                    final amount = isRefund ? p.refundAmount : p.salesAmount;
+                    final count = isRefund ? p.refunds : p.sales;
+
+                    return BarTooltipItem(
+                      '${_formatHour(p.hour)}\n'
+                          '${isRefund ? "مرتجعات" : "مبيعات"}\n'
+                          '${_money(amount)} د.ل\n'
+                          '$count فواتير',
+                      TextStyle(
+                        color: isRefund
+                            ? Colors.red.shade100
+                            : Colors.blue.shade100,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              barGroups: List.generate(points.length, (index) {
+                final p = points[index];
+
+                final hasSales = p.salesAmount > 0;
+                final hasRefunds = p.refundAmount > 0;
+
+                return BarChartGroupData(
+                  x: index,
+                  barsSpace: 7,
+                  barRods: [
+                    BarChartRodData(
+                      toY: hasSales ? p.salesAmount : 0.4,
+                      width: 18,
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(8),
+                        topRight: Radius.circular(8),
+                      ),
+                      gradient: hasSales
+                          ? LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.blue.shade300,
+                          Colors.blue.shade600,
+                        ],
+                      )
+                          : LinearGradient(
+                        colors: [
+                          Colors.blue.withOpacity(.06),
+                          Colors.blue.withOpacity(.02),
+                        ],
+                      ),
+                    ),
+                    BarChartRodData(
+                      toY: hasRefunds ? -p.refundAmount : -0.4,
+                      width: 18,
+                      borderRadius: const BorderRadius.only(
+                        bottomLeft: Radius.circular(8),
+                        bottomRight: Radius.circular(8),
+                      ),
+                      gradient: hasRefunds
+                          ? LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.red.shade300,
+                          Colors.red.shade500,
+                        ],
+                      )
+                          : LinearGradient(
+                        colors: [
+                          Colors.red.withOpacity(.05),
+                          Colors.red.withOpacity(.02),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  Widget _buildLegend() {
+    return Wrap(
+      spacing: 18,
+      runSpacing: 10,
+      children: [
+        _legend(
+          color: Colors.blue.shade500,
+          text: 'مبيعات',
+        ),
+        _legend(
+          color: Colors.red.shade400,
+          text: 'مرتجعات',
+        ),
+      ],
+    );
+  }
+
+  Widget _legend({
+    required Color color,
+    required String text,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 9,
+          height: 9,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(20),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey.shade700,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HourPoint {
+  final int hour;
+
+  double salesAmount;
+  double refundAmount;
+
+  int sales;
+  int refunds;
+
+  _HourPoint({
+    required this.hour,
+    this.salesAmount = 0,
+    this.refundAmount = 0,
+    this.sales = 0,
+    this.refunds = 0,
+  });
+}
+
 class _ShiftsDataTable extends StatelessWidget {
   const _ShiftsDataTable({
     required this.shifts,
@@ -805,7 +1326,7 @@ class _ShiftsDataTable extends StatelessWidget {
           const DataColumn(label: Text('الموظف')),
           const DataColumn(label: Text('الإجمالي')),
           if (!compact) const DataColumn(label: Text('كاش')),
-          if (!compact && !medium) const DataColumn(label: Text('بطاقة')),
+          if (!compact && !medium) const DataColumn(label: Text('معاملة مصرفية')),
           if (!compact && !medium) const DataColumn(label: Text('تأمين')),
           if (!compact) const DataColumn(label: Text('فواتير')),
           const DataColumn(label: Text('فرق الدرج')),
@@ -903,228 +1424,490 @@ class _ShiftsDataTable extends StatelessWidget {
 // ==============================
 class _ShiftDetailsDialog extends StatelessWidget {
   const _ShiftDetailsDialog({required this.shift});
+
   final Shift shift;
 
   String _money(num v) => NumberFormat('#,##0.00', 'en').format(v);
-  String _dt(DateTime? d) => d == null ? '--' : DateFormat('yyyy-MM-dd  HH:mm').format(d);
+
+  String _dt(DateTime? d) {
+    if (d == null) return '--';
+    return DateFormat('yyyy-MM-dd  HH:mm').format(d);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final expectedDrawer = (shift.expectedDrawerCash == 0)
-        ? (shift.openingCash + shift.cashTotal)
+    final expectedDrawer = shift.expectedDrawerCash == 0
+        ? shift.openingCash + shift.cashTotal
         : shift.expectedDrawerCash;
 
     final isOpen = shift.status == ShiftStatus.open;
-    final accent = Colors.blueAccent;
+    final drawerDiff = shift.drawerDiff;
 
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Container(
-        width: 560,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Colors.blue.shade50, Colors.white, Colors.blue.shade50],
-          ),
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(22),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: 820,
+          maxHeight: 760,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.blue.shade100),
-                color: Colors.white.withOpacity(.75),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.blue.shade50,
+                Colors.white,
+                Colors.blue.shade50,
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(.12),
+                blurRadius: 26,
+                offset: const Offset(0, 10),
               ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Colors.blue.shade200, Colors.blueAccent],
+            ],
+          ),
+          child: Column(
+            children: [
+              _dialogHeader(context, isOpen),
+              const SizedBox(height: 12),
+
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      _summaryGrid(expectedDrawer),
+                      const SizedBox(height: 12),
+
+                      SizedBox(
+                        height: 310,
+                        child: ShiftSalesMiniChart(shift: shift),
                       ),
-                    ),
-                    child: const Icon(Icons.summarize_rounded, color: Colors.white),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'تفاصيل الوردية',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 15,
-                            color: Colors.blueGrey.shade900,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'name: ${shift.openedByName}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 12,
-                            color: Colors.blueGrey.shade600,
-                          ),
-                        ),
+
+                      const SizedBox(height: 12),
+
+                      _drawerSection(
+                        expectedDrawer: expectedDrawer,
+                        drawerDiff: drawerDiff,
+                      ),
+
+                      if ((shift.notes ?? '').trim().isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        _notesSection(),
                       ],
-                    ),
-                  ),
-                  _StatusChip(isOpen: isOpen),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    splashRadius: 18,
-                    onPressed: () => Navigator.pop(context),
-                    icon: Icon(Icons.close_rounded, color: Colors.blueGrey.shade700),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            // Meta card
-            _CardSection(
-              title: 'البيانات',
-              icon: Icons.badge_outlined,
-              child: Column(
-                children: [
-                  _kv('الموظف', shift.openedByName.isEmpty ? '--' : shift.openedByName),
-                  const SizedBox(height: 8),
-                  _kv('فتح', _dt(shift.openedAt)),
-                  const SizedBox(height: 8),
-                  _kv('إغلاق', _dt(shift.closedAt)),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 10),
-
-            // Totals card
-            _CardSection(
-              title: 'تفاصيل',
-              icon: Icons.payments_outlined,
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(child: _pillStat('رصيد افتتاح', '${_money(shift.openingCash)} د.ل', icon: Icons.login_rounded)),
-                      const SizedBox(width: 8),
-                      Expanded(child: _pillStat('الإجمالي', '${_money(shift.grandTotal)} د.ل', icon: Icons.summarize_rounded, strong: true)),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(child: _pillStat('كاش', '${_money(shift.cashTotal)} د.ل', icon: Icons.payments_outlined)),
-                      const SizedBox(width: 8),
-                      Expanded(child: _pillStat('بطاقة', '${_money(shift.cardTotal)} د.ل', icon: Icons.credit_card_rounded)),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  _pillStat('تأمين (على الشركات)', '${_money(shift.insuranceBilledTotal)} د.ل', icon: Icons.verified_user_outlined),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 10),
-
-            // Counters + Drawer card
-            _CardSection(
-              title: 'الحركة والدرج',
-              icon: Icons.point_of_sale_rounded,
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(child: _counterTile('فواتير', '${shift.salesCount}', icon: Icons.receipt_long_rounded)),
-                      const SizedBox(width: 8),
-                      Expanded(child: _counterTile('مرتجعات', '${shift.refundsCount}', icon: Icons.assignment_return_rounded)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-
-                  _kv('المفروض داخل الدرج', '${_money(expectedDrawer)} د.ل'),
-                  const SizedBox(height: 8),
-                  _kv('الكاش المقفول', '${_money(shift.closingCash)} د.ل'),
-                  const SizedBox(height: 10),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'فرق الدرج',
-                          style: TextStyle(fontWeight: FontWeight.w900, color: Colors.blueGrey.shade800),
-                        ),
-                      ),
-                      _DiffPill(diff: shift.drawerDiff),
-                    ],
-                  ),
-
-                  if ((shift.drawerDiff).abs() > 0.01 && ((shift.notes ?? '').trim().isEmpty))
-                    Padding(
-                      padding: const EdgeInsets.only(top: 10),
-                      child: _softHint(
-                        icon: Icons.info_outline_rounded,
-                        text: 'فيه فرق مسجل، لكن بدون ملاحظة.',
-                        color: Colors.blue.shade700,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-
-            if ((shift.notes ?? '').trim().isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.blue.shade100),
-                  color: Colors.white.withOpacity(.82),
                 ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.note_alt_outlined, color: accent),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'ملاحظات: ${shift.notes}',
-                        style: TextStyle(fontWeight: FontWeight.w700, color: Colors.blueGrey.shade800),
-                      ),
+              ),
+
+              const SizedBox(height: 12),
+
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                  ],
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'تم',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
 
-            const SizedBox(height: 14),
-
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blueAccent,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(vertical: 12),
+  Widget _dialogHeader(BuildContext context, bool isOpen) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(.78),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.blue.shade100),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              gradient: LinearGradient(
+                colors: [
+                  Colors.blue.shade300,
+                  Colors.blueAccent,
+                ],
               ),
-              onPressed: () => Navigator.pop(context),
-              child: const Text('تم', style: TextStyle(fontWeight: FontWeight.w900)),
+            ),
+            child: const Icon(
+              Icons.summarize_rounded,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'تفاصيل الوردية وتحليل النشاط',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                    color: Colors.blueGrey.shade900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  shift.openedByName.isEmpty
+                      ? 'الموظف: --'
+                      : 'الموظف: ${shift.openedByName}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                    color: Colors.blueGrey.shade600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          _StatusChip(isOpen: isOpen),
+          const SizedBox(width: 8),
+
+          IconButton(
+            onPressed: () => Navigator.pop(context),
+            icon: Icon(
+              Icons.close_rounded,
+              color: Colors.blueGrey.shade700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryGrid(double expectedDrawer) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _infoTile(
+                title: 'فتح الوردية',
+                value: _dt(shift.openedAt),
+                icon: Icons.lock_open_rounded,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _infoTile(
+                title: 'إغلاق الوردية',
+                value: _dt(shift.closedAt),
+                icon: Icons.lock_rounded,
+              ),
             ),
           ],
         ),
+        const SizedBox(height: 10),
+
+        Row(
+          children: [
+            Expanded(
+              child: _infoTile(
+                title: 'إجمالي المبيعات',
+                value: '${_money(shift.grandTotal)} د.ل',
+                icon: Icons.summarize_rounded,
+                strong: true,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _infoTile(
+                title: 'داخل الدرج',
+                value: '${_money(expectedDrawer)} د.ل',
+                icon: Icons.point_of_sale_rounded,
+                strong: true,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        Row(
+          children: [
+            Expanded(
+              child: _infoTile(
+                title: 'كاش',
+                value: '${_money(shift.cashTotal)} د.ل',
+                icon: Icons.payments_outlined,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _infoTile(
+                title: 'معاملة مصرفية',
+                value: '${_money(shift.cardTotal)} د.ل',
+                icon: Icons.account_balance_rounded,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _infoTile(
+                title: 'على شركات التأمين',
+                value: '${_money(shift.insuranceBilledTotal)} د.ل',
+                icon: Icons.verified_user_outlined,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _drawerSection({
+    required double expectedDrawer,
+    required double drawerDiff,
+  }) {
+    return _sectionCard(
+      title: 'الحركة والدرج',
+      icon: Icons.point_of_sale_rounded,
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _counterTile(
+                  'فواتير',
+                  '${shift.salesCount}',
+                  Icons.receipt_long_rounded,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _counterTile(
+                  'مرتجعات',
+                  '${shift.refundsCount}',
+                  Icons.assignment_return_rounded,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          _kv('رصيد الافتتاح', '${_money(shift.openingCash)} د.ل'),
+          const SizedBox(height: 8),
+          _kv('المفروض داخل الدرج', '${_money(expectedDrawer)} د.ل'),
+          const SizedBox(height: 8),
+          _kv('الكاش المقفول', '${_money(shift.closingCash)} د.ل'),
+          const SizedBox(height: 12),
+
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'فرق الدرج',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: Colors.blueGrey.shade800,
+                  ),
+                ),
+              ),
+              _DiffPill(diff: drawerDiff),
+            ],
+          ),
+
+          if (drawerDiff.abs() > 0.01 &&
+              ((shift.notes ?? '').trim().isEmpty)) ...[
+            const SizedBox(height: 10),
+            _hint(
+              icon: Icons.info_outline_rounded,
+              text: 'يوجد فرق في الدرج بدون ملاحظة مرفقة.',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _notesSection() {
+    return _sectionCard(
+      title: 'ملاحظات الإغلاق',
+      icon: Icons.note_alt_outlined,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.notes_rounded, color: Colors.blue.shade700),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              shift.notes ?? '',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Colors.blueGrey.shade800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionCard({
+    required String title,
+    required IconData icon,
+    required Widget child,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(.84),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.blue.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 19, color: Colors.blueAccent),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: Colors.blueGrey.shade900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _infoTile({
+    required String title,
+    required String value,
+    required IconData icon,
+    bool strong = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(.86),
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: Colors.blue.shade100),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.withOpacity(.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(.10),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: Colors.blueAccent, size: 18),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: Colors.blueGrey.shade600,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: strong ? 14 : 13,
+                    color: strong
+                        ? Colors.blue.shade800
+                        : Colors.blueGrey.shade900,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _counterTile(String label, String value, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          colors: [
+            Colors.white.withOpacity(.95),
+            Colors.blue.shade50,
+          ],
+        ),
+        border: Border.all(color: Colors.blue.shade100),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.blueAccent, size: 20),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Colors.blueGrey.shade600,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              color: Colors.blueGrey.shade900,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1135,106 +1918,45 @@ class _ShiftDetailsDialog extends StatelessWidget {
         Expanded(
           child: Text(
             k,
-            style: TextStyle(fontWeight: FontWeight.w800, color: Colors.blueGrey.shade800),
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Colors.blueGrey.shade800,
+            ),
           ),
         ),
         Text(
           v,
-          style: TextStyle(fontWeight: FontWeight.w800, color: Colors.blueGrey.shade900),
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            color: Colors.blueGrey.shade900,
+          ),
         ),
       ],
     );
   }
 
-  Widget _pillStat(String label, String value, {required IconData icon, bool strong = false}) {
+  Widget _hint({
+    required IconData icon,
+    required String text,
+  }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.blue.shade100),
-        color: Colors.white.withOpacity(.85),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: Colors.blueAccent),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.blueGrey.shade600)),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: strong ? FontWeight.w900 : FontWeight.w800,
-                    color: Colors.blueGrey.shade900,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _counterTile(String label, String value, {required IconData icon}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Colors.white.withOpacity(.9), Colors.blue.shade50],
-        ),
-        border: Border.all(color: Colors.blue.shade100),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: Colors.blue.shade100,
-            ),
-            child: Icon(icon, color: Colors.blueAccent),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.blueGrey.shade600)),
-                const SizedBox(height: 2),
-                Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.blueGrey.shade900)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _softHint({required IconData icon, required String text, required Color color}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
         borderRadius: BorderRadius.circular(12),
-        color: Colors.blue.shade50,
-        border: Border.all(color: Colors.blue.shade100),
+        border: Border.all(color: Colors.orange.shade100),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: color),
+          Icon(icon, color: Colors.orange.shade800, size: 18),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               text,
-              style: TextStyle(fontWeight: FontWeight.w700, color: Colors.blueGrey.shade800),
+              style: TextStyle(
+                color: Colors.orange.shade900,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -1433,7 +2155,83 @@ class _CloseShiftDialog extends StatefulWidget {
   @override
   State<_CloseShiftDialog> createState() => _CloseShiftDialogState();
 }
+class _CashDrawerDialog extends StatelessWidget {
+  const _CashDrawerDialog({required this.shift});
 
+  final Shift shift;
+
+  String _money(num v) => NumberFormat('#,##0.00', 'en').format(v);
+
+  @override
+  Widget build(BuildContext context) {
+    final expected = shift.openingCash + shift.cashTotal;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 420,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            colors: [Colors.blue.shade50, Colors.white, Colors.blue.shade50],
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.point_of_sale_rounded, color: Colors.blue),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'تفاصيل درج الموظف',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _row('الموظف', shift.openedByName),
+            _row('رصيد الافتتاح', '${_money(shift.openingCash)} د.ل'),
+            _row('مبيعات كاش', '${_money(shift.cashTotal)} د.ل'),
+            _row('مبيعات معاملة مصرفية', '${_money(shift.cardTotal)} د.ل'),
+            _row('تأمين', '${_money(shift.insuranceBilledTotal)} د.ل'),
+            const Divider(height: 24),
+            _row('المفروض داخل الدرج', '${_money(expected)} د.ل', strong: true),
+            _row('عدد الفواتير', '${shift.salesCount}'),
+            _row('المرتجعات', '${shift.refundsCount}'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _row(String label, String value, {bool strong = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
+              color: strong ? Colors.blue.shade800 : Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 class _CloseShiftDialogState extends State<_CloseShiftDialog> {
   final cashCtrl = TextEditingController(text: '0');
   final noteCtrl = TextEditingController();
@@ -1616,6 +2414,210 @@ class _SegItem<T> {
   final T value;
   final String label;
   const _SegItem(this.value, this.label);
+}
+
+class _SmallDateRangeDialog extends StatefulWidget {
+  const _SmallDateRangeDialog({this.initialRange});
+
+  final DateTimeRange? initialRange;
+
+  @override
+  State<_SmallDateRangeDialog> createState() => _SmallDateRangeDialogState();
+}
+
+class _SmallDateRangeDialogState extends State<_SmallDateRangeDialog> {
+  late DateTime _start;
+  late DateTime _end;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final now = DateTime.now();
+
+    _start = widget.initialRange?.start ??
+        DateTime(now.year, now.month, now.day);
+
+    _end = widget.initialRange?.end ??
+        DateTime(now.year, now.month, now.day).add(
+          const Duration(days: 1),
+        );
+  }
+
+  Future<void> _pickStart() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _start,
+      firstDate: DateTime(DateTime.now().year - 3),
+      lastDate: DateTime(DateTime.now().year + 1),
+    );
+
+    if (picked == null) return;
+
+    setState(() {
+      _start = DateTime(picked.year, picked.month, picked.day);
+
+      if (!_end.isAfter(_start)) {
+        _end = _start.add(const Duration(days: 1));
+      }
+    });
+  }
+
+  Future<void> _pickEnd() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _end.subtract(const Duration(days: 1)),
+      firstDate: _start,
+      lastDate: DateTime(DateTime.now().year + 1),
+    );
+
+    if (picked == null) return;
+
+    setState(() {
+      _end = DateTime(picked.year, picked.month, picked.day)
+          .add(const Duration(days: 1));
+    });
+  }
+
+  String _fmt(DateTime d) {
+    return DateFormat('yyyy-MM-dd').format(d);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayEnd = _end.subtract(const Duration(days: 1));
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Container(
+        width: 380,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(
+            colors: [
+              Colors.blue.shade50,
+              Colors.white,
+              Colors.blue.shade50,
+            ],
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.date_range_rounded, color: Colors.blue.shade700),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'تحديد الفترة',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            _dateTile(
+              title: 'من تاريخ',
+              value: _fmt(_start),
+              icon: Icons.calendar_today_rounded,
+              onTap: _pickStart,
+            ),
+
+            const SizedBox(height: 10),
+
+            _dateTile(
+              title: 'إلى تاريخ',
+              value: _fmt(displayEnd),
+              icon: Icons.event_available_rounded,
+              onTap: _pickEnd,
+            ),
+
+            const SizedBox(height: 18),
+
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('إلغاء'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(
+                        context,
+                        DateTimeRange(
+                          start: _start,
+                          end: _end,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.check_rounded),
+                    label: const Text('تطبيق'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _dateTile({
+    required String title,
+    required String value,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(13),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(.88),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.blue.shade100),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.blue.shade700, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  color: Colors.grey.shade700,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Text(
+              value,
+              style: TextStyle(
+                color: Colors.blue.shade900,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _Segmented<T> extends StatelessWidget {

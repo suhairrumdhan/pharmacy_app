@@ -4,12 +4,12 @@ import 'package:get/get.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
 import '../../controllers/insurance_company_controller.dart';
 import '../../models/insurance_company_model.dart';
+import '../controllers/sales_controller.dart';
 import 'add_edit_insurance_dialog.dart';
 import 'insurance_company_details_dialog.dart';
 
 class InsuranceCompaniesPage extends StatelessWidget {
   final InsuranceCompanyController controller = Get.put(InsuranceCompanyController());
-
   InsuranceCompaniesPage({super.key});
 
   @override
@@ -752,18 +752,22 @@ class InsuranceCompaniesPage extends StatelessWidget {
     }
   }
 
-  void _showCompanyDetails(InsuranceCompany company) {
+  Future<void> _showCompanyDetails(InsuranceCompany company) async {
+    try {
+      final salesCtrl = Get.find<SalesController>();
+      await salesCtrl.loadHistoryAllForOwner();
+    } catch (_) {}
+
     Get.dialog(
       Dialog(
         insetPadding: const EdgeInsets.all(20),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 800, maxHeight: 600),
+          constraints: const BoxConstraints(maxWidth: 980, maxHeight: 900),
           child: InsuranceCompanyDetailsDialog(company: company),
         ),
       ),
     );
   }
-
   void _showDeleteDialog(InsuranceCompany company) {
     Get.dialog(
       AlertDialog(

@@ -20,6 +20,20 @@ class Employee {
   final String? idCardImageUrl;
   final String? certificateImageUrl;
 
+  // =========================
+  // Financial / HR fields
+  // =========================
+  final double? baseSalary;
+  final String? salaryType; // monthly / daily / hourly
+  final double? hourlyRate;
+  final double? salesCommissionPercent;
+  final double? advancesBalance;
+  final double? deductionsBalance;
+  final double? totalPaidSalary;
+  final bool affectsFinance;
+  final String? nationalId;
+  final String? bankAccount;
+
   Employee({
     required this.id,
     required this.name,
@@ -39,6 +53,16 @@ class Employee {
     this.certificateImageUrl,
     Map<String, bool>? permissionOverrides,
     bool? hasCustomPermissions,
+    this.baseSalary,
+    this.salaryType,
+    this.hourlyRate,
+    this.salesCommissionPercent,
+    this.advancesBalance,
+    this.deductionsBalance,
+    this.totalPaidSalary,
+    this.affectsFinance = true,
+    this.nationalId,
+    this.bankAccount,
   })  : permissionOverrides = permissionOverrides ?? <String, bool>{},
         hasCustomPermissions = hasCustomPermissions ?? false;
 
@@ -74,6 +98,19 @@ class Employee {
         hasCustomPermissions: data['hasCustomPermissions'] == true,
         idCardImageUrl: idCardUrl,
         certificateImageUrl: certificateUrl,
+
+        baseSalary: _parseOptionalDouble(data['baseSalary']),
+        salaryType: data['salaryType']?.toString(),
+        hourlyRate: _parseOptionalDouble(data['hourlyRate']),
+        salesCommissionPercent:
+        _parseOptionalDouble(data['salesCommissionPercent']),
+        advancesBalance: _parseOptionalDouble(data['advancesBalance']),
+        deductionsBalance: _parseOptionalDouble(data['deductionsBalance']),
+        totalPaidSalary: _parseOptionalDouble(data['totalPaidSalary']),
+        affectsFinance:
+        data['affectsFinance'] == null ? true : data['affectsFinance'] == true,
+        nationalId: data['nationalId']?.toString(),
+        bankAccount: data['bankAccount']?.toString(),
       );
     } catch (_) {
       final parsedRoleId =
@@ -103,6 +140,19 @@ class Employee {
         hasCustomPermissions: data['hasCustomPermissions'] == true,
         idCardImageUrl: data['idCardImageUrl']?.toString(),
         certificateImageUrl: data['certificateImageUrl']?.toString(),
+
+        baseSalary: _parseOptionalDouble(data['baseSalary']),
+        salaryType: data['salaryType']?.toString(),
+        hourlyRate: _parseOptionalDouble(data['hourlyRate']),
+        salesCommissionPercent:
+        _parseOptionalDouble(data['salesCommissionPercent']),
+        advancesBalance: _parseOptionalDouble(data['advancesBalance']),
+        deductionsBalance: _parseOptionalDouble(data['deductionsBalance']),
+        totalPaidSalary: _parseOptionalDouble(data['totalPaidSalary']),
+        affectsFinance:
+        data['affectsFinance'] == null ? true : data['affectsFinance'] == true,
+        nationalId: data['nationalId']?.toString(),
+        bankAccount: data['bankAccount']?.toString(),
       );
     }
   }
@@ -110,6 +160,12 @@ class Employee {
   static String _parseString(dynamic value, {String defaultValue = ''}) {
     if (value == null) return defaultValue;
     return value.toString();
+  }
+
+  static double? _parseOptionalDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString());
   }
 
   static DateTime _parseDateTime(dynamic value) {
@@ -202,6 +258,18 @@ class Employee {
       'hasCustomPermissions': hasCustomPermissions,
       'createdAt': Timestamp.fromDate(createdAt),
       'createdBy': createdBy,
+
+      // Financial / HR fields
+      'baseSalary': baseSalary,
+      'salaryType': salaryType,
+      'hourlyRate': hourlyRate,
+      'salesCommissionPercent': salesCommissionPercent,
+      'advancesBalance': advancesBalance,
+      'deductionsBalance': deductionsBalance,
+      'totalPaidSalary': totalPaidSalary,
+      'affectsFinance': affectsFinance,
+      'nationalId': nationalId,
+      'bankAccount': bankAccount,
     };
 
     if (updatedAt != null) {
@@ -242,6 +310,16 @@ class Employee {
     String? password,
     String? idCardImageUrl,
     String? certificateImageUrl,
+    double? baseSalary,
+    String? salaryType,
+    double? hourlyRate,
+    double? salesCommissionPercent,
+    double? advancesBalance,
+    double? deductionsBalance,
+    double? totalPaidSalary,
+    bool? affectsFinance,
+    String? nationalId,
+    String? bankAccount,
   }) {
     return Employee(
       id: id ?? this.id,
@@ -262,8 +340,36 @@ class Employee {
       password: password ?? this.password,
       idCardImageUrl: idCardImageUrl ?? this.idCardImageUrl,
       certificateImageUrl: certificateImageUrl ?? this.certificateImageUrl,
+      baseSalary: baseSalary ?? this.baseSalary,
+      salaryType: salaryType ?? this.salaryType,
+      hourlyRate: hourlyRate ?? this.hourlyRate,
+      salesCommissionPercent:
+      salesCommissionPercent ?? this.salesCommissionPercent,
+      advancesBalance: advancesBalance ?? this.advancesBalance,
+      deductionsBalance: deductionsBalance ?? this.deductionsBalance,
+      totalPaidSalary: totalPaidSalary ?? this.totalPaidSalary,
+      affectsFinance: affectsFinance ?? this.affectsFinance,
+      nationalId: nationalId ?? this.nationalId,
+      bankAccount: bankAccount ?? this.bankAccount,
     );
   }
+
+  double get effectiveSalary => baseSalary ?? 0.0;
+  double get effectiveAdvances => advancesBalance ?? 0.0;
+  double get effectiveDeductions => deductionsBalance ?? 0.0;
+
+  double get netSalaryEstimate {
+    return (effectiveSalary - effectiveDeductions)
+        .clamp(0.0, double.infinity);
+  }
+
+  bool get hasFinancialProfile => affectsFinance && effectiveSalary > 0;
+
+  bool get isHourlyEmployee =>
+      (salaryType ?? '').toLowerCase().trim() == 'hourly';
+
+  bool get isMonthlyEmployee =>
+      (salaryType ?? '').toLowerCase().trim() == 'monthly';
 
   @override
   String toString() {
@@ -274,12 +380,15 @@ class Employee {
         'roleId: $roleId, '
         'roleDisplay: $roleDisplay, '
         'isActive: $isActive, '
+        'baseSalary: $baseSalary, '
+        'salaryType: $salaryType, '
         'idCardImageUrl: $idCardImageUrl, '
         'certificateImageUrl: $certificateImageUrl'
         ')';
   }
 
   bool get hasIdCard => idCardImageUrl != null && idCardImageUrl!.isNotEmpty;
+
   bool get hasCertificate =>
       certificateImageUrl != null && certificateImageUrl!.isNotEmpty;
 
